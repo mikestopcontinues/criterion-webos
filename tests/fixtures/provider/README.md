@@ -1,6 +1,6 @@
 # Public Provider Fixtures
 
-These are bounded extracts from unauthenticated Criterion Channel JSON responses. [Provenance](provenance.json) owns exact URLs, response dates, download completion timestamps, raw-response SHA-256 hashes, extraction rules and admitted-file SHA-256 hashes. [The provider contract](../../../docs/provider-contract.md) explains the observed schema and its limits.
+These are bounded extracts from unauthenticated Criterion Channel JSON responses. [Provenance](provenance.json) owns exact URLs, response dates, download completion timestamps, raw-response SHA-256 hashes, extraction rules and admitted-file SHA-256 hashes. It also records the public homepage's portrait-image label/aspect metadata and one direct image HEAD; no image pixels are included. [The provider contract](../../../docs/provider-contract.md) explains the observed schema and its limits.
 
 | File | Coverage |
 | --- | --- |

@@ -204,5 +204,27 @@
       "bytes": 5713,
       "scope": "Public static source inspected as data; never executed."
     }
+  ],
+  "image_checks": [
+    {
+      "homepage_source_url": "https://www.criterionchannel.com",
+      "homepage_sha256": "1c07bddcd68188b36d0f10d1a03c220784faf2dc112900a7e9160c7f44b3c628",
+      "homepage_download_completed_at_utc": "2026-10-09T12:28:03.973Z",
+      "block_id": 550,
+      "block_title": "Fresh from Theaters",
+      "image_label": "default_2x3",
+      "source_aspect_ratio_percent": 150,
+      "media_id": "ie7lqmcm",
+      "source_rendered_url": "https://cdn.jwplayer.com/v2/media/ie7lqmcm/images/default_2x3.webp?fallback=default_16x9&width=1024",
+      "verified_head_url": "https://img.jwplayer.com/v1/media/ie7lqmcm/images/default_2x3.webp?width=480",
+      "verified_head_method": "HEAD",
+      "verified_head_completed_at_utc": "2026-10-09T12:46:31.005Z",
+      "verified_head_response_date": "Fri, 09 Oct 2026 12:46:30 GMT",
+      "verified_head_status": 200,
+      "verified_head_content_type": "image/webp",
+      "verified_head_content_length": 82236,
+      "verified_head_headers_sha256": "8d43a589b61b454be52d7ad93321b0edebec7ec2694f2a873af0e4dc10d3a7f9",
+      "limits": "No fallback requested in verified HEAD. Image pixels and dimensions were not downloaded or inspected. This is asset-family availability, not universal availability or official TV label selection."
+    }
   ]
 }
