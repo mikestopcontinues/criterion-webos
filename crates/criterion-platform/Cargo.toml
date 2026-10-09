@@ -9,6 +9,7 @@ description = "Owned stock SDL2 window and input for Criterion Unofficial"
 [features]
 default = []
 sdl = []
-webos = ["sdl"]
+webos-runtime = []
+webos = ["sdl", "webos-runtime"]
 
 [dependencies]

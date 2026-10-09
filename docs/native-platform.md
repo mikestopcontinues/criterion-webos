@@ -4,7 +4,7 @@
 
 ## Target and ABI
 
-The crate's `sdl` feature links SDL2 for the pinned Linux host environment. Its `webos` feature includes `sdl` and explicitly selects the ARM32 little-endian LG fork. Architecture alone cannot select an SDL library ABI. The default build contains pure event and geometry behavior and needs no SDL or GPU.
+The crate's `sdl` feature links SDL2 for the pinned Linux host environment. Its `webos` feature includes `sdl` and `webos-runtime` and explicitly selects the ARM32 little-endian LG fork. `webos-runtime` admits the native auxiliary-vector implementation without SDL, as required by the packaged pipe broker. Architecture alone cannot select an SDL library ABI. The default build contains pure event and geometry behavior and needs no SDL or GPU.
 
 Stock SDL2 and the LG fork differ in keyboard and inline text layout. The adapter preserves raw scancode/keycode values, including private Back/media scancodes whose keycode can be zero. The event buffer is aligned and bounded for one `SDL_PollEvent` call; it is not an array of SDL event unions. [Crate attribution](../crates/criterion-platform/NOTICE.md) owns exact pinned upstream reuse and licensing, and [test provenance](../crates/criterion-platform/tests/README.md) identifies the independent ABI fixtures.
 
@@ -26,7 +26,7 @@ Literal fixtures establish decoder and geometry behavior. Isolated CPU startup t
 
 ## Auxiliary vector
 
-The current ARM32 little-endian `webos` target supplies an original GPL Rust `getauxval(unsigned long)` implementation. It reads only fixed `/proc/self/auxv` through Linux kernel syscalls and retains one immutable bounded result, including a failed read. It allocates no heap storage and delegates no symbol. The SDK compatibility archive is excluded from linking; `libdl` remains required by Rust thread creation. [Development tooling](development.md) owns the complete cross-link and ELF/device gate.
+The current ARM32 little-endian `webos-runtime` target supplies an original GPL Rust `getauxval(unsigned long)` implementation. It reads only fixed `/proc/self/auxv` through Linux kernel syscalls and retains one immutable bounded result, including a failed read. It allocates no heap storage and delegates no symbol. The safe `auxv::warm_auxiliary_vector()` interface warms this same cache before SDL or worker startup in the application, native caller and broker. The broker retains its unsafe-code prohibition and adds no SDL dependency. The SDK compatibility archive is excluded from linking; `libdl` remains required by Rust thread creation. [Development tooling](development.md) owns the complete cross-link and ELF/device gate.
 
 The [GNU/Linux function contract](https://man7.org/linux/man-pages/man3/getauxval.3.html) returns unsigned values, including a present zero. Missing or unavailable entries return zero with thread-local `ENOENT`; successful lookup preserves the incoming errno. The [proc format](https://man7.org/linux/man-pages/man5/proc_pid_auxv.5.html) uses native unsigned-long pairs ending in two zeros. This adapter admits only the current target's little-endian 32-bit encoding. Its conservative policy rejects duplicate types, nonzero `AT_NULL` values, missing/truncated terminators, trailing bytes and oversized vectors; duplicate refusal is an adapter policy, not a general ELF prohibition.
 

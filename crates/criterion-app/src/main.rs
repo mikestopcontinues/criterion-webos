@@ -35,15 +35,14 @@ fn prepare_process() {
     unsafe {
         std::env::set_var("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true");
     }
-    #[cfg(all(feature = "webos", target_arch = "arm", target_pointer_width = "32"))]
-    {
-        unsafe extern "C" {
-            fn getauxval(kind: std::os::raw::c_ulong) -> std::os::raw::c_ulong;
-        }
-        // SAFETY: criterion-platform supplies the ARM32 unsigned ABI and bounded
-        // one-time cache. Warm it before SDL or worker libraries initialize.
-        let _ = unsafe { getauxval(6) };
-    }
+    #[cfg(all(
+        feature = "webos",
+        target_os = "linux",
+        target_arch = "arm",
+        target_pointer_width = "32",
+        target_endian = "little"
+    ))]
+    criterion_platform::auxv::warm_auxiliary_vector();
 }
 
 fn run() -> Result<(), &'static str> {

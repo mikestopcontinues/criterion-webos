@@ -124,8 +124,20 @@ fn next(
     Err(Failure::Limit)
 }
 
+/// Warm the native immutable auxiliary-vector cache before starting workers or SDL.
 #[cfg(all(
-    feature = "webos",
+    feature = "webos-runtime",
+    target_os = "linux",
+    target_arch = "arm",
+    target_pointer_width = "32",
+    target_endian = "little"
+))]
+pub fn warm_auxiliary_vector() {
+    let _ = native::getauxval(6);
+}
+
+#[cfg(all(
+    feature = "webos-runtime",
     target_os = "linux",
     target_arch = "arm",
     target_pointer_width = "32",

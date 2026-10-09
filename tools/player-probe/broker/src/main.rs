@@ -159,6 +159,14 @@ fn run() -> i32 {
 }
 
 fn main() {
+    #[cfg(all(
+        feature = "webos",
+        target_os = "linux",
+        target_arch = "arm",
+        target_pointer_width = "32",
+        target_endian = "little"
+    ))]
+    criterion_platform::auxv::warm_auxiliary_vector();
     // A timed-out reader/writer must not keep this finite process alive.
     std::process::exit(run());
 }

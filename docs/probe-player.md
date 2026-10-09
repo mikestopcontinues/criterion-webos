@@ -20,7 +20,7 @@ The bridge admits only matching PID and sequential acknowledgments, startup/ping
 
 ## Local build and verification
 
-Run all compilers and tests in Docker from the actual worktree. Root owns broker admission to the shared Cargo workspace and lock. Before that admission, the authorized ignored standalone harness may reference the canonical `broker/src/main.rs`, with no dependencies and the root release profile.
+Run all compilers and tests in Docker from the actual worktree. The broker's default host build remains dependency-free and permits standalone `rustc` checks. Its native `webos` feature selects the platform's auxiliary-vector runtime without SDL; [native platform](native-platform.md#auxiliary-vector) owns this shared runtime implementation.
 
 ```sh
 docker build -t criterion-player-probe-tools:20261009 tools/player-probe
@@ -38,7 +38,7 @@ Tests use actual CPU subprocesses for pipe validation, EOF, lease/absolute expir
 After root workspace admission, build the target with the canonical SDK and rebuild `std`; [development tooling](development.md) owns the target, compiler, SDK and link configuration:
 
 ```sh
-./dev native cargo build -p criterion-broker-probe --release --locked \
+./dev native cargo build -p criterion-broker-probe --features webos --release --locked \
   --target arm-unknown-linux-gnueabi -Z build-std=std,panic_abort
 ./dev native run cp /target/arm-unknown-linux-gnueabi/release/criterion-broker-probe \
   .local/player-probe/criterion-broker-probe-arm

@@ -49,10 +49,10 @@ jobs:
         run: ./dev native-image
       - name: Cross-link platform test executables
         run: ./dev native cargo test -p criterion-platform --target arm-unknown-linux-gnueabi -Z build-std=std,panic_abort,panic_unwind --features webos --no-run --locked
-      - name: Cross-link the complete native application and packaged broker
+      - name: Cross-link the native application, packaged broker and native caller
         run: >-
           ./dev native cargo build -p criterion-app -p criterion-broker-probe -p criterion-native-caller-probe
-          --features criterion-app/webos,criterion-native-caller-probe/webos --target arm-unknown-linux-gnueabi
+          --features criterion-app/webos,criterion-broker-probe/webos,criterion-native-caller-probe/webos --target arm-unknown-linux-gnueabi
           -Z build-std=std,panic_abort -Z build-std-features=compiler-builtins-mem
           --release --locked
   probe:

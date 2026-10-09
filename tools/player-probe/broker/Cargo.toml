@@ -3,3 +3,10 @@ name = "criterion-broker-probe"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+
+[features]
+default = []
+webos = ["dep:criterion-platform", "criterion-platform/webos-runtime"]
+
+[dependencies]
+criterion-platform = { path = "../../../crates/criterion-platform", optional = true }

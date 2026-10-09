@@ -17,11 +17,7 @@ fn main() {
     unsafe {
         std::env::set_var("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true");
     }
-    unsafe extern "C" {
-        fn getauxval(kind: std::ffi::c_ulong) -> std::ffi::c_ulong;
-    }
-    // Warm criterion-platform's bounded one-time cache before native libraries create threads.
-    let _ = unsafe { getauxval(6) };
+    criterion_platform::auxv::warm_auxiliary_vector();
     if !native::run() {
         std::process::exit(1);
     }
