@@ -345,6 +345,9 @@ impl<
 #[path = "account_tests.rs"]
 mod account_tests;
 
+#[cfg(all(test, target_os = "linux"))]
+mod subscriber_admission_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
