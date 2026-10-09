@@ -26,14 +26,19 @@ pub(crate) struct Application<
     accounts: Accounts<A, T, C>,
     account_epoch: Option<u64>,
     account_signed_in: bool,
-    shelf_pending: bool,
-    shelf_generation: Option<u64>,
+    shelf_pending: Option<crate::my_list::Read>,
+    shelf_generation: Option<ShelfRead>,
     artwork: Artwork,
     input: InputAdapter,
     output: Option<egui::FullOutput>,
     exiting: bool,
     queued_input: bool,
     active: bool,
+}
+struct ShelfRead {
+    read: crate::my_list::Read,
+    epoch: u64,
+    generation: u64,
 }
 impl<P, T: Transport, C: MonotonicClock, A: criterion_account::Transport> Drop
     for Application<P, T, C, A>
@@ -81,7 +86,7 @@ impl<
             accounts,
             account_epoch: Some(0),
             account_signed_in: false,
-            shelf_pending: false,
+            shelf_pending: None,
             shelf_generation: None,
             artwork,
             input: InputAdapter::new(surface),
@@ -182,9 +187,9 @@ impl<
                 if self.authentication.signed_in() {
                     self.sync_account_session();
                     if let Some(epoch) = self.account_epoch
-                        && self.controller.begin_shelf(epoch)
+                        && let Some(read) = self.controller.begin_shelf(epoch)
                     {
-                        self.shelf_pending = true;
+                        self.stage_shelf(read);
                     }
                 } else {
                     for command in self.ui.begin_authentication() {
@@ -192,6 +197,7 @@ impl<
                     }
                 }
             }
+            Effect::AccountRead(read) => self.stage_shelf(read),
             Effect::Exit => self.exiting = true,
             Effect::Authenticate | Effect::RetryAuthentication => {
                 if !self.authentication.signed_in() {
@@ -220,12 +226,7 @@ impl<
             }
             Effect::VoiceSearch => self.controller.view.set_status(LoadState::Error),
         }
-        if !self.controller.is_shelf() {
-            self.shelf_pending = false;
-            if self.shelf_generation.take().is_some() {
-                self.accounts.background();
-            }
-        }
+        self.retire_departed_shelf();
         if let Some(search) = retained_search {
             // A fresh rail visit keeps the visible query/group. Only Navigate
             // pushes history; replay its typed request without another snapshot.
@@ -239,56 +240,111 @@ impl<
         }
         self.authentication.poll(runtime, active);
         self.sync_account_session();
+        self.retire_departed_shelf();
+        if active && self.controller.shelf_expired() {
+            let read = self
+                .shelf_pending
+                .as_ref()
+                .or_else(|| self.shelf_generation.as_ref().map(|active| &active.read))
+                .cloned();
+            if let (Some(epoch), Some(read)) = (self.account_epoch, read) {
+                self.controller
+                    .fail_shelf(epoch, &read, criterion_account::Error::Deadline);
+                self.shelf_pending = None;
+                self.shelf_generation = None;
+                self.accounts.background();
+            }
+        }
         if active
-            && self.shelf_pending
-            && self.controller.is_shelf()
             && self.authentication.access_ready()
             && let Some(epoch) = self.account_epoch
+            && let Some(read) = self.shelf_pending.take()
+            && self.controller.shelf_owns(epoch, &read)
         {
-            self.shelf_pending = false;
-            match self.accounts.request_shelf(
-                runtime.handle(),
-                epoch,
-                criterion_account::WatchListRequest::default(),
-            ) {
-                Ok(generation) => self.shelf_generation = Some(generation),
-                Err(_) => self.controller.view.set_status(LoadState::Error),
+            match self
+                .accounts
+                .request_shelf(runtime.handle(), epoch, read.request.clone())
+            {
+                Ok(generation) => {
+                    self.shelf_generation = Some(ShelfRead {
+                        read,
+                        epoch,
+                        generation,
+                    })
+                }
+                Err(error) => self.controller.fail_shelf(epoch, &read, error),
             }
         }
         if let Some(result) =
             self.accounts
                 .poll(runtime, active, self.account_epoch.unwrap_or(u64::MAX))
         {
-            let generation = self.shelf_generation.take();
-            if active
-                && self.controller.is_shelf()
-                && self.authentication.signed_in()
-                && generation.is_some()
-                && matches!(
-                    result,
-                    Err(criterion_account::Error::Stale | criterion_account::Error::Session(_))
-                )
+            let Some(issued) = self.shelf_generation.take() else {
+                return;
+            };
+            if !active
+                || self.account_epoch != Some(issued.epoch)
+                || !self.controller.shelf_owns(issued.epoch, &issued.read)
             {
-                // Credential expiry/rotation retires a read. A fresh foreground
-                // intent waits for authentication; no issued mutation is replayed.
-                self.shelf_pending = true;
-            } else if active && self.controller.is_shelf() && self.authentication.access_ready() {
-                match result {
-                    Ok(loaded)
-                        if generation == Some(loaded.generation())
-                            && self.account_epoch == Some(loaded.session_generation()) =>
-                    {
-                        self.controller.publish_shelf(
-                            loaded.session_generation(),
-                            crate::presentation::Presentation::my_list(loaded.watch_list),
-                        );
-                    }
-                    Err(
-                        criterion_account::Error::Unavailable | criterion_account::Error::Deadline,
-                    ) => self.controller.view.set_status(LoadState::Offline),
-                    _ => self.controller.view.set_status(LoadState::Error),
-                }
+                return;
             }
+            match result {
+                Ok(loaded)
+                    if self.authentication.access_ready()
+                        && issued.generation == loaded.generation()
+                        && issued.epoch == loaded.session_generation()
+                        && &issued.read.request == loaded.request() =>
+                {
+                    if let Some(next) =
+                        self.controller
+                            .admit_shelf(issued.epoch, &issued.read, loaded.watch_list)
+                    {
+                        self.stage_shelf(next);
+                    }
+                }
+                Err(criterion_account::Error::Stale | criterion_account::Error::Session(_))
+                    if self.authentication.signed_in() =>
+                {
+                    // Refresh retires the old read. A new read keeps the original
+                    // demand deadline and waits for usable credentials.
+                    if let Some(next) = self.controller.renew_shelf() {
+                        self.stage_shelf(next);
+                    }
+                }
+                Err(error) => self
+                    .controller
+                    .fail_shelf(issued.epoch, &issued.read, error),
+                _ => self.controller.fail_shelf(
+                    issued.epoch,
+                    &issued.read,
+                    criterion_account::Error::Stale,
+                ),
+            }
+        }
+    }
+    fn stage_shelf(&mut self, read: crate::my_list::Read) {
+        if self.shelf_generation.take().is_some() {
+            self.accounts.background();
+        }
+        self.shelf_pending = Some(read);
+    }
+    fn retire_departed_shelf(&mut self) {
+        let owns = |read: &crate::my_list::Read| {
+            self.controller.is_shelf()
+                && self
+                    .account_epoch
+                    .is_some_and(|epoch| self.controller.shelf_owns(epoch, read))
+        };
+        if self.shelf_pending.as_ref().is_some_and(|read| !owns(read)) {
+            self.shelf_pending = None;
+        }
+        if self
+            .shelf_generation
+            .as_ref()
+            .is_some_and(|issued| self.account_epoch != Some(issued.epoch) || !owns(&issued.read))
+        {
+            self.shelf_generation = None;
+            self.accounts.background();
         }
     }
     fn sync_account_session(&mut self) {
@@ -305,7 +361,7 @@ impl<
         // permanently refuses another private generation rather than wrapping.
         self.account_epoch = self.account_epoch.and_then(|epoch| epoch.checked_add(1));
         self.account_signed_in = false;
-        self.shelf_pending = false;
+        self.shelf_pending = None;
         self.shelf_generation = None;
         self.accounts.background();
         self.controller.set_account_session(None);
@@ -316,12 +372,16 @@ impl<
     pub(crate) fn foreground(&mut self, runtime: &Handle) {
         self.active = true;
         self.controller.foreground(runtime);
+        if let Some(read) = self.controller.resume_shelf() {
+            self.stage_shelf(read);
+        }
     }
     pub(crate) fn background(&mut self) {
         self.active = false;
         self.artwork.clear();
         self.controller.background();
-        self.shelf_pending |= self.shelf_generation.take().is_some();
+        self.shelf_pending = None;
+        self.shelf_generation = None;
         self.accounts.background();
     }
     pub(crate) fn finish(&mut self, runtime: &Runtime) -> bool {
@@ -354,6 +414,11 @@ mod subscriber_admission_tests;
 
 #[cfg(all(test, feature = "sdl"))]
 mod public_paging_tests;
+
+#[cfg(all(test, feature = "sdl"))]
+mod my_list_render_tests;
+#[cfg(test)]
+mod my_list_tests;
 
 #[cfg(test)]
 mod tests {

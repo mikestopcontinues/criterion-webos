@@ -101,7 +101,7 @@ pub enum WriteStatus {
     Issued,
     Unconfirmed,
 }
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct MediaSummary {
     pub id: MediaId,
     pub title: String,

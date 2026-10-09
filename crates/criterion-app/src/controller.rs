@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Main-thread catalog publication and bounded navigation snapshots.
 mod catalog;
-use crate::{jobs::Jobs, presentation::Presentation};
+mod my_list;
+use crate::{
+    jobs::Jobs,
+    my_list::{MyListState, Read},
+    presentation::Presentation,
+};
 use criterion_provider::{
     BrowseOptions, BrowseRequest, Catalog, CatalogPage, ContentTarget, DiscoveryPage,
     DiscoveryRoute, Error, Filter, HttpTransport, MediaDetail, MediaId, RequestTransport,
@@ -41,12 +46,14 @@ struct Snapshot {
     private_epoch: Option<u64>,
     search_loaded: bool,
     pager: Option<catalog::Pager>,
+    my_list: Option<MyListState>,
 }
 
 pub(crate) enum Effect {
     None,
     Authenticate,
     AccountShelf,
+    AccountRead(Read),
     RetryAuthentication,
     CancelAuthentication,
     Logout,
@@ -72,6 +79,9 @@ pub(crate) struct Controller<T = HttpTransport, C: MonotonicClock = SystemClock>
     pager: Option<catalog::Pager>,
     account_session: Option<u64>,
     private_epoch: Option<u64>,
+    my_list: Option<MyListState>,
+    shelf_read: Option<Read>,
+    shelf_deadline: Option<Duration>,
 }
 
 impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
@@ -97,6 +107,9 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             pager: None,
             account_session: None,
             private_epoch: None,
+            my_list: None,
+            shelf_read: None,
+            shelf_deadline: None,
         };
         owner.start(Query::Discovery(DiscoveryRoute::Home), runtime);
         owner
@@ -139,7 +152,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                         self.search_due = None;
                         self.search_loaded = false;
                         self.query = None;
-                        self.private_epoch = None;
+                        self.clear_shelf();
                         self.view = Presentation::loading(title(page));
                         return Effect::Authenticate;
                     }
@@ -159,6 +172,17 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                     self.private_epoch = snapshot.private_epoch;
                     self.search_loaded = snapshot.search_loaded;
                     self.pager = snapshot.pager;
+                    self.my_list = snapshot.my_list;
+                    if snapshot.page == destination
+                        && destination == Page::MyList
+                        && self.private_epoch.is_some()
+                        && self.private_epoch == self.account_session
+                        && self.my_list.is_some()
+                    {
+                        return self
+                            .resume_shelf()
+                            .map_or(Effect::None, Effect::AccountRead);
+                    }
                     if snapshot.page == destination {
                         if let Some(view) = snapshot.view {
                             self.view = view;
@@ -281,7 +305,20 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                     );
                 }
             }
-            Command::Catalog { .. } | Command::RetryCatalog => {}
+            Command::MyListGroup(group) if self.page == Page::MyList => {
+                return self
+                    .select_shelf_group(group)
+                    .map_or(Effect::None, Effect::AccountRead);
+            }
+            Command::Catalog { anchor, target } if self.page == Page::MyList => {
+                return self
+                    .demand_shelf(anchor, target)
+                    .map_or(Effect::None, Effect::AccountRead);
+            }
+            Command::RetryCatalog if self.page == Page::MyList => {
+                return self.retry_shelf().map_or(Effect::None, Effect::AccountRead);
+            }
+            Command::MyListGroup(_) | Command::Catalog { .. } | Command::RetryCatalog => {}
             Command::SelectPlaylist(index) => self.view.select_playlist(index),
             Command::Authenticate => {
                 if self.page != Page::Login {
@@ -292,7 +329,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                 self.search_loaded = false;
                 self.page = Page::Login;
                 self.query = None;
-                self.private_epoch = None;
+                self.clear_shelf();
                 self.view = Presentation::loading("Sign in");
                 return Effect::Authenticate;
             }
@@ -382,41 +419,28 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         for snapshot in &mut self.history {
             if snapshot.private_epoch.take().is_some() {
                 snapshot.view = None;
+                if let Some(mut state) = snapshot.my_list.take() {
+                    state.retire();
+                }
             }
         }
         if self.private_epoch.take().is_some() {
             self.view = Presentation::loading("My List");
             self.view.set_status(criterion_ui::LoadState::Empty);
         }
+        if let Some(mut state) = self.my_list.take() {
+            state.retire();
+        }
+        self.shelf_read = None;
+        self.shelf_deadline = None;
         self.account_session = epoch;
-    }
-    pub(crate) fn begin_shelf(&mut self, epoch: u64) -> bool {
-        if self.page != Page::MyList || self.account_session != Some(epoch) {
-            return false;
-        }
-        self.jobs.cancel();
-        self.search_due = None;
-        self.search_loaded = false;
-        self.query = None;
-        self.private_epoch = Some(epoch);
-        self.view = Presentation::loading("My List");
-        true
-    }
-    pub(crate) fn publish_shelf(&mut self, epoch: u64, view: Presentation) -> bool {
-        if self.page != Page::MyList
-            || self.account_session != Some(epoch)
-            || self.private_epoch != Some(epoch)
-        {
-            return false;
-        }
-        self.view = view;
-        true
     }
     pub(crate) fn is_shelf(&self) -> bool {
         self.page == Page::MyList
     }
 
     pub(crate) fn background(&mut self) {
+        self.cancel_shelf();
         self.suspended |= self.jobs.is_active() || self.search_due.is_some();
         self.search_due = None;
         self.jobs.cancel();
@@ -454,7 +478,15 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         if let Some(p) = &mut pager {
             p.cancel(&mut view);
         }
+        if let Some(state) = &mut self.my_list {
+            state.cancel();
+            view = Presentation::my_list(state);
+        }
+        self.shelf_read = None;
+        self.shelf_deadline = None;
+        let my_list = self.my_list.take();
         let interrupted_shelf = self.private_epoch.is_some()
+            && my_list.is_none()
             && view.with_view(criterion_ui::LoginView::SignedOut, |data| {
                 data.status == criterion_ui::LoadState::Loading
             });
@@ -478,6 +510,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             private_epoch: self.private_epoch.take(),
             search_loaded: self.search_loaded,
             pager,
+            my_list,
         });
         self.trim_history();
     }
@@ -494,6 +527,10 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                     .pager
                     .as_ref()
                     .map_or(0, catalog::Pager::estimated_bytes)
+                    + snapshot
+                        .my_list
+                        .as_ref()
+                        .map_or(0, MyListState::retained_bytes)
                     + query_bytes(snapshot.query.as_ref())
                     + snapshot
                         .browse
@@ -516,13 +553,20 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             if let Some(view) = snapshot.view.take() {
                 bytes = bytes.saturating_sub(view.estimated_bytes());
             }
+            if let Some(state) = &mut snapshot.my_list {
+                let before = state.retained_bytes();
+                state.evict_windows();
+                bytes = bytes.saturating_sub(before.saturating_sub(state.retained_bytes()));
+            }
         }
     }
 
     fn navigate(&mut self, page: Page, runtime: &Handle) -> Effect {
         self.search_due = None;
         self.search_loaded = false;
-        self.private_epoch = None;
+        if page != Page::MyList {
+            self.clear_shelf();
+        }
         match page {
             Page::Home => self.start(Query::Discovery(DiscoveryRoute::Home), runtime),
             Page::New => self.start(Query::Discovery(DiscoveryRoute::New), runtime),
@@ -553,7 +597,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     fn start(&mut self, mut query: Query, runtime: &Handle) {
         self.search_due = None;
         self.search_loaded = false;
-        self.private_epoch = None;
+        self.clear_shelf();
         if let Query::Browse { options, .. } = &mut query {
             *options = self.options.clone();
         }
@@ -600,6 +644,10 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         });
     }
 }
+
+#[cfg(test)]
+#[path = "controller/my_list_tests.rs"]
+mod my_list_tests;
 
 #[cfg(test)]
 #[path = "controller/search_tests.rs"]
@@ -777,21 +825,74 @@ mod tests {
         );
         assert_eq!(owner.view.title(), "Fixture detail");
     }
-    fn private_list() -> Presentation {
-        Presentation::catalog(
-            "My List",
-            CatalogPage {
-                total: 1,
-                next_cursor: None,
-                items: vec![criterion_provider::MediaSummary {
-                    id: MediaId::new("fixtureA").unwrap(),
-                    title: "Synthetic private selection".into(),
-                    kind: criterion_provider::MediaKind::Film,
-                    duration_seconds: 0,
-                    release_date: None,
-                }],
+    fn private_list() -> criterion_account::WatchList {
+        criterion_account::WatchList {
+            playlist: vec![criterion_account::MediaSummary {
+                id: MediaId::new("fixtureA").unwrap(),
+                title: "Synthetic private selection".into(),
+                kind: criterion_account::MediaKind::Film,
+                duration: None,
+                release_date: None,
+            }],
+            paging: criterion_account::PagingInfo {
+                page_limit: 50,
+                next_pagination_key: None,
             },
-        )
+            type_counts: Vec::new(),
+        }
+    }
+    #[test]
+    fn native_my_list_boundary_requests_continuation_without_discarding_committed_cards() {
+        let runtime = runtime();
+        let mut owner = detail(&runtime);
+        owner.set_account_session(Some(1));
+        owner.command(
+            Command::Navigate(Page::MyList),
+            Page::MyList,
+            runtime.handle(),
+        );
+        let first_read = owner.begin_shelf(1).unwrap();
+        let page = criterion_account::WatchList {
+            playlist: (0..50)
+                .map(|i| criterion_account::MediaSummary {
+                    id: MediaId::new(&format!("F{i:07X}")).unwrap(),
+                    title: format!("Synthetic private film {i}"),
+                    kind: criterion_account::MediaKind::Film,
+                    duration: None,
+                    release_date: None,
+                })
+                .collect(),
+            paging: criterion_account::PagingInfo {
+                page_limit: 50,
+                next_pagination_key: Some(
+                    criterion_provider::PageCursor::new("opaque continuation").unwrap(),
+                ),
+            },
+            type_counts: Vec::new(),
+        };
+        assert!(owner.admit_shelf(1, &first_read, page).is_none());
+        let effect = owner.command(
+            Command::Catalog {
+                anchor: 48,
+                target: 52,
+            },
+            Page::MyList,
+            runtime.handle(),
+        );
+        let Effect::AccountRead(read) = effect else {
+            panic!("the native 50-card boundary must issue account continuation work")
+        };
+        assert_eq!(read.request.filter, criterion_account::WatchListFilter::All);
+        assert_eq!(read.request.cursor.unwrap().as_str(), "opaque continuation");
+        owner
+            .view
+            .with_view(criterion_ui::LoginView::SignedIn, |view| {
+                assert_eq!(
+                    view.cards.len(),
+                    50,
+                    "in-flight continuation retains the committed page"
+                );
+            });
     }
     #[test]
     fn logout_retires_private_history_without_destroying_public_navigation() {
@@ -803,8 +904,8 @@ mod tests {
             Page::MyList,
             runtime.handle(),
         );
-        assert!(owner.begin_shelf(1));
-        assert!(owner.publish_shelf(1, private_list()));
+        let first_read = owner.begin_shelf(1).unwrap();
+        assert!(owner.admit_shelf(1, &first_read, private_list()).is_none());
         owner.command(
             Command::Navigate(Page::Login),
             Page::Login,
@@ -834,8 +935,8 @@ mod tests {
             Page::MyList,
             runtime.handle(),
         );
-        assert!(owner.begin_shelf(1));
-        assert!(owner.publish_shelf(1, private_list()));
+        let first_read = owner.begin_shelf(1).unwrap();
+        assert!(owner.admit_shelf(1, &first_read, private_list()).is_none());
         owner.set_account_session(Some(2));
         owner
             .view
@@ -845,14 +946,16 @@ mod tests {
                     "a new subscriber intent cannot retain the prior selection"
                 )
             });
-        assert!(owner.begin_shelf(2));
-        assert!(!owner.publish_shelf(1, private_list()));
+        let new_read = owner.begin_shelf(2).unwrap();
+        assert!(owner.admit_shelf(1, &first_read, private_list()).is_none());
+        assert!(owner.shelf_owns(2, &new_read));
         owner.command(
             Command::Navigate(Page::Search),
             Page::Search,
             runtime.handle(),
         );
-        assert!(!owner.publish_shelf(2, private_list()));
+        assert!(owner.admit_shelf(2, &new_read, private_list()).is_none());
+        assert!(!owner.shelf_owns(2, &new_read));
         owner.set_account_session(None);
         owner
             .view

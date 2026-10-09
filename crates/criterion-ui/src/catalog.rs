@@ -1,14 +1,55 @@
 //! Remote navigation over global positions in a bounded catalog window.
 use crate::{Action, AppUi, CatalogTail, Command, Focus, Page, ViewData};
 impl AppUi {
+    fn retry_origin(&self, data: &ViewData<'_>, window: crate::CatalogWindow) -> Focus {
+        self.catalog_pending.map_or_else(
+            || {
+                if data.cards.is_empty() && self.page() == Page::MyList {
+                    self.catalog_header(data)
+                        .unwrap_or(Focus::Card { row: 0, column: 0 })
+                } else {
+                    Focus::Card {
+                        row: (window.first + data.cards.len().saturating_sub(1)) / 4,
+                        column: (window.first + data.cards.len().saturating_sub(1)) % 4,
+                    }
+                }
+            },
+            |(anchor, _)| anchor,
+        )
+    }
+    fn catalog_header(&self, data: &ViewData<'_>) -> Option<Focus> {
+        match self.page() {
+            Page::AllFilms => Some(Focus::FilterButton),
+            Page::MyList => data.my_list.and_then(|view| {
+                view.choices
+                    .iter()
+                    .take(6)
+                    .find(|c| c.group == view.selected)
+                    .or_else(|| view.choices.first())
+                    .map(|choice| Focus::MyListGroup(choice.group))
+            }),
+            _ => None,
+        }
+    }
     pub(crate) fn sync_catalog(&mut self, data: &ViewData<'_>) {
-        if self.page() != Page::AllFilms {
+        if self.my_list_waiting() {
+            return;
+        }
+        if !matches!(self.page(), Page::AllFilms | Page::MyList) {
             self.catalog_pending = None;
             return;
         }
         let Some(window) = data.catalog else {
             return;
         };
+        if self.page() == Page::MyList
+            && window.tail == CatalogTail::End
+            && !data.cards.is_empty()
+            && let Focus::Card { row, column } = self.focus
+            && row * 4 + column >= window.first + data.cards.len()
+        {
+            self.catalog_focus(window.first + data.cards.len() - 1);
+        }
         if data.cards.is_empty() && window.tail == CatalogTail::Error {
             if self.catalog_pending.is_none()
                 && let Focus::Card { row, column } = self.focus
@@ -59,14 +100,24 @@ impl AppUi {
         };
         self.scroll_y = (index as f32 / 4.0).floor() * 321.0 - 172.0;
         self.scroll_y = self.scroll_y.max(0.0);
+        if let Some((saved, scroll)) = self.my_list_anchor()
+            && saved == index
+        {
+            self.scroll_y = scroll;
+        }
     }
     pub(crate) fn handle_catalog(
         &mut self,
         action: Action,
         data: &ViewData<'_>,
     ) -> Option<Vec<Command>> {
+        if self.my_list_waiting() && !matches!(action, Action::Back | Action::Left) {
+            return Some(vec![]);
+        }
         self.sync_catalog(data);
-        if self.page() != Page::AllFilms || self.filters.open {
+        if !matches!(self.page(), Page::AllFilms | Page::MyList)
+            || (self.page() == Page::AllFilms && self.filters.open)
+        {
             return None;
         }
         let window = data.catalog?;
@@ -77,24 +128,12 @@ impl AppUi {
         if self.focus == Focus::CatalogRetry {
             return Some(match action {
                 Action::Select => {
-                    let focus = self.catalog_pending.map_or(
-                        Focus::Card {
-                            row: (window.first + data.cards.len().saturating_sub(1)) / 4,
-                            column: (window.first + data.cards.len().saturating_sub(1)) % 4,
-                        },
-                        |(anchor, _)| anchor,
-                    );
+                    let focus = self.retry_origin(data, window);
                     self.focus = focus;
                     vec![Command::RetryCatalog]
                 }
                 Action::Up | Action::Back => {
-                    let focus = self.catalog_pending.map_or(
-                        Focus::Card {
-                            row: (window.first + data.cards.len().saturating_sub(1)) / 4,
-                            column: (window.first + data.cards.len().saturating_sub(1)) % 4,
-                        },
-                        |(anchor, _)| anchor,
-                    );
+                    let focus = self.retry_origin(data, window);
                     self.focus = focus;
                     vec![]
                 }
@@ -102,21 +141,51 @@ impl AppUi {
                     self.return_focus = self
                         .catalog_pending
                         .map_or(Focus::Card { row: 0, column: 0 }, |(focus, _)| focus);
-                    self.focus = Focus::Rail(crate::RailItem::AllFilms);
+                    self.focus = Focus::Rail(if self.page() == Page::MyList {
+                        if matches!(data.login, crate::LoginView::SignedIn) {
+                            crate::RailItem::MyList
+                        } else {
+                            crate::RailItem::Login
+                        }
+                    } else {
+                        crate::RailItem::AllFilms
+                    });
                     vec![]
                 }
                 _ => vec![],
             });
         }
-        if self.focus == Focus::FilterButton && action == Action::Down && !data.cards.is_empty() {
-            if window.first > 0 {
-                self.catalog_pending = Some((Focus::FilterButton, 0));
+        if self.page() == Page::MyList
+            && Some(self.focus) == self.catalog_header(data)
+            && action == Action::Down
+            && data.cards.is_empty()
+            && window.tail == CatalogTail::Error
+        {
+            self.focus = Focus::CatalogRetry;
+            return Some(vec![]);
+        }
+        if Some(self.focus) == self.catalog_header(data)
+            && action == Action::Down
+            && !data.cards.is_empty()
+        {
+            let target = self.my_list_anchor().map_or(0, |(index, _)| index);
+            let target = if self.page() == Page::MyList && window.tail == CatalogTail::End {
+                target.min(window.first + data.cards.len() - 1)
             } else {
-                self.catalog_focus(0);
+                target
+            };
+            if target < window.first || target >= window.first + data.cards.len() {
+                self.catalog_pending = Some((self.focus, target));
+            } else {
+                self.catalog_focus(target);
             }
             return Some(vec![Command::Catalog {
-                anchor: window.first,
-                target: 0,
+                anchor: if self.page() == Page::MyList {
+                    target
+                } else {
+                    window.first
+                },
+                target,
             }]);
         }
         let Focus::Card { row, column } = self.focus else {
@@ -147,7 +216,7 @@ impl AppUi {
         }
         self.catalog_pending = None;
         if action == Action::Up && row == 0 {
-            self.focus = Focus::FilterButton;
+            self.focus = self.catalog_header(data).unwrap_or(self.focus);
             self.scroll_y = 0.0;
             return Some(vec![]);
         }
@@ -184,7 +253,10 @@ impl AppUi {
         }])
     }
     pub(crate) fn catalog_anchor(&self, data: &ViewData<'_>) -> Option<usize> {
-        if self.page() != Page::AllFilms {
+        if self.my_list_waiting() {
+            return None;
+        }
+        if !matches!(self.page(), Page::AllFilms | Page::MyList) {
             return None;
         }
         let window = data.catalog?;
@@ -200,7 +272,12 @@ impl AppUi {
         (anchor >= window.first && anchor < window.first + data.cards.len()).then_some(anchor)
     }
     pub(crate) fn catalog_demand(&self, data: &ViewData<'_>) -> Option<Command> {
-        if self.page() != Page::AllFilms || self.filters.open {
+        if self.my_list_waiting() {
+            return None;
+        }
+        if !matches!(self.page(), Page::AllFilms | Page::MyList)
+            || (self.page() == Page::AllFilms && self.filters.open)
+        {
             return None;
         }
         let window = data.catalog?;

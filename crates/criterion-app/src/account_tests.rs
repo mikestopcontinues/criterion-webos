@@ -587,7 +587,7 @@ fn unsigned_my_list_enters_linking_without_any_account_contact() {
     let (mut app, runtime, _, _, middleware) = fixture(false);
     open_list(&mut app, &runtime);
     assert_eq!(app.ui.page(), Page::Login);
-    assert!(!app.shelf_pending);
+    assert!(app.shelf_pending.is_none());
     app.poll(&runtime, true);
     assert!(middleware.calls.lock().unwrap().is_empty());
     app.authentication.cancel();
@@ -786,7 +786,7 @@ fn departing_loading_shelf_then_back_restarts_the_retired_read() {
     action(&mut app, &runtime, Action::Back);
     assert_eq!(app.ui.page(), Page::MyList);
     assert!(
-        app.shelf_pending,
+        app.shelf_pending.is_some(),
         "returning to an interrupted shelf must issue a fresh intent"
     );
     pump_until(&mut app, &runtime, |app| {

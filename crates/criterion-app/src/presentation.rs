@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Owned validated display data; the controller owns publication and request lifetimes.
 mod account;
+pub(crate) use account::my_list_filter;
 use criterion_artwork::ImageRole;
 use criterion_provider::{
     BrowseOptions, CatalogPage, DiscoveryArtwork, DiscoveryBlock, DiscoveryPage, DiscoverySlide,
@@ -54,6 +55,8 @@ pub(crate) struct Presentation {
     filters: Option<Vec<OwnedFilter>>,
     live_schedule: Vec<criterion_provider::LiveProgram>,
     catalog_window: Option<criterion_ui::CatalogWindow>,
+    my_list_selected: Option<criterion_ui::MyListGroup>,
+    my_list_choices: Vec<criterion_ui::MyListChoice>,
 }
 impl Presentation {
     pub(crate) fn loading(title: impl Into<String>) -> Self {
@@ -73,6 +76,8 @@ impl Presentation {
             filters: None,
             live_schedule: Vec::new(),
             catalog_window: None,
+            my_list_selected: None,
+            my_list_choices: Vec::new(),
         }
     }
     pub(crate) fn set_status(&mut self, status: LoadState) {
@@ -294,6 +299,7 @@ impl Presentation {
                 + detail.countries.capacity()
                 + detail.languages.capacity();
         }
+        bytes += vec_bytes(&self.my_list_choices);
         bytes += vec_bytes(&self.live_schedule);
         for program in &self.live_schedule {
             bytes += program.title.capacity()
@@ -611,6 +617,12 @@ impl Presentation {
             total: self.total,
             cards: &cards,
             catalog: self.catalog_window,
+            my_list: self
+                .my_list_selected
+                .map(|selected| criterion_ui::MyListView {
+                    selected,
+                    choices: &self.my_list_choices,
+                }),
             search_counts: self.search_counts,
             login,
         })

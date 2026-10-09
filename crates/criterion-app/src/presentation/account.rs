@@ -1,30 +1,81 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Native account display data; request and session ownership remain in the runtime.
 use super::{ImageSource, OwnedCard, Presentation};
-use criterion_account::WatchList;
+use crate::my_list::{MyListState, Tail};
+use criterion_account::WatchListFilter;
 use criterion_provider::ImageLabel;
-use criterion_ui::{LoadState, Target};
+use criterion_ui::{CatalogTail, CatalogWindow, LoadState, MyListChoice, MyListGroup, Target};
+
+pub(crate) fn my_list_filter(group: MyListGroup) -> WatchListFilter {
+    match group {
+        MyListGroup::All => WatchListFilter::All,
+        MyListGroup::FilmsAndSeries => WatchListFilter::FilmSeries,
+        MyListGroup::Collections => WatchListFilter::Collection,
+        MyListGroup::OriginalsAndFranchises => WatchListFilter::OriginalFranchise,
+        MyListGroup::Supplements => WatchListFilter::Supplement,
+        MyListGroup::Categories => WatchListFilter::Category,
+    }
+}
+
+fn group_for(filter: WatchListFilter) -> MyListGroup {
+    match filter {
+        WatchListFilter::All => MyListGroup::All,
+        WatchListFilter::FilmSeries => MyListGroup::FilmsAndSeries,
+        WatchListFilter::Collection => MyListGroup::Collections,
+        WatchListFilter::OriginalFranchise => MyListGroup::OriginalsAndFranchises,
+        WatchListFilter::Supplement => MyListGroup::Supplements,
+        WatchListFilter::Category => MyListGroup::Categories,
+    }
+}
 
 impl Presentation {
-    pub(crate) fn my_list(watch_list: WatchList) -> Self {
+    pub(crate) fn my_list(state: &MyListState) -> Self {
+        let view = state.view();
         let mut presentation = Self::loading("My List");
-        presentation.total = watch_list.playlist.len() as u32;
-        presentation.status = if watch_list.playlist.is_empty() {
+        // The window end is geometry, never provider EOF or a request limit.
+        presentation.total =
+            u32::try_from(view.first + view.rows.len()).expect("bounded native key ordinals");
+        presentation.my_list_selected = Some(group_for(view.filter));
+        presentation.my_list_choices = state
+            .groups()
+            .into_iter()
+            .filter(|group| group.available || group.filter == view.filter)
+            .map(|group| MyListChoice {
+                group: group_for(group.filter),
+                count: u64::try_from(group.count).ok().filter(|count| *count > 0),
+            })
+            .collect();
+        presentation.catalog_window = Some(CatalogWindow {
+            first: view.first,
+            tail: match view.tail {
+                Tail::More => CatalogTail::More,
+                Tail::Loading => CatalogTail::Loading,
+                Tail::Error(_) => CatalogTail::Error,
+                Tail::End => CatalogTail::End,
+            },
+        });
+        presentation.status = if !view.rows.is_empty() {
+            LoadState::Ready
+        } else if view.tail == Tail::Loading {
+            LoadState::Loading
+        } else if matches!(view.tail, Tail::Error(_)) {
+            LoadState::Error
+        } else if view.loaded {
             LoadState::Empty
         } else {
-            LoadState::Ready
+            LoadState::Loading
         };
-        for media in watch_list.playlist {
+        for media in view.rows {
             let target = Target::Media(media.id.clone());
             let artwork = presentation.bind_image(ImageSource::Media {
-                id: media.id,
+                id: media.id.clone(),
                 label: ImageLabel::Landscape,
                 role: criterion_artwork::ImageRole::Card,
             });
             presentation.cards.push(OwnedCard {
                 target,
                 kind: None,
-                title: media.title,
+                title: media.title.clone(),
                 year: media
                     .release_date
                     .map(|date| format!("{:04}", date.year()))
@@ -65,9 +116,19 @@ mod tests {
         }
     }
 
+    fn presentation(list: WatchList) -> Presentation {
+        let mut state = crate::my_list::MyListState::new();
+        let read = state
+            .select(criterion_account::WatchListFilter::All)
+            .unwrap()
+            .unwrap();
+        let _ = state.admit(&read, list).unwrap();
+        Presentation::my_list(&state)
+    }
+
     #[test]
     fn empty_my_list_lends_an_empty_shelf_without_placeholder_content() {
-        let presentation = Presentation::my_list(watch_list(Vec::new()));
+        let presentation = presentation(watch_list(Vec::new()));
         presentation.with_view(LoginView::SignedOut, |view| {
             assert_eq!(view.title, "My List");
             assert_eq!(view.status, LoadState::Empty);
@@ -107,7 +168,7 @@ mod tests {
             count: 997,
         }];
 
-        let presentation = Presentation::my_list(native_list);
+        let presentation = presentation(native_list);
         presentation.with_view(LoginView::SignedOut, |view| {
             assert_eq!(view.title, "My List");
             assert_eq!(view.status, LoadState::Ready);
@@ -153,8 +214,8 @@ mod tests {
     }
 
     #[test]
-    fn my_list_retains_duplicate_cards_while_sharing_only_identical_artwork() {
-        let presentation = Presentation::my_list(watch_list(vec![
+    fn my_list_projection_uses_the_reducers_first_row_key_and_original_metadata() {
+        let presentation = presentation(watch_list(vec![
             media("FixtureA", "Synthetic repeated title", MediaKind::Film),
             media("FixtureB", "Synthetic repeated title", MediaKind::Film),
             media(
@@ -164,16 +225,13 @@ mod tests {
             ),
         ]));
         presentation.with_view(LoginView::SignedOut, |view| {
-            assert_eq!(view.total, 3);
-            assert_eq!(view.cards.len(), 3);
+            assert_eq!(view.total, 2);
+            assert_eq!(view.cards.len(), 2);
             let first_artwork = view.cards[0].artwork_key.expect("native card artwork");
             let second_artwork = view.cards[1].artwork_key.expect("native card artwork");
-            let third_artwork = view.cards[2].artwork_key.expect("native card artwork");
-            assert_eq!(first_artwork, third_artwork);
             assert_ne!(first_artwork, second_artwork);
             assert_eq!(view.cards[0].title, "Synthetic repeated title");
-            assert_eq!(view.cards[2].title, "Synthetic alternate title");
-            assert_eq!(view.cards[0].key, view.cards[2].key);
+            assert_eq!(view.cards[1].title, "Synthetic repeated title");
             assert_ne!(view.cards[0].key, view.cards[1].key);
         });
         assert_eq!(presentation.artwork_bindings().len(), 2);

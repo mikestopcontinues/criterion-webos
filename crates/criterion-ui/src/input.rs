@@ -94,6 +94,11 @@ impl AppUi {
                     ..
                 } => {
                     let target = self.hit_target(*pos, data, cards).filter(|target| {
+                        if self.my_list_waiting()
+                            && matches!(target.focus, Focus::Card { .. } | Focus::CatalogRetry)
+                        {
+                            return false;
+                        }
                         allow_results || !matches!(target.focus, Focus::Card { .. })
                     });
                     if *pressed {
@@ -171,8 +176,8 @@ impl AppUi {
                 },
             })
         };
-        if self.page() == Page::AllFilms
-            && !self.filters.open
+        if matches!(self.page(), Page::AllFilms | Page::MyList)
+            && !(self.page() == Page::AllFilms && self.filters.open)
             && data
                 .catalog
                 .is_some_and(|w| w.tail == crate::CatalogTail::Error)
@@ -303,6 +308,13 @@ impl AppUi {
         }
         if self.page() == Page::AllFilms && rect(410.0, 112.0, 330.0, 82.0).contains(pos) {
             return target(Focus::FilterButton);
+        }
+        if self.page() == Page::MyList
+            && let Some(view) = data.my_list
+            && let Some((choice, _)) =
+                crate::my_list::group_rects(view).find(|(_, area)| area.contains(pos))
+        {
+            return target(Focus::MyListGroup(choice.group));
         }
         if matches!(self.page(), Page::Home | Page::New | Page::Discovery)
             && data.hero.is_some()

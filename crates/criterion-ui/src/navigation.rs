@@ -50,6 +50,7 @@ pub enum Focus {
     FilterReset,
     FilterClose,
     CatalogRetry,
+    MyListGroup(crate::MyListGroup),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Intent {
@@ -84,6 +85,7 @@ struct Snapshot {
     search_query: String,
     search_group: crate::SearchGroup,
     filters: crate::filter::FilterState,
+    my_list: crate::my_list::MyListState,
 }
 pub struct AppUi {
     pub(crate) detail_state: crate::detail::DetailState,
@@ -100,6 +102,7 @@ pub struct AppUi {
     pub(crate) pointer_press: Option<crate::input::PointerTarget>,
     pub(crate) pointer_layout_focus: Option<Focus>,
     pub(crate) catalog_pending: Option<(Focus, usize)>,
+    pub(crate) my_list: crate::my_list::MyListState,
 }
 impl Default for AppUi {
     fn default() -> Self {
@@ -123,14 +126,39 @@ impl AppUi {
             pointer_press: None,
             pointer_layout_focus: None,
             catalog_pending: None,
+            my_list: crate::my_list::MyListState::default(),
         }
     }
     pub(crate) fn sync_rail(&mut self, login: crate::LoginView<'_>) {
         if !matches!(login, crate::LoginView::SignedIn) {
+            self.my_list = crate::my_list::MyListState::default();
+            if self.page == Page::MyList {
+                self.catalog_pending = None;
+                if matches!(
+                    self.focus,
+                    Focus::Card { .. } | Focus::MyListGroup(_) | Focus::CatalogRetry
+                ) {
+                    self.pointer_press = None;
+                    self.pointer_layout_focus = None;
+                }
+                if matches!(self.focus, Focus::MyListGroup(_) | Focus::CatalogRetry) {
+                    self.focus = Focus::Card { row: 0, column: 0 };
+                    self.scroll_y = 0.0;
+                }
+                if matches!(
+                    self.return_focus,
+                    Focus::MyListGroup(_) | Focus::CatalogRetry
+                ) {
+                    self.return_focus = Focus::Card { row: 0, column: 0 };
+                }
+            }
             // A departed subscriber's shelf must never become an automatic
             // authorization origin. Keep the public history in its exact order.
             self.history
                 .retain(|snapshot| snapshot.page != Page::MyList);
+            for snapshot in &mut self.history {
+                snapshot.my_list = crate::my_list::MyListState::default();
+            }
             if self.focus == Focus::Rail(RailItem::MyList) {
                 self.focus = Focus::Rail(RailItem::Login);
                 self.pointer_press = None;
@@ -166,6 +194,9 @@ impl AppUi {
         self.search.composition.clear();
         self.search.select_all = false;
         self.filters = previous.filters;
+        if self.page == Page::MyList {
+            self.my_list = previous.my_list;
+        }
         Some(self.page)
     }
     pub fn page(&self) -> Page {
@@ -386,6 +417,7 @@ impl AppUi {
             search_query: self.search.query.clone(),
             search_group: self.search.group,
             filters: self.filters.clone(),
+            my_list: self.my_list_snapshot(),
         });
     }
     pub fn scroll_y(&self) -> f32 {

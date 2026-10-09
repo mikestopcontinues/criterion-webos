@@ -32,3 +32,6 @@ mod login;
 pub use login::LoginView;
 
 mod catalog;
+
+mod my_list;
+pub use my_list::{MyListChoice, MyListGroup, MyListView};

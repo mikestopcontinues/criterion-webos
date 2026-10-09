@@ -63,7 +63,7 @@ where
         return Err("activation cancelled (remote authorization unconfirmed)");
     }
     if app.account_signed_in
-        || app.shelf_pending
+        || app.shelf_pending.is_some()
         || app.shelf_generation.is_some()
         || (matches!(app.ui.page(), Page::MyList | Page::Login)
             && (!app.controller.view.artwork_bindings().is_empty()
@@ -457,7 +457,7 @@ fn run_subscriber_admission() -> Result<(), &'static str> {
                 return Err("subscriber My List admission");
             }
             if matches!(status, LoadState::Ready | LoadState::Empty)
-                && !app.shelf_pending
+                && app.shelf_pending.is_none()
                 && app.shelf_generation.is_none()
             {
                 break;

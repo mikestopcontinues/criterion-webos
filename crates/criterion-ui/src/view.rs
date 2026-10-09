@@ -59,7 +59,7 @@ pub enum LoadState {
     Offline,
     Error,
 }
-/// Global positions in the bounded All Films window. Opaque cursors stay with the controller.
+/// Global positions in a bounded All Films or My List window. Cursors stay with the controller.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CatalogTail {
     More,
@@ -79,6 +79,7 @@ pub struct ViewData<'a> {
     pub cards: &'a [Card<'a>],
     pub total: u32,
     pub catalog: Option<CatalogWindow>,
+    pub my_list: Option<crate::MyListView<'a>>,
     pub status: LoadState,
     pub filters: Option<FilterMenu<'a>>,
     pub detail: Option<Detail<'a>>,
@@ -94,6 +95,7 @@ impl Default for ViewData<'_> {
             cards: &[],
             total: 0,
             catalog: None,
+            my_list: None,
             status: LoadState::Loading,
             filters: None,
             detail: None,
@@ -121,6 +123,7 @@ impl AppUi {
     pub fn render(&mut self, mut input: egui::RawInput, data: &ViewData<'_>) -> UiFrame {
         self.sync_login(data.login);
         self.sync_rail(data.login);
+        self.sync_my_list(data);
         self.sync_catalog(data);
         if !self.wants_text_input() {
             self.search.composition.clear();
@@ -287,13 +290,21 @@ impl AppUi {
                 _ => {
                     label(
                         &p,
-                        [150.0, 115.0],
+                        if self.page() == Page::MyList {
+                            [150.0, 60.0]
+                        } else {
+                            [150.0, 115.0]
+                        },
                         if data.title.is_empty() {
                             page_label(self.page())
                         } else {
                             data.title
                         },
-                        60.0,
+                        if self.page() == Page::MyList {
+                            48.0
+                        } else {
+                            60.0
+                        },
                         WHITE,
                         620.0,
                     );
@@ -312,6 +323,11 @@ impl AppUi {
                             WHITE,
                             700.0,
                         );
+                    }
+                    if self.page() == Page::MyList
+                        && let Some(view) = data.my_list
+                    {
+                        self.paint_my_list(&p, view);
                     }
                     let columns = if self.page() == Page::Search { 3 } else { 4 };
                     let content = p.with_clip_rect(Rect::from_min_max(
@@ -372,8 +388,12 @@ impl AppUi {
                     },
                     match data.status {
                         LoadState::Loading => "Loading…",
+                        LoadState::Empty if self.page() == Page::MyList => "No items found",
                         LoadState::Empty => "No films found",
                         LoadState::Offline => "Offline — reconnect and try again",
+                        LoadState::Error if self.page() == Page::MyList => {
+                            "Unable to load items — try again"
+                        }
                         LoadState::Error => "Unable to load films — try again",
                         LoadState::Ready => "",
                     },
@@ -382,7 +402,7 @@ impl AppUi {
                     1400.0,
                 );
             }
-            if self.page() == Page::AllFilms
+            if matches!(self.page(), Page::AllFilms | Page::MyList)
                 && let Some(window) = data.catalog
             {
                 let end = window.first + data.cards.len();
@@ -393,9 +413,18 @@ impl AppUi {
                     end_y.clamp(600.0, 970.0)
                 };
                 match window.tail {
-                    CatalogTail::Loading => {
-                        label(&p, [150.0, y], "Loading more films…", 28.0, WHITE, 1200.0)
-                    }
+                    CatalogTail::Loading => label(
+                        &p,
+                        [150.0, y],
+                        if self.page() == Page::MyList {
+                            "Loading more items…"
+                        } else {
+                            "Loading more films…"
+                        },
+                        28.0,
+                        WHITE,
+                        1200.0,
+                    ),
                     CatalogTail::Error => button(
                         &p,
                         catalog_retry_rect(),
@@ -403,7 +432,18 @@ impl AppUi {
                         self.focus() == Focus::CatalogRetry,
                     ),
                     CatalogTail::End if data.cards.is_empty() => (),
-                    CatalogTail::End => label(&p, [150.0, y], "End of films", 28.0, MUTED, 1200.0),
+                    CatalogTail::End => label(
+                        &p,
+                        [150.0, y],
+                        if self.page() == Page::MyList {
+                            "End of list"
+                        } else {
+                            "End of films"
+                        },
+                        28.0,
+                        MUTED,
+                        1200.0,
+                    ),
                     CatalogTail::More => (),
                 }
             }

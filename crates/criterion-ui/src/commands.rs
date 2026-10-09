@@ -24,6 +24,7 @@ pub enum Command {
         target: usize,
     },
     RetryCatalog,
+    MyListGroup(crate::MyListGroup),
 }
 impl AppUi {
     /// Transform one remote action using the current admitted display model.
@@ -33,6 +34,10 @@ impl AppUi {
         self.pointer_layout_focus = None;
         self.sync_login(data.login);
         self.sync_rail(data.login);
+        self.sync_my_list(data);
+        if let Some(commands) = self.handle_my_list(action, data) {
+            return commands;
+        }
         if let Some(commands) = self.handle_catalog(action, data) {
             return commands;
         }

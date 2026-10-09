@@ -5,6 +5,7 @@ mod artwork;
 mod authentication;
 mod controller;
 mod jobs;
+mod my_list;
 mod presentation;
 
 mod application;
