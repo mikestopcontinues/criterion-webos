@@ -1,29 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Read-only native account jobs. The application owns Session epochs and UI
+//! Native My List reads. The application owns Session epochs and UI
 //! privacy; departed generations never publish or start replacement reads.
 use crate::jobs::Jobs;
-use criterion_account::{AccountClient, ContinueWatching, Error, MyListIds, WatchList};
+use criterion_account::{AccountClient, Error, WatchList};
 use criterion_session::{MonotonicClock, Session, SystemClock};
 use std::sync::Arc;
 use tokio::runtime::{Handle, Runtime};
 
 #[derive(Debug)]
-pub struct LoadedAccount {
+pub(crate) struct LoadedAccount {
     generation: u64,
     session_generation: u64,
-    pub my_list_ids: MyListIds,
-    pub continue_watching: ContinueWatching,
-    pub watch_list: WatchList,
+    pub(crate) watch_list: WatchList,
 }
 impl LoadedAccount {
-    pub fn generation(&self) -> u64 {
+    pub(crate) fn generation(&self) -> u64 {
         self.generation
     }
-    pub fn session_generation(&self) -> u64 {
+    pub(crate) fn session_generation(&self) -> u64 {
         self.session_generation
     }
 }
-pub struct Accounts<
+pub(crate) struct Accounts<
     A: criterion_account::Transport = criterion_account::HttpTransport,
     S: criterion_session::Transport = criterion_session::HttpTransport,
     C: MonotonicClock = SystemClock,
@@ -44,7 +42,7 @@ struct Intent {
     session_generation: u64,
 }
 impl Accounts {
-    pub fn new(
+    pub(crate) fn new(
         session: Arc<Session<criterion_session::HttpTransport, SystemClock>>,
     ) -> Result<Self, Error> {
         Ok(Self::from_parts(
@@ -61,7 +59,7 @@ impl<
     C: MonotonicClock + 'static,
 > Accounts<A, S, C>
 {
-    pub fn from_parts(account: Arc<AccountClient<A>>, session: Arc<Session<S, C>>) -> Self {
+    pub(crate) fn from_parts(account: Arc<AccountClient<A>>, session: Arc<Session<S, C>>) -> Self {
         Self {
             account,
             session,
@@ -78,7 +76,7 @@ impl<
     /// intent, logout or invalidation. Token bytes are not a lifecycle identity.
     /// Before an active poll and while backgrounded this records only the latest
     /// intent, without contact.
-    pub fn request_shelf(
+    pub(crate) fn request_shelf(
         &mut self,
         runtime: &Handle,
         session_generation: u64,
@@ -113,7 +111,7 @@ impl<
         }
         Ok(generation)
     }
-    pub fn poll(
+    pub(crate) fn poll(
         &mut self,
         runtime: &Runtime,
         active: bool,
@@ -177,14 +175,10 @@ impl<
                 }
                 Err(error) => return Err(error),
             }
-            let my_list_ids = account.my_list_ids(&session).await?;
-            let continue_watching = account.continue_watching(&session).await?;
             let watch_list = account.watch_list(&session).await?;
             Ok(LoadedAccount {
                 generation: intent.generation,
                 session_generation: intent.session_generation,
-                my_list_ids,
-                continue_watching,
                 watch_list,
             })
         });
@@ -208,13 +202,13 @@ impl<
         self.session_generation = Some(previous.max(epoch));
         true
     }
-    pub fn background(&mut self) {
+    pub(crate) fn background(&mut self) {
         self.foreground = false;
         self.retire();
     }
     /// Dispose read ownership without creating a runtime or changing Session.
     /// Callers cannot use this owner as an issued-write settlement mechanism.
-    pub fn dispose(&mut self, runtime: &Runtime) {
+    pub(crate) fn dispose(&mut self, runtime: &Runtime) {
         self.disposed = true;
         self.foreground = false;
         self.retire();
@@ -318,8 +312,6 @@ mod tests {
                     assert!(request.credentials.is_none());
                     br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec()
                 }
-                Target::MyListIds(Region::Us) => br#"{"watchlist":["AbCd1234"],"positions":[{"media_id":"AbCd1234","pos":-1,"dur":7200}]}"#.to_vec(),
-                Target::ContinueWatching(Region::Us) => br#"{"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private film","duration":90.5}],"positions":[]}"#.to_vec(),
                 Target::WatchList(Region::Us) => br#"{"paging":{"page_limit":60},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private film"}]}"#.to_vec(),
                 _ => panic!("unexpected typed request"),
             };
@@ -381,16 +373,13 @@ mod tests {
         panic!("bounded owner job did not publish");
     }
     #[test]
-    fn sequential_native_shelf_preserves_dtos_and_reuses_only_admitted_bootstrap() {
+    fn my_list_fetches_only_watch_list_and_reuses_admitted_bootstrap() {
         let runtime = runtime();
         let (mut owner, middleware, _, _) = fixture(&runtime, None, None, true);
         let generation = owner.request_shelf(runtime.handle(), 7).unwrap();
         let loaded = result(&mut owner, &runtime, 7).unwrap();
         assert_eq!(loaded.generation(), generation);
         assert_eq!(loaded.session_generation(), 7);
-        assert_eq!(loaded.my_list_ids.watchlist[0].as_str(), "AbCd1234");
-        assert_eq!(loaded.my_list_ids.positions[0].pos, -1);
-        assert_eq!(loaded.continue_watching.playlist[0].duration, Some(90.5));
         assert_eq!(loaded.watch_list.playlist[0].duration, None);
         assert!(
             !format!("{loaded:?}").contains("Synthetic")
@@ -398,20 +387,22 @@ mod tests {
         );
         assert_eq!(
             *middleware.calls.lock().unwrap(),
-            [
-                Target::Bootstrap,
-                Target::MyListIds(Region::Us),
-                Target::ContinueWatching(Region::Us),
-                Target::WatchList(Region::Us)
-            ]
+            [Target::Bootstrap, Target::WatchList(Region::Us)]
         );
         owner.request_shelf(runtime.handle(), 7).unwrap();
         result(&mut owner, &runtime, 7).unwrap();
-        assert_eq!(middleware.calls.lock().unwrap().len(), 7);
+        assert_eq!(
+            *middleware.calls.lock().unwrap(),
+            [
+                Target::Bootstrap,
+                Target::WatchList(Region::Us),
+                Target::WatchList(Region::Us)
+            ]
+        );
         owner.dispose(&runtime);
     }
     #[test]
-    fn native_failure_stops_bundle_without_partial_result_or_retry() {
+    fn watch_list_failure_returns_error_without_retry() {
         let runtime = runtime();
         let (mut owner, middleware, _, _) = fixture(&runtime, None, Some(2), true);
         owner.request_shelf(runtime.handle(), 1).unwrap();
@@ -438,7 +429,7 @@ mod tests {
         let loaded = result(&mut owner, &runtime, 4).unwrap();
         assert_eq!(loaded.generation(), latest);
         assert_eq!(middleware.retired.load(Ordering::SeqCst), 1);
-        assert_eq!(middleware.calls.lock().unwrap().len(), 5);
+        assert_eq!(middleware.calls.lock().unwrap().len(), 3);
         assert!(owner.poll(&runtime, true, 4).is_none());
         owner.dispose(&runtime);
     }
@@ -465,7 +456,7 @@ mod tests {
             result(&mut owner, &runtime, 3).unwrap().generation(),
             latest
         );
-        assert_eq!(middleware.calls.lock().unwrap().len(), 5);
+        assert_eq!(middleware.calls.lock().unwrap().len(), 3);
         owner.dispose(&runtime);
     }
     #[test]
@@ -474,7 +465,7 @@ mod tests {
         let (mut owner, middleware, session, time) = fixture(&runtime, None, None, true);
         owner.request_shelf(runtime.handle(), 9).unwrap();
         pump(&runtime);
-        assert_eq!(middleware.calls.lock().unwrap().len(), 4);
+        assert_eq!(middleware.calls.lock().unwrap().len(), 2);
         runtime.block_on(session.logout()).unwrap();
         runtime.block_on(session.start_link()).unwrap();
         time.store(10, Ordering::SeqCst);
@@ -482,7 +473,7 @@ mod tests {
         assert!(owner.poll(&runtime, true, 10).is_none());
         pump(&runtime);
         assert!(owner.poll(&runtime, true, 10).is_none());
-        assert_eq!(middleware.calls.lock().unwrap().len(), 4);
+        assert_eq!(middleware.calls.lock().unwrap().len(), 2);
         owner.request_shelf(runtime.handle(), 10).unwrap();
         assert_eq!(
             result(&mut owner, &runtime, 10)
@@ -548,13 +539,13 @@ mod tests {
         assert_eq!(session.status(), criterion_session::Status::SignedOut);
     }
     #[test]
-    fn finished_private_bundle_is_denied_if_session_expires_or_logs_out_before_poll() {
+    fn finished_private_shelf_is_denied_if_session_expires_or_logs_out_before_poll() {
         for logout in [false, true] {
             let runtime = runtime();
             let (mut owner, middleware, session, time) = fixture(&runtime, None, None, true);
             owner.request_shelf(runtime.handle(), 8).unwrap();
             pump(&runtime);
-            assert_eq!(middleware.calls.lock().unwrap().len(), 4);
+            assert_eq!(middleware.calls.lock().unwrap().len(), 2);
             let expected = if logout {
                 runtime.block_on(session.logout()).unwrap();
                 criterion_session::Error::NoSession
@@ -567,7 +558,7 @@ mod tests {
             );
             pump(&runtime);
             assert!(owner.poll(&runtime, true, 8).is_none());
-            assert_eq!(middleware.calls.lock().unwrap().len(), 4);
+            assert_eq!(middleware.calls.lock().unwrap().len(), 2);
             owner.dispose(&runtime);
         }
     }
@@ -577,15 +568,15 @@ mod tests {
         let (mut owner, middleware, _, _) = fixture(&runtime, None, None, true);
         owner.request_shelf(runtime.handle(), 5).unwrap();
         pump(&runtime);
-        assert_eq!(middleware.calls.lock().unwrap().len(), 4);
+        assert_eq!(middleware.calls.lock().unwrap().len(), 2);
         assert!(owner.poll(&runtime, false, 5).is_none());
         pump(&runtime);
         assert!(owner.poll(&runtime, true, 5).is_none());
-        assert_eq!(middleware.calls.lock().unwrap().len(), 4);
+        assert_eq!(middleware.calls.lock().unwrap().len(), 2);
         owner.dispose(&runtime);
     }
     #[test]
-    fn session_departure_during_read_retires_transport_before_any_later_read() {
+    fn session_departure_during_watch_list_retires_transport_and_denies_publication() {
         let runtime = runtime();
         let (mut owner, middleware, session, _) = fixture(&runtime, Some(2), None, true);
         owner.request_shelf(runtime.handle(), 6).unwrap();
@@ -652,7 +643,7 @@ mod tests {
         let loaded = result(&mut owner, &runtime, 10).unwrap();
         assert_eq!(loaded.generation(), current);
         assert_eq!(loaded.session_generation(), 10);
-        assert_eq!(middleware.calls.lock().unwrap().len(), 4);
+        assert_eq!(middleware.calls.lock().unwrap().len(), 2);
         owner.dispose(&runtime);
     }
     #[test]
