@@ -2,7 +2,7 @@
 
 Criterion Unofficial is a Rust application being developed for LG webOS TVs. The product target is the full Criterion Channel TV experience: discovery, collections, search, film details and supplements, My List, Continue Watching, licensed playback, captions, seeking and account synchronization.
 
-The development implementation includes public discovery, catalog/filter/Search/detail adapters, a native remote interface, bounded artwork and device-linking state and a read-only My List flow covered through real adapters with synthetic transports. Local behavior and host SDL/GLES rendering are tested. Actual subscriber admission, secure persistence, licensed C4 playback and a verified release remain unfinished. The project is independent of Criterion, Janus Films, JWX and LG; it requires a current Criterion subscription and does not grant access to content.
+The development implementation includes public discovery, catalog/filter/Search/detail adapters, a native remote interface, bounded artwork and a read-only My List flow covered through real adapters with synthetic transports. Local behavior, host SDL/GLES rendering and [live host device linking/logout](docs/session.md) are verified. Authenticated middleware reads, secure persistence, licensed C4 playback and a verified release remain unfinished. The project is independent of Criterion, Janus Films, JWX and LG; it requires a current Criterion subscription and does not grant access to content.
 
 Read [the product contract](docs/product.md) for acceptance and [TASKS.md](TASKS.md) for current work and the resumable checkpoint. [AGENTS.md](AGENTS.md) owns engineering, security, coordination and evidence rules. Release packages will be published with verified functionality and explicit limitations.
 
