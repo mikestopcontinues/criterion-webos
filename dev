@@ -32,6 +32,7 @@ esac
 
 exec docker run --rm \
   --network bridge \
+  --env CARGO_UNSTABLE_CHECKSUM_FRESHNESS=true \
   --mount "type=bind,src=$project_root,dst=/workspace" \
   --mount type=volume,src=criterion-webos-cargo,dst=/cargo \
   --mount "type=volume,src=criterion-webos-target-$project_key,dst=/target" \
