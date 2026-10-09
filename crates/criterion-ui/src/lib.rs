@@ -21,6 +21,7 @@ pub use commands::Command;
 mod search;
 pub use search::SearchGroup;
 
+mod icons;
 mod input;
 
 mod target;

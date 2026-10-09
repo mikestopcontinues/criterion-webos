@@ -165,7 +165,8 @@ impl AppUi {
         data: &crate::ViewData<'_>,
         visible: &mut Vec<crate::CardLayout>,
     ) {
-        use crate::view::{GOLD, MUTED, WHITE, button, label, paint_card};
+        use crate::icons::{Icon, centered};
+        use crate::view::{GOLD, MUTED, WHITE, icon_button, label, paint_card};
         use egui::{Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
         for (index, key) in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().enumerate() {
             let rect = Rect::from_min_size(
@@ -192,7 +193,7 @@ impl AppUi {
                 WHITE,
             );
         }
-        for (index, x, text) in [(36, 150.0, "␣"), (37, 342.0, "←")] {
+        for (index, x, icon) in [(36, 150.0, Icon::Space), (37, 342.0, Icon::Backspace)] {
             let rect = Rect::from_min_size(Pos2::new(x, 576.0), Vec2::new(187.0, 60.0));
             p.rect_filled(
                 rect,
@@ -203,18 +204,12 @@ impl AppUi {
                     Color32::BLACK
                 },
             );
-            p.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                text,
-                FontId::proportional(30.0),
-                WHITE,
-            );
+            icon.paint(p, centered(rect.center(), 32.0), WHITE);
         }
-        button(
+        icon_button(
             p,
             Rect::from_min_size(Pos2::new(565.0, 115.0), Vec2::splat(100.0)),
-            "MIC",
+            Icon::Microphone,
             self.focus() == Focus::SearchVoice,
         );
         let field = Rect::from_min_size(Pos2::new(691.0, 115.0), Vec2::new(1078.0, 100.0));
@@ -232,7 +227,7 @@ impl AppUi {
             ),
             StrokeKind::Inside,
         );
-        label(p, [733.0, 147.0], "⌕", 36.0, WHITE, 48.0);
+        Icon::Search.paint(p, centered(Pos2::new(749.0, 165.0), 36.0), WHITE);
         label(
             p,
             [783.0, 147.0],

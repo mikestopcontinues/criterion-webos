@@ -1,3 +1,4 @@
+use crate::icons::{Icon, centered};
 use crate::{AppUi, Focus, Page};
 use egui::{Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
@@ -480,6 +481,20 @@ pub(crate) fn paragraph(
     p.galley(Pos2::new(pos[0], pos[1]), galley, color);
 }
 pub(crate) fn button(p: &egui::Painter, rect: Rect, text: &str, focused: bool) {
+    button_background(p, rect, focused);
+    p.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text.chars().take(128).collect::<String>(),
+        FontId::proportional(26.0),
+        WHITE,
+    );
+}
+pub(crate) fn icon_button(p: &egui::Painter, rect: Rect, icon: crate::icons::Icon, focused: bool) {
+    button_background(p, rect, focused);
+    icon.paint(p, crate::icons::centered(rect.center(), 32.0), WHITE);
+}
+fn button_background(p: &egui::Painter, rect: Rect, focused: bool) {
     p.rect_filled(
         rect,
         40,
@@ -495,11 +510,29 @@ pub(crate) fn button(p: &egui::Painter, rect: Rect, text: &str, focused: bool) {
         Stroke::new(2.0, Color32::from_rgb(37, 37, 37)),
         StrokeKind::Inside,
     );
-    p.text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        text.chars().take(128).collect::<String>(),
+}
+fn marked_button(p: &egui::Painter, rect: Rect, text: &str, checked: bool, focused: bool) {
+    button_background(p, rect, focused);
+    let mut job = egui::text::LayoutJob::simple(
+        text.chars().take(128).collect(),
         FontId::proportional(26.0),
+        WHITE,
+        rect.width() - 84.0,
+    );
+    job.wrap.max_rows = 1;
+    let galley = p.layout_job(job);
+    let prefix = if checked { 40.0 } else { 0.0 };
+    let left = rect.center().x - (galley.size().x + prefix) * 0.5;
+    if checked {
+        Icon::Check.paint(
+            p,
+            centered(Pos2::new(left + 16.0, rect.center().y), 32.0),
+            WHITE,
+        );
+    }
+    p.galley(
+        Pos2::new(left + prefix, rect.center().y - galley.size().y * 0.5),
+        galley,
         WHITE,
     );
 }
@@ -544,13 +577,10 @@ pub(crate) fn paint_card(
         },
         346.0,
     );
-    label(
+    Icon::More.paint(
         p,
-        [rect.right() - 28.0, rect.bottom() + 8.0],
-        "···",
-        28.0,
+        centered(Pos2::new(rect.right() - 14.0, rect.bottom() + 26.0), 24.0),
         MUTED,
-        28.0,
     );
     if card.key.media_id().is_none() {
         return;
@@ -618,21 +648,39 @@ fn paint_rail(p: &egui::Painter, focus: Focus, page: Page, signed_in: bool) {
         );
     }
     use crate::RailItem;
-    for (item, text, symbol, y, active) in [
-        (RailItem::Search, "SEARCH", "⌕", 208.0, page == Page::Search),
-        (RailItem::Home, "HOME", "⌂", 356.0, page == Page::Home),
-        (RailItem::New, "NEW", "✧", 430.0, page == Page::New),
+    for (item, text, icon, y, active) in [
+        (
+            RailItem::Search,
+            "SEARCH",
+            Icon::Search,
+            208.0,
+            page == Page::Search,
+        ),
+        (
+            RailItem::Home,
+            "HOME",
+            Icon::Home,
+            356.0,
+            page == Page::Home,
+        ),
+        (
+            RailItem::New,
+            "NEW",
+            Icon::Sparkle,
+            430.0,
+            page == Page::New,
+        ),
         (
             RailItem::AllFilms,
             "ALL FILMS",
-            "◉",
+            Icon::FilmReel,
             504.0,
             page == Page::AllFilms,
         ),
         (
             RailItem::Login,
             if signed_in { "ACCOUNT" } else { "LOG IN" },
-            "♙",
+            Icon::Account,
             649.0,
             page == Page::Login,
         ),
@@ -642,13 +690,7 @@ fn paint_rail(p: &egui::Painter, focus: Focus, page: Page, signed_in: bool) {
         } else {
             MUTED
         };
-        p.text(
-            Pos2::new(75.0, y),
-            egui::Align2::CENTER_CENTER,
-            symbol,
-            FontId::proportional(38.0),
-            color,
-        );
+        icon.paint(p, centered(Pos2::new(75.0, y), 32.0), color);
         if expanded {
             label(p, [126.0, y - 15.0], text, 26.0, color, 200.0);
             if focus == Focus::Rail(item) {
@@ -703,10 +745,10 @@ impl AppUi {
         );
         let p = p.with_clip_rect(rect.shrink(2.0));
         label(&p, [210.0, 150.0], "All Films", 60.0, WHITE, 460.0);
-        button(
+        icon_button(
             &p,
             Rect::from_min_size(Pos2::new(1630.0, 139.0), Vec2::splat(82.0)),
-            "×",
+            Icon::Close,
             self.focus() == Focus::FilterClose,
         );
         p.line_segment(
@@ -742,7 +784,7 @@ impl AppUi {
                 label_text.to_owned()
             };
             label(&p, [210.0, y], &text, 34.0, color, 430.0);
-            label(&p, [650.0, y], ">", 28.0, color, 32.0);
+            Icon::ChevronRight.paint(&p, centered(Pos2::new(666.0, y + 16.0), 24.0), color);
         }
         let selected = match self.layout_focus() {
             Focus::FilterOption(index) => index,
@@ -759,18 +801,12 @@ impl AppUi {
                 );
                 button(&p, rect, title, self.focus() == Focus::FilterOption(index));
                 if self.filters.draft.sort_index == index {
-                    label(
-                        &p,
-                        [1140.0, rect.top() + 23.0],
-                        if self.filters.draft.descending {
-                            "↓"
-                        } else {
-                            "↑"
-                        },
-                        30.0,
-                        GOLD,
-                        44.0,
-                    );
+                    let icon = if self.filters.draft.descending {
+                        Icon::ArrowDown
+                    } else {
+                        Icon::ArrowUp
+                    };
+                    icon.paint(&p, centered(Pos2::new(1156.0, rect.center().y), 32.0), GOLD);
                 }
             }
         } else if let Some(group) = data
@@ -798,20 +834,21 @@ impl AppUi {
                     .draft
                     .options
                     .contains(&(self.filters.group - 1, index));
-                let text = if checked {
-                    format!("✓ {title}")
-                } else {
-                    (*title).to_owned()
-                };
-                button(&p, rect, &text, self.focus() == Focus::FilterOption(index));
+                marked_button(
+                    &p,
+                    rect,
+                    title,
+                    checked,
+                    self.focus() == Focus::FilterOption(index),
+                );
             }
         } else {
             label(&p, [754.0, 280.0], "Loading filters…", 28.0, MUTED, 700.0);
         }
-        button(
+        icon_button(
             &p,
             Rect::from_min_size(Pos2::new(210.0, 868.0), Vec2::splat(82.0)),
-            "↶",
+            Icon::Reset,
             self.focus() == Focus::FilterReset,
         );
         button(
@@ -1024,10 +1061,10 @@ impl AppUi {
             WHITE,
             1200.0,
         );
-        button(
+        icon_button(
             &p,
             Rect::from_min_size(Pos2::new(1490.0, 108.0), Vec2::splat(82.0)),
-            "×",
+            Icon::Close,
             self.focus() == Focus::InformationClose,
         );
         if detail.kind != crate::DetailKind::Collection {
