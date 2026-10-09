@@ -177,6 +177,7 @@ pub(super) fn block(id: u32, kind: u64, value: serde_json::Value) -> Result<Disc
                         MediaKind::Category => MediaRoute::Category,
                         MediaKind::Supplement => MediaRoute::Supplement,
                         MediaKind::Series => MediaRoute::Series,
+                        MediaKind::Original => MediaRoute::Original,
                         MediaKind::Live => MediaRoute::Live,
                     };
                     if !matches!(&target, ContentTarget::Media {route, id, ..} if *route == expected_route && *id == media.id) { return Err(Error::InvalidResponse); }

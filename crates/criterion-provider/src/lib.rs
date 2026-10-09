@@ -135,7 +135,7 @@ impl<T: RequestTransport> Catalog<T> {
         url.query_pairs_mut().append_pair("q", query);
         let search: WireSearch = self.request(url).await?;
         if search.playlist.len() > 100
-            || search.type_counts.len() > 6
+            || search.type_counts.len() > 7
             || search.type_counts.values().any(|count| *count > 1_000_000)
         {
             return Err(Error::InvalidResponse);

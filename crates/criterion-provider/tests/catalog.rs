@@ -141,19 +141,68 @@ async fn browse_preserves_display_metadata_and_the_next_page() {
 struct SearchFixture;
 
 #[tokio::test]
+async fn search_preserves_a_mixed_film_and_original_result_with_typed_counts() {
+    // Synthetic bounded regression for the content type in the live Godard query.
+    let body = br#"{"playlist":[{"mediaid":"ABCDEF01","title":"Film fixture","contentType":"film","duration":120},{"mediaid":"ABCDEF02","title":"Original fixture","contentType":"original","duration":71}],"type_counts":{"film":1,"original":1},"paging":{"page_limit":100}}"#;
+    let results = Catalog::with_transport(BodyFixture(body.to_vec()))
+        .search("Godard")
+        .await
+        .unwrap();
+    assert_eq!(results.items.len(), 2);
+    assert_eq!(results.items[0].kind, MediaKind::Film);
+    assert_eq!(results.items[1].title, "Original fixture");
+    assert_eq!(results.items[1].kind, MediaKind::Original);
+    assert_eq!(results.items[1].duration_seconds, 71);
+    assert_eq!(results.type_counts.len(), 2);
+    assert!(results.type_counts.iter().all(|count| count.count == 1));
+    assert!(
+        results
+            .type_counts
+            .iter()
+            .any(|count| count.kind == MediaKind::Original)
+    );
+}
+
+#[tokio::test]
 async fn search_admits_counts_for_all_known_catalog_kinds_and_rejects_unknown_kinds() {
     // Synthetic capacity check, not a claim that one observed query returns all kinds.
     let mut body = serde_json::json!({"playlist":[], "type_counts":{
-        "film":1,"collection":1,"category":1,"supplement":1,"series":1,"live":1
+        "film":1,"collection":1,"category":1,"supplement":1,"series":1,"original":1,"live":1
     }});
     let results = Catalog::with_transport(BodyFixture(serde_json::to_vec(&body).unwrap()))
         .search("Criterion")
         .await
         .unwrap();
-    assert_eq!(results.type_counts.len(), 6);
+    assert_eq!(results.type_counts.len(), 7);
+    body["type_counts"]["original"] = serde_json::json!(1_000_001);
+    assert_eq!(
+        Catalog::with_transport(BodyFixture(serde_json::to_vec(&body).unwrap()))
+            .search("Criterion")
+            .await,
+        Err(Error::InvalidResponse)
+    );
     body["type_counts"] = serde_json::json!({"unexpected":1});
     assert_eq!(
         Catalog::with_transport(BodyFixture(serde_json::to_vec(&body).unwrap()))
+            .search("Criterion")
+            .await,
+        Err(Error::InvalidResponse)
+    );
+}
+
+#[tokio::test]
+async fn original_detail_is_distinct_and_unknown_media_types_still_fail_closed() {
+    let body = br#"{"mediaid":"ABCDEF02","title":"Original fixture","contentType":"original","duration":71}"#;
+    let detail = Catalog::with_transport(BodyFixture(body.to_vec()))
+        .detail(&MediaId::new("ABCDEF02").unwrap())
+        .await
+        .unwrap();
+    assert_eq!(detail.media.kind, MediaKind::Original);
+    assert_eq!(detail.media.duration_seconds, 71);
+    assert!(detail.live_schedule.is_empty());
+    let body = br#"{"playlist":[{"mediaid":"ABCDEF02","title":"Unknown fixture","contentType":"unreviewed","duration":71}],"type_counts":{"film":1}}"#;
+    assert_eq!(
+        Catalog::with_transport(BodyFixture(body.to_vec()))
             .search("Criterion")
             .await,
         Err(Error::InvalidResponse)

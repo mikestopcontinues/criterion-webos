@@ -189,6 +189,7 @@ pub enum MediaKind {
     Category,
     Supplement,
     Series,
+    Original,
     Live,
 }
 
@@ -220,6 +221,7 @@ impl MediaKind {
             "category" => Ok(Self::Category),
             "supplement" => Ok(Self::Supplement),
             "series" => Ok(Self::Series),
+            "original" => Ok(Self::Original),
             "live" => Ok(Self::Live),
             _ => Err(Error::InvalidResponse),
         }

@@ -546,6 +546,32 @@ async fn discovery_requires_supplied_playlists_without_inventing_empty_static_ro
 }
 
 #[tokio::test]
+async fn discovery_preserves_original_cards_only_with_their_verified_originals_route() {
+    // Synthetic row on the observed HTML envelope; Original's route is source-verified.
+    let mut blocks = blocks_fixture();
+    blocks[1]["playlist"] = serde_json::json!([{
+        "mediaid":"ABCDEF02", "title":"Original fixture", "contentType":"original", "duration":71,
+        "deeplink":"/originals/ABCDEF02/original-fixture"
+    }]);
+    let page = project(&flight_records(blocks.clone())).await.unwrap();
+    let DiscoveryBlock::Rail { cards, .. } = &page.blocks[1] else {
+        panic!("expected supplied rail")
+    };
+    assert_eq!(cards[0].media.kind, MediaKind::Original);
+    assert!(
+        matches!(&cards[0].target, ContentTarget::Media { route: MediaRoute::Original, id, .. } if id.as_str() == "ABCDEF02")
+    );
+    for route in ["films", "supplements", "collections"] {
+        blocks[1]["playlist"][0]["deeplink"] =
+            serde_json::json!(format!("/{route}/ABCDEF02/original-fixture"));
+        assert_eq!(
+            project(&flight_records(blocks.clone())).await,
+            Err(Error::InvalidResponse)
+        );
+    }
+}
+
+#[tokio::test]
 async fn discovery_rejects_card_identity_and_known_metadata_changes() {
     for (key, value) in [
         ("deeplink", serde_json::json!("/films/11111111/the-hitcher")),

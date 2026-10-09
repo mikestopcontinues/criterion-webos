@@ -119,7 +119,7 @@ impl Presentation {
         projection.gaps.live_schedule_programs = detail.live_schedule.len();
         projection.live_schedule = detail.live_schedule;
         let kind = match detail.media.kind {
-            MediaKind::Film | MediaKind::Live => DetailKind::Film,
+            MediaKind::Film | MediaKind::Original | MediaKind::Live => DetailKind::Film,
             MediaKind::Supplement => DetailKind::Supplement,
             MediaKind::Collection | MediaKind::Category | MediaKind::Series => {
                 DetailKind::Collection
@@ -251,7 +251,8 @@ impl Presentation {
                 MediaKind::Film => projection.search_counts[1] = count.count,
                 MediaKind::Collection => projection.search_counts[2] = count.count,
                 MediaKind::Supplement => projection.search_counts[3] = count.count,
-                MediaKind::Category | MediaKind::Series | MediaKind::Live => {}
+                MediaKind::Category | MediaKind::Series | MediaKind::Original | MediaKind::Live => {
+                }
             }
         }
         for media in results.items {
@@ -711,6 +712,7 @@ mod tests {
             ("ABCDEF13", "Collection fixture", MediaKind::Collection),
             ("ABCDEF14", "Supplement fixture", MediaKind::Supplement),
             ("ABCDEF15", "Series fixture", MediaKind::Series),
+            ("ABCDEF16", "Original fixture", MediaKind::Original),
         ]
         .into_iter()
         .map(|(id, title, kind)| MediaSummary {
@@ -741,13 +743,17 @@ mod tests {
                         kind: MediaKind::Category,
                         count: 2,
                     },
+                    KindCount {
+                        kind: MediaKind::Original,
+                        count: 2,
+                    },
                 ],
             },
             SearchGroup::All,
         );
         presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
-            assert_eq!(view.search_counts, [20, 11, 4, 3]);
-            assert_eq!(view.total, 20);
+            assert_eq!(view.search_counts, [22, 11, 4, 3]);
+            assert_eq!(view.total, 22);
             assert_eq!(
                 view.cards.iter().map(|card| card.title).collect::<Vec<_>>(),
                 [
@@ -755,7 +761,8 @@ mod tests {
                     "Category fixture",
                     "Collection fixture",
                     "Supplement fixture",
-                    "Series fixture"
+                    "Series fixture",
+                    "Original fixture"
                 ]
             );
         });
@@ -772,7 +779,41 @@ mod tests {
                 assert_eq!(view.status, LoadState::Ready);
             });
         }
-        assert_eq!(presentation.artwork_bindings().len(), 5);
+        assert_eq!(presentation.artwork_bindings().len(), 6);
+    }
+
+    #[test]
+    fn original_detail_uses_the_single_item_layout_and_preserves_its_media_identity() {
+        use criterion_provider::{MediaDetail, MediaId, MediaKind, MediaSummary};
+        use criterion_ui::{DetailKind, Target};
+        let id = MediaId::new("ABCDEF16").unwrap();
+        let presentation = Presentation::detail(MediaDetail {
+            media: MediaSummary {
+                id: id.clone(),
+                title: "Original fixture".into(),
+                kind: MediaKind::Original,
+                duration_seconds: 71,
+                release_date: None,
+            },
+            description: None,
+            directors: vec![],
+            starring: vec![],
+            countries: vec![],
+            languages: vec![],
+            genres: vec![],
+            content_warnings: None,
+            commentary_tracks: vec![],
+            first_playlist_sortable: false,
+            live_schedule: vec![],
+            playlists: vec![],
+        });
+        presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
+            let detail = view.detail.as_ref().unwrap();
+            assert_eq!(detail.kind, DetailKind::Film);
+            assert_eq!(detail.card.key, &Target::Media(id));
+            assert_eq!(detail.card.duration_seconds, 71);
+            assert!(view.rails.is_empty());
+        });
     }
 
     fn artwork(filename: &str) -> criterion_provider::DiscoveryArtwork {
