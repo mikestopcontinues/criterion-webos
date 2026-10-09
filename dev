@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+project_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+image=criterion-webos-development:20261009
+project_key=$(printf '%s' "$project_root" | cksum | cut -d ' ' -f 1)
+
+if [ "${1:-}" = image ]; then
+  exec docker build --target development --tag "$image" "$project_root"
+fi
+
+if [ "$#" -eq 0 ]; then
+  printf 'Usage: ./dev image | ./dev cargo <args> | ./dev run <command> <args>\n' >&2
+  exit 2
+fi
+
+case "$1" in
+  cargo) shift; set -- cargo "$@" ;;
+  run) shift ;;
+  *) printf 'Unknown development command\n' >&2; exit 2 ;;
+esac
+
+exec docker run --rm \
+  --network bridge \
+  --mount "type=bind,src=$project_root,dst=/workspace" \
+  --mount type=volume,src=criterion-webos-cargo,dst=/cargo \
+  --mount "type=volume,src=criterion-webos-target-$project_key,dst=/target" \
+  --workdir /workspace \
+  "$image" "$@"
