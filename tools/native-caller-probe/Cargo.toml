@@ -1,0 +1,22 @@
+[package]
+name = "criterion-native-caller-probe"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+license = "GPL-3.0-or-later"
+description = "Disposable stock-SDL application caller admission probe"
+
+[features]
+default = []
+webos = ["dep:criterion-platform", "criterion-platform/webos", "dep:glow"]
+
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+criterion-platform = { path = "../../crates/criterion-platform", optional = true }
+glow = { version = "=0.17.0", optional = true }
+
+[[bin]]
+name = "criterion-native-caller-probe"
+path = "src/main.rs"
+required-features = ["webos"]
