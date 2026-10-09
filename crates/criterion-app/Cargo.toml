@@ -1,0 +1,16 @@
+[package]
+name = "criterion-app"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "GPL-3.0-or-later"
+
+[features]
+default = []
+sdl = ["criterion-platform/sdl"]
+webos = ["sdl", "criterion-platform/webos"]
+
+[dependencies]
+criterion-platform = { path = "../criterion-platform" }
+criterion-ui = { path = "../criterion-ui" }
+egui = { version = "=0.36.2", default-features = false }
