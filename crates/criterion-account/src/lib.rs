@@ -8,8 +8,8 @@ mod wire;
 pub use client::AccountClient;
 pub use criterion_session::SecretBody;
 pub use model::{
-    ContinueWatching, MediaKind, MediaSummary, MyListIds, PagingInfo, Position, TypeCount,
-    WatchList,
+    ContinueWatching, MediaKind, MediaSummary, MyListIds, PagingInfo, Position, SyncReceipt,
+    TypeCount, WatchList, WatchListContentType, WriteFailure, WriteStatus,
 };
 pub use transport::HttpTransport;
 pub use wire::{BOOTSTRAP_URL, CA_BASE, US_BASE};
@@ -27,6 +27,7 @@ pub enum Error {
     Disposed,
     NoBootstrap,
     UnsupportedRegion,
+    ReconciliationRequired,
     Session(criterion_session::Error),
 }
 impl std::fmt::Display for Error {
@@ -40,12 +41,21 @@ pub enum Region {
     Us,
     Ca,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     Bootstrap,
     MyListIds(Region),
     ContinueWatching(Region),
     WatchList(Region),
+    AddWatchList {
+        region: Region,
+        media_id: criterion_provider::MediaId,
+        content_type: WatchListContentType,
+    },
+    RemoveWatchList {
+        region: Region,
+        media_id: criterion_provider::MediaId,
+    },
 }
 pub struct Credentials {
     pub(crate) bootstrap: reqwest::header::HeaderValue,
@@ -75,7 +85,9 @@ pub struct Response {
     pub body: SecretBody,
 }
 pub trait Transport: Send + Sync {
-    fn get(&self, request: Request) -> impl Future<Output = Result<Response, Error>> + Send;
+    /// Busy and InvalidRequest must mean no HTTP contact. Once a request may
+    /// have been delivered, implementations return another coarse error.
+    fn send(&self, request: Request) -> impl Future<Output = Result<Response, Error>> + Send;
 }
 #[cfg(test)]
 mod client_tests;
@@ -83,3 +95,5 @@ mod client_tests;
 mod native_tests;
 #[cfg(test)]
 mod transport_tests;
+#[cfg(test)]
+mod write_tests;

@@ -1,12 +1,16 @@
-use crate::{Credentials, Error, Region, Request, Response, SecretBody, Target, Transport};
+use crate::{
+    Credentials, Error, Region, Request, Response, SecretBody, Target, Transport,
+    WatchListContentType,
+};
 use std::sync::Arc;
 use std::time::Duration;
 use zeroize::Zeroizing;
 
+const MAX_REQUEST_BYTES: usize = 256;
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 
-/// Fixed middleware HTTPS GET transport with verified static roots, no proxy,
+/// Fixed middleware HTTPS transport with verified static roots, no proxy,
 /// redirects, retries or decoding. One active future per instance; excess calls
 /// return Busy. The total ten-second deadline includes connection and body reads.
 pub struct HttpTransport {
@@ -60,15 +64,24 @@ impl HttpTransport {
         Ok(transport)
     }
 
-    fn target(&self, target: Target) -> Result<url::Url, Error> {
+    fn target(&self, target: &Target) -> Result<url::Url, Error> {
         let target = match target {
+            Target::AddWatchList { region, .. } => account_target(*region, "/content/watch-list")?,
+            Target::RemoveWatchList { region, media_id } => {
+                let mut target = account_target(*region, "/content/watch-list")?;
+                target
+                    .path_segments_mut()
+                    .map_err(|_| Error::InvalidRequest)?
+                    .push(media_id.as_str());
+                target
+            }
             Target::Bootstrap => {
                 url::Url::parse(crate::BOOTSTRAP_URL).map_err(|_| Error::InvalidRequest)?
             }
-            Target::WatchList(region) => account_target(region, "/content/watch-list")?,
-            Target::MyListIds(region) => account_target(region, "/content/my-stuff-ids")?,
+            Target::WatchList(region) => account_target(*region, "/content/watch-list")?,
+            Target::MyListIds(region) => account_target(*region, "/content/my-stuff-ids")?,
             Target::ContinueWatching(region) => {
-                account_target(region, "/content/continue-watching")?
+                account_target(*region, "/content/continue-watching")?
             }
         };
         #[cfg(test)]
@@ -90,6 +103,39 @@ fn account_target(region: Region, path: &str) -> Result<url::Url, Error> {
     // The suffixes and regional bases are fixed source-owned values, never
     // payload-selected paths, provider URLs or caller-supplied route strings.
     url::Url::parse(&format!("{base}{path}")).map_err(|_| Error::InvalidRequest)
+}
+
+#[derive(serde::Serialize)]
+struct AddBody<'a> {
+    media_id: &'a str,
+    content_type: &'a str,
+}
+
+fn add_body(
+    media_id: &criterion_provider::MediaId,
+    content_type: WatchListContentType,
+) -> Result<SecretBody, Error> {
+    // Fixed stack storage makes encoder overflow a pre-contact error without
+    // reallocating or abandoning any partially encoded private body.
+    let mut storage = Zeroizing::new([0_u8; MAX_REQUEST_BYTES]);
+    let length = {
+        let mut writer = std::io::Cursor::new(&mut storage[..]);
+        serde_json::to_writer(
+            &mut writer,
+            &AddBody {
+                media_id: media_id.as_str(),
+                content_type: content_type.as_str(),
+            },
+        )
+        .map_err(|_| Error::InvalidRequest)?;
+        usize::try_from(writer.position()).map_err(|_| Error::InvalidRequest)?
+    };
+    if length > MAX_REQUEST_BYTES {
+        return Err(Error::InvalidRequest);
+    }
+    let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_REQUEST_BYTES));
+    bytes.extend_from_slice(&storage[..length]);
+    Ok(SecretBody::new(std::mem::take(&mut *bytes)))
 }
 
 fn valid_credentials(credentials: &Credentials) -> Result<(), Error> {
@@ -185,29 +231,52 @@ fn request_error(error: reqwest::Error) -> Error {
 }
 
 impl Transport for HttpTransport {
-    async fn get(&self, request: Request) -> Result<Response, Error> {
+    async fn send(&self, request: Request) -> Result<Response, Error> {
         // Refuse confused credential roles and malformed private capabilities
         // before taking capacity or constructing any outbound HTTP request.
         let Request {
             target,
             credentials,
         } = request;
-        let credentials = match target {
+        let credentials = match &target {
             Target::Bootstrap if credentials.is_some() => return Err(Error::InvalidRequest),
             Target::Bootstrap => None,
-            Target::MyListIds(_) | Target::ContinueWatching(_) | Target::WatchList(_) => {
+            Target::MyListIds(_)
+            | Target::ContinueWatching(_)
+            | Target::WatchList(_)
+            | Target::AddWatchList { .. }
+            | Target::RemoveWatchList { .. } => {
                 let credentials = credentials.ok_or(Error::InvalidRequest)?;
                 valid_credentials(&credentials)?;
                 Some(credentials)
             }
         };
+        let (method, body) = match &target {
+            Target::AddWatchList {
+                media_id,
+                content_type,
+                ..
+            } => (
+                reqwest::Method::POST,
+                Some(add_body(media_id, *content_type)?),
+            ),
+            Target::RemoveWatchList { .. } => (reqwest::Method::DELETE, None),
+            _ => (reqwest::Method::GET, None),
+        };
         let _permit = self.permit.try_acquire().map_err(|_| Error::Busy)?;
-        let target = self.target(target)?;
+        let target = self.target(&target)?;
         let mut outbound = self
             .client
-            .get(target)
+            .request(method, target)
             .header(reqwest::header::ACCEPT, "application/json")
             .header(reqwest::header::ACCEPT_ENCODING, "identity");
+        if let Some(body) = body {
+            // Bytes retains the private zeroizing body owner throughout the
+            // request; HTTP/TLS internal copies remain outside this guarantee.
+            outbound = outbound
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(bytes::Bytes::from_owner(body));
+        }
         if let Some(credentials) = credentials {
             // Move the existing sensitive HeaderValue owners into this request;
             // never store either private value in client-wide default headers.

@@ -12,6 +12,64 @@ pub enum MediaKind {
     Film,
     Supplement,
 }
+/// Exact native request enum; caller selection is explicit rather than an
+/// inferred automatic conversion from the media projection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WatchListContentType {
+    Film,
+    Series,
+    Collection,
+    Episode,
+    Supplement,
+    Category,
+    Franchise,
+    Live,
+    Original,
+}
+impl WatchListContentType {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Film => "film",
+            Self::Series => "series",
+            Self::Collection => "collection",
+            Self::Episode => "episode",
+            Self::Supplement => "supplement",
+            Self::Category => "category",
+            Self::Franchise => "franchise",
+            Self::Live => "live",
+            Self::Original => "original",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SyncReceipt {
+    /// Provider response flag, not a claim that membership was applied.
+    pub sync: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteFailure {
+    NotIssued(crate::Error),
+    Unconfirmed(crate::Error),
+}
+impl std::fmt::Display for WriteFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+impl std::error::Error for WriteFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::NotIssued(error) | Self::Unconfirmed(error) => Some(error),
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WriteStatus {
+    #[default]
+    Ready,
+    Issued,
+    Unconfirmed,
+}
 #[derive(PartialEq)]
 pub struct MediaSummary {
     pub id: MediaId,
@@ -32,7 +90,7 @@ impl std::fmt::Debug for MediaSummary {
 #[derive(PartialEq, Eq)]
 pub struct Position {
     pub media_id: MediaId,
-    /// Returned native signed Int64 values; read-unit/range interpretation remains unverified.
+    /// Native signed Int64 wire values. The provider contract owns units and completion rules.
     pub pos: i64,
     pub dur: i64,
     pub commentary_track: Option<String>,

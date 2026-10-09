@@ -1,4 +1,6 @@
-use crate::{Credentials, Error, HttpTransport, Region, Request, Target, Transport};
+use crate::{
+    Credentials, Error, HttpTransport, Region, Request, Target, Transport, WatchListContentType,
+};
 use reqwest::header::HeaderValue;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -188,7 +190,7 @@ async fn verified_tls_gets_fixed_bootstrap_without_credentials_and_returns_priva
     let server = Server::json(200, br#"{"token":"synthetic-bootstrap-result"}"#);
     let response = server
         .transport(Duration::from_secs(1))
-        .get(request())
+        .send(request())
         .await
         .unwrap();
     assert_eq!(response.status, 200);
@@ -224,7 +226,7 @@ async fn bootstrap_credentials_are_rejected_before_any_network_contact() {
     assert_eq!(
         server
             .transport(Duration::from_secs(1))
-            .get(private_request)
+            .send(private_request)
             .await
             .err(),
         Some(Error::InvalidRequest)
@@ -239,7 +241,7 @@ async fn untrusted_and_wrong_hostname_certificates_fail_before_http_delivery() {
     let transport =
         HttpTransport::for_test(untrusted.origin.clone(), Duration::from_secs(1)).unwrap();
     assert_eq!(
-        transport.get(request()).await.err(),
+        transport.send(request()).await.err(),
         Some(Error::Unavailable)
     );
     assert!(untrusted.requests.lock().unwrap().is_empty());
@@ -251,7 +253,7 @@ async fn untrusted_and_wrong_hostname_certificates_fail_before_http_delivery() {
     assert_eq!(
         wrong_host
             .transport(Duration::from_secs(1))
-            .get(request())
+            .send(request())
             .await
             .err(),
         Some(Error::Unavailable)
@@ -290,7 +292,7 @@ async fn redirects_return_status_and_never_contact_the_destination() {
     });
     let result = server
         .transport(Duration::from_secs(1))
-        .get(request())
+        .send(request())
         .await;
     assert_eq!(result.err(), Some(Error::HttpStatus(307)));
     assert_eq!(target.connections.load(Ordering::Acquire), 0);
@@ -302,7 +304,7 @@ async fn non_success_status_does_not_publish_the_private_error_body_or_retry() {
         let server = Server::json(status, br#"{"private":"synthetic-private-error"}"#);
         let error = server
             .transport(Duration::from_secs(1))
-            .get(request())
+            .send(request())
             .await
             .err()
             .unwrap();
@@ -320,7 +322,7 @@ async fn json_content_type_allows_case_and_parameters_but_rejects_missing_ambigu
     });
     assert_eq!(
         good.transport(Duration::from_secs(1))
-            .get(request())
+            .send(request())
             .await
             .unwrap()
             .body
@@ -343,7 +345,7 @@ async fn json_content_type_allows_case_and_parameters_but_rejects_missing_ambigu
         assert_eq!(
             server
                 .transport(Duration::from_secs(1))
-                .get(request())
+                .send(request())
                 .await
                 .err(),
             Some(Error::InvalidResponse)
@@ -363,7 +365,7 @@ async fn encoded_bodies_are_rejected_instead_of_decoded_or_reinterpreted() {
         assert_eq!(
             server
                 .transport(Duration::from_secs(1))
-                .get(request())
+                .send(request())
                 .await
                 .err(),
             Some(Error::InvalidResponse)
@@ -379,7 +381,7 @@ async fn advertised_and_chunked_body_lengths_are_bounded_at_sixty_four_kibibytes
     assert_eq!(
         advertised
             .transport(Duration::from_secs(1))
-            .get(request())
+            .send(request())
             .await
             .err(),
         Some(Error::ResponseTooLarge)
@@ -401,7 +403,7 @@ async fn advertised_and_chunked_body_lengths_are_bounded_at_sixty_four_kibibytes
     assert_eq!(
         chunked
             .transport(Duration::from_secs(1))
-            .get(request())
+            .send(request())
             .await
             .err(),
         Some(Error::ResponseTooLarge)
@@ -419,7 +421,7 @@ async fn exactly_sixty_four_kibibytes_of_private_json_are_returned_without_trunc
     });
     let response = server
         .transport(Duration::from_secs(1))
-        .get(request())
+        .send(request())
         .await
         .unwrap();
     assert_eq!(response.body.expose().len(), 65_536);
@@ -438,7 +440,7 @@ async fn close_delimited_oversized_and_truncated_bodies_do_not_publish_partial_p
     assert_eq!(
         oversized
             .transport(Duration::from_secs(1))
-            .get(request())
+            .send(request())
             .await
             .err(),
         Some(Error::ResponseTooLarge)
@@ -448,7 +450,7 @@ async fn close_delimited_oversized_and_truncated_bodies_do_not_publish_partial_p
     });
     let error = truncated
         .transport(Duration::from_secs(1))
-        .get(request())
+        .send(request())
         .await
         .err()
         .unwrap();
@@ -462,8 +464,8 @@ async fn response_cookies_are_never_carried_to_later_bootstrap_requests() {
         let _ = tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: fixture_session=synthetic-cookie-secret; Secure; Path=/\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
     });
     let transport = server.transport(Duration::from_secs(1));
-    assert!(transport.get(request()).await.is_ok());
-    assert!(transport.get(request()).await.is_ok());
+    assert!(transport.send(request()).await.is_ok());
+    assert!(transport.send(request()).await.is_ok());
     let requests = server.requests.lock().unwrap();
     assert_eq!(requests.len(), 2);
     for received in requests.iter() {
@@ -488,10 +490,13 @@ async fn a_rejected_status_releases_capacity_for_the_next_get() {
     });
     let transport = server.transport(Duration::from_secs(1));
     assert_eq!(
-        transport.get(request()).await.err(),
+        transport.send(request()).await.err(),
         Some(Error::HttpStatus(503))
     );
-    assert_eq!(transport.get(request()).await.unwrap().body.expose(), b"{}");
+    assert_eq!(
+        transport.send(request()).await.unwrap().body.expose(),
+        b"{}"
+    );
     assert_eq!(server.requests.lock().unwrap().len(), 2);
 }
 
@@ -507,7 +512,7 @@ async fn an_empty_success_body_is_invalid_including_no_content_status() {
         assert_eq!(
             server
                 .transport(Duration::from_secs(1))
-                .get(request())
+                .send(request())
                 .await
                 .err(),
             Some(Error::InvalidResponse)
@@ -526,7 +531,7 @@ async fn total_deadline_covers_headers_and_a_trickling_response_body() {
     assert_eq!(
         stalled
             .transport(Duration::from_millis(180))
-            .get(request())
+            .send(request())
             .await
             .err(),
         Some(Error::Deadline)
@@ -544,7 +549,7 @@ async fn total_deadline_covers_headers_and_a_trickling_response_body() {
     assert_eq!(
         trickling
             .transport(Duration::from_millis(180))
-            .get(request())
+            .send(request())
             .await
             .err(),
         Some(Error::Deadline)
@@ -567,13 +572,13 @@ async fn one_active_get_returns_busy_and_dropping_it_releases_capacity() {
     });
     let transport = Arc::new(server.transport(Duration::from_secs(3)));
     let first_transport = transport.clone();
-    let first = tokio::spawn(async move { first_transport.get(request()).await });
+    let first = tokio::spawn(async move { first_transport.send(request()).await });
     wait_requests(&server, 1).await;
-    assert_eq!(transport.get(request()).await.err(), Some(Error::Busy));
+    assert_eq!(transport.send(request()).await.err(), Some(Error::Busy));
     first.abort();
     assert!(first.await.unwrap_err().is_cancelled());
     let next_transport = transport.clone();
-    let next = tokio::spawn(async move { next_transport.get(request()).await });
+    let next = tokio::spawn(async move { next_transport.send(request()).await });
     wait_requests(&server, 2).await;
     release.store(true, Ordering::Release);
     assert!(next.await.unwrap().is_ok());
@@ -644,7 +649,7 @@ async fn verified_account_gets_use_exact_regional_routes_and_distinct_private_he
         assert!(!format!("{private_request:?}").contains("synthetic-subscriber-capability"));
         let response = server
             .transport(Duration::from_secs(1))
-            .get(private_request)
+            .send(private_request)
             .await
             .unwrap();
         assert_eq!(response.status, 200);
@@ -684,7 +689,7 @@ async fn maximal_valid_private_headers_survive_the_bounded_request_path() {
     let server = Server::json(200, b"{}");
     let response = server
         .transport(Duration::from_secs(1))
-        .get(Request {
+        .send(Request {
             target: Target::MyListIds(Region::Us),
             credentials: Some(private_credentials(
                 bootstrap.as_bytes(),
@@ -715,13 +720,22 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
         Target::ContinueWatching(Region::Ca),
         Target::WatchList(Region::Us),
         Target::WatchList(Region::Ca),
+        Target::AddWatchList {
+            region: Region::Us,
+            media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
+            content_type: WatchListContentType::Film,
+        },
+        Target::RemoveWatchList {
+            region: Region::Ca,
+            media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
+        },
     ] {
         let server = Server::json(200, b"{}");
         let transport = server.transport(Duration::from_secs(1));
         assert_eq!(
             transport
-                .get(Request {
-                    target,
+                .send(Request {
+                    target: target.clone(),
                     credentials: None
                 })
                 .await
@@ -745,11 +759,11 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
             (&b"Bearer bootstrap"[..], oversized_subscriber.as_bytes()),
         ] {
             let request = Request {
-                target,
+                target: target.clone(),
                 credentials: Some(private_credentials(bootstrap, subscriber)),
             };
             assert_eq!(
-                transport.get(request).await.err(),
+                transport.send(request).await.err(),
                 Some(Error::InvalidRequest)
             );
         }
@@ -762,8 +776,8 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
             }
             assert_eq!(
                 transport
-                    .get(Request {
-                        target,
+                    .send(Request {
+                        target: target.clone(),
                         credentials: Some(credentials)
                     })
                     .await
@@ -802,7 +816,7 @@ async fn account_redirects_never_reissue_private_headers_to_bootstrap_or_another
             assert_eq!(
                 redirect
                     .transport(Duration::from_secs(1))
-                    .get(account_request(target))
+                    .send(account_request(target.clone()))
                     .await
                     .err(),
                 Some(Error::HttpStatus(status))
@@ -818,7 +832,7 @@ async fn account_redirects_never_reissue_private_headers_to_bootstrap_or_another
             assert_eq!(
                 same_origin
                     .transport(Duration::from_secs(1))
-                    .get(account_request(target))
+                    .send(account_request(target.clone()))
                     .await
                     .err(),
                 Some(Error::HttpStatus(status))
@@ -853,13 +867,13 @@ async fn subscriber_errors_do_not_retry_and_later_bootstrap_has_no_stale_headers
         let transport = server.transport(Duration::from_secs(1));
         assert_eq!(
             transport
-                .get(account_request(Target::ContinueWatching(Region::Us)))
+                .send(account_request(Target::ContinueWatching(Region::Us)))
                 .await
                 .err(),
             Some(Error::HttpStatus(status))
         );
         assert_eq!(server.requests.lock().unwrap().len(), 1);
-        assert!(transport.get(request()).await.is_ok());
+        assert!(transport.send(request()).await.is_ok());
         let requests = server.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
         assert!(requests[1].head.starts_with("GET /api/init HTTP/1.1\r\n"));
@@ -878,7 +892,7 @@ async fn default_watch_list_gets_use_fixed_regional_routes_without_query_or_body
         let server = Server::json(200, br#"{"playlist":[],"paging":{}}"#);
         let response = server
             .transport(Duration::from_secs(1))
-            .get(account_request(target))
+            .send(account_request(target.clone()))
             .await
             .unwrap();
         assert_eq!(response.status, 200);
@@ -900,5 +914,256 @@ async fn default_watch_list_gets_use_fixed_regional_routes_without_query_or_body
         );
         assert!(header_values(&requests[0].head, "Cookie").is_empty());
         assert!(requests[0].body.is_empty());
+    }
+}
+
+fn write_targets(region: Region) -> [Target; 2] {
+    [
+        Target::AddWatchList {
+            region,
+            media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
+            content_type: WatchListContentType::Film,
+        },
+        Target::RemoveWatchList {
+            region,
+            media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
+        },
+    ]
+}
+
+#[tokio::test]
+async fn add_watch_list_posts_only_the_verified_id_and_nine_exact_content_types() {
+    for (region, path) in [
+        (Region::Us, "/api/us/content/watch-list"),
+        (Region::Ca, "/api/ca/content/watch-list"),
+    ] {
+        for (content_type, value) in [
+            (WatchListContentType::Film, "film"),
+            (WatchListContentType::Series, "series"),
+            (WatchListContentType::Collection, "collection"),
+            (WatchListContentType::Episode, "episode"),
+            (WatchListContentType::Supplement, "supplement"),
+            (WatchListContentType::Category, "category"),
+            (WatchListContentType::Franchise, "franchise"),
+            (WatchListContentType::Live, "live"),
+            (WatchListContentType::Original, "original"),
+        ] {
+            let target = Target::AddWatchList {
+                region,
+                media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
+                content_type,
+            };
+            let private_request = account_request(target);
+            assert!(!format!("{private_request:?}").contains("W1rA2bC3"));
+            assert!(!format!("{private_request:?}").contains("synthetic-bootstrap-capability"));
+            assert!(!format!("{private_request:?}").contains("synthetic-subscriber-capability"));
+            let server = Server::json(200, br#"{"sync":true}"#);
+            let response = server
+                .transport(Duration::from_secs(1))
+                .send(private_request)
+                .await
+                .unwrap();
+            assert_eq!(response.status, 200);
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert!(
+                requests[0]
+                    .head
+                    .starts_with(&format!("POST {path} HTTP/1.1\r\n"))
+            );
+            assert_eq!(
+                header_values(&requests[0].head, "Content-Type"),
+                ["application/json"]
+            );
+            assert_eq!(
+                header_values(&requests[0].head, "Authorization"),
+                ["Bearer synthetic-bootstrap-capability"]
+            );
+            assert_eq!(
+                header_values(&requests[0].head, "x-auth-token"),
+                ["synthetic-subscriber-capability"]
+            );
+            assert!(header_values(&requests[0].head, "Cookie").is_empty());
+            assert!(requests[0].body.len() <= 256);
+            let body: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
+            assert_eq!(body.as_object().unwrap().len(), 2);
+            assert_eq!(body["media_id"], "W1rA2bC3");
+            assert_eq!(body["content_type"], value);
+        }
+    }
+}
+
+#[tokio::test]
+async fn remove_watch_list_deletes_the_verified_id_with_no_query_or_body() {
+    for (region, path) in [
+        (Region::Us, "/api/us/content/watch-list/W1rA2bC3"),
+        (Region::Ca, "/api/ca/content/watch-list/W1rA2bC3"),
+    ] {
+        let target = Target::RemoveWatchList {
+            region,
+            media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
+        };
+        assert!(!format!("{target:?}").contains("W1rA2bC3"));
+        let server = Server::json(200, br#"{"sync":false}"#);
+        assert_eq!(
+            server
+                .transport(Duration::from_secs(1))
+                .send(account_request(target))
+                .await
+                .unwrap()
+                .status,
+            200
+        );
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .head
+                .starts_with(&format!("DELETE {path} HTTP/1.1\r\n"))
+        );
+        assert_eq!(
+            header_values(&requests[0].head, "Authorization"),
+            ["Bearer synthetic-bootstrap-capability"]
+        );
+        assert_eq!(
+            header_values(&requests[0].head, "x-auth-token"),
+            ["synthetic-subscriber-capability"]
+        );
+        assert!(header_values(&requests[0].head, "Content-Type").is_empty());
+        assert!(header_values(&requests[0].head, "Transfer-Encoding").is_empty());
+        assert!(header_values(&requests[0].head, "Cookie").is_empty());
+        assert!(requests[0].body.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn list_write_redirects_never_reissue_mutations_or_private_headers() {
+    for status in [302, 307, 308] {
+        for target in write_targets(Region::Us) {
+            let destination = Server::json(200, b"{}");
+            let location = format!("{}api/init", destination.origin);
+            let redirect = Server::new("127.0.0.1", move |tls, _| {
+                let _ = write!(
+                    tls,
+                    "HTTP/1.1 {status} Fixture\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+            });
+            let error = redirect
+                .transport(Duration::from_secs(1))
+                .send(account_request(target.clone()))
+                .await
+                .err()
+                .unwrap();
+            assert_eq!(error, Error::HttpStatus(status));
+            assert!(!format!("{error:?} {error}").contains("W1rA2bC3"));
+            assert!(!format!("{error:?} {error}").contains("synthetic-bootstrap-capability"));
+            assert!(!format!("{error:?} {error}").contains("synthetic-subscriber-capability"));
+            assert_eq!(redirect.requests.lock().unwrap().len(), 1);
+            assert_eq!(destination.connections.load(Ordering::Acquire), 0);
+
+            let same_origin = Server::new("127.0.0.1", move |tls, _| {
+                let _ = write!(
+                    tls,
+                    "HTTP/1.1 {status} Fixture\r\nLocation: /api/init\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+            });
+            assert_eq!(
+                same_origin
+                    .transport(Duration::from_secs(1))
+                    .send(account_request(target))
+                    .await
+                    .err(),
+                Some(Error::HttpStatus(status))
+            );
+            assert_eq!(same_origin.requests.lock().unwrap().len(), 1);
+        }
+    }
+}
+
+#[tokio::test]
+async fn list_write_errors_never_retry_and_following_bootstrap_has_no_private_defaults() {
+    for status in [400, 401, 429, 503] {
+        for target in write_targets(Region::Ca) {
+            let responses = Arc::new(AtomicUsize::new(0));
+            let server_responses = responses.clone();
+            let server = Server::new("127.0.0.1", move |tls, _| {
+                let status = if server_responses.fetch_add(1, Ordering::AcqRel) == 0 {
+                    status
+                } else {
+                    200
+                };
+                let _ = write!(
+                    tls,
+                    "HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nSet-Cookie: write=synthetic-cookie; Secure; Path=/\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+                );
+            });
+            let transport = server.transport(Duration::from_secs(1));
+            assert_eq!(
+                transport.send(account_request(target)).await.err(),
+                Some(Error::HttpStatus(status))
+            );
+            assert_eq!(server.requests.lock().unwrap().len(), 1);
+            assert!(transport.send(request()).await.is_ok());
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert!(requests[1].head.starts_with("GET /api/init HTTP/1.1\r\n"));
+            assert!(requests[1].body.is_empty());
+            assert!(header_values(&requests[1].head, "Authorization").is_empty());
+            assert!(header_values(&requests[1].head, "x-auth-token").is_empty());
+            assert!(header_values(&requests[1].head, "Cookie").is_empty());
+            assert!(header_values(&requests[1].head, "Content-Type").is_empty());
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_list_write_disconnected_after_delivery_is_never_replayed() {
+    for target in write_targets(Region::Us) {
+        let server = Server::new("127.0.0.1", |_tls, _stop| {});
+        let error = server
+            .transport(Duration::from_secs(1))
+            .send(account_request(target))
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error, Error::Unavailable);
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        assert!(!format!("{error:?} {error}").contains("W1rA2bC3"));
+        assert!(!format!("{error:?} {error}").contains("synthetic-bootstrap-capability"));
+        assert!(!format!("{error:?} {error}").contains("synthetic-subscriber-capability"));
+    }
+}
+
+#[tokio::test]
+async fn one_active_list_write_refuses_another_before_contact_and_releases_after_completion() {
+    for target in write_targets(Region::Ca) {
+        let release = Arc::new(AtomicBool::new(false));
+        let server_release = release.clone();
+        let server = Server::new("127.0.0.1", move |tls, stop| {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !server_release.load(Ordering::Acquire)
+                && !stop.load(Ordering::Acquire)
+                && Instant::now() < deadline
+            {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            let _ = tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+        });
+        let transport = Arc::new(server.transport(Duration::from_secs(3)));
+        let first_transport = transport.clone();
+        let other_target = target.clone();
+        let first =
+            tokio::spawn(async move { first_transport.send(account_request(target)).await });
+        wait_requests(&server, 1).await;
+        assert_eq!(
+            transport.send(account_request(other_target)).await.err(),
+            Some(Error::Busy)
+        );
+        assert_eq!(server.connections.load(Ordering::Acquire), 1);
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        release.store(true, Ordering::Release);
+        assert_eq!(first.await.unwrap().unwrap().status, 200);
+        assert!(transport.send(request()).await.is_ok());
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
     }
 }

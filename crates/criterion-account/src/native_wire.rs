@@ -324,3 +324,12 @@ pub(crate) fn watch_list(response: &Response) -> Result<crate::WatchList, Error>
         playlist: data.playlist.0.into_iter().map(Into::into).collect(),
     })
 }
+#[derive(Deserialize)]
+struct SyncWire {
+    #[serde(default)]
+    sync: bool,
+}
+pub(crate) fn sync_receipt(response: &Response) -> Result<crate::SyncReceipt, Error> {
+    let data: SyncWire = parse(response)?;
+    Ok(crate::SyncReceipt { sync: data.sync })
+}

@@ -13,8 +13,8 @@ struct NativeFixture {
     status: u16,
 }
 impl Transport for NativeFixture {
-    async fn get(&self, request: Request) -> Result<Response, Error> {
-        self.requests.lock().unwrap().push(request.target);
+    async fn send(&self, request: Request) -> Result<Response, Error> {
+        self.requests.lock().unwrap().push(request.target.clone());
         if request.target == Target::Bootstrap {
             assert!(request.credentials.is_none());
             return Ok(Response {
@@ -35,7 +35,7 @@ impl Transport for NativeFixture {
         })
     }
 }
-struct SessionFixture(AtomicU64);
+pub(super) struct SessionFixture(AtomicU64);
 impl criterion_session::Transport for SessionFixture {
     async fn post(
         &self,
@@ -56,14 +56,14 @@ impl criterion_session::Transport for SessionFixture {
     }
 }
 #[derive(Clone)]
-struct Clock(Arc<AtomicU64>);
+pub(super) struct Clock(Arc<AtomicU64>);
 impl criterion_session::MonotonicClock for Clock {
     fn now(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.0.load(Ordering::SeqCst))
     }
 }
-type FixtureSession = criterion_session::Session<SessionFixture, Clock>;
-async fn linked() -> (FixtureSession, Arc<AtomicU64>) {
+pub(super) type FixtureSession = criterion_session::Session<SessionFixture, Clock>;
+pub(super) async fn linked() -> (FixtureSession, Arc<AtomicU64>) {
     let now = Arc::new(AtomicU64::new(0));
     let session = criterion_session::Session::with_transport(
         criterion_session::Configuration::production(),
@@ -220,7 +220,7 @@ struct HeldNative {
     release: Arc<tokio::sync::Notify>,
 }
 impl Transport for HeldNative {
-    async fn get(&self, request: Request) -> Result<Response, Error> {
+    async fn send(&self, request: Request) -> Result<Response, Error> {
         if request.target != Target::Bootstrap {
             self.entered.notify_one();
             self.release.notified().await;
@@ -230,7 +230,7 @@ impl Transport for HeldNative {
             requests: Arc::default(),
             status: 200,
         }
-        .get(request)
+        .send(request)
         .await
     }
 }

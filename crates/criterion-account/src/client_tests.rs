@@ -1,7 +1,7 @@
 use crate::*;
 struct Fixture;
 impl Transport for Fixture {
-    async fn get(&self, request: Request) -> Result<Response, Error> {
+    async fn send(&self, request: Request) -> Result<Response, Error> {
         assert_eq!(request.target, Target::Bootstrap);
         assert!(request.credentials.is_none());
         Ok(Response { status: 200, body: SecretBody::new(br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec()) })
@@ -19,10 +19,10 @@ struct Held {
     release: std::sync::Arc<tokio::sync::Notify>,
 }
 impl Transport for Held {
-    async fn get(&self, request: Request) -> Result<Response, Error> {
+    async fn send(&self, request: Request) -> Result<Response, Error> {
         self.entered.notify_one();
         self.release.notified().await;
-        Fixture.get(request).await
+        Fixture.send(request).await
     }
 }
 #[tokio::test]
@@ -66,7 +66,7 @@ async fn cancellation_disposal_and_dropped_future_reject_late_bootstrap_publicat
 }
 struct Body(String);
 impl Transport for Body {
-    async fn get(&self, _request: Request) -> Result<Response, Error> {
+    async fn send(&self, _request: Request) -> Result<Response, Error> {
         Ok(Response {
             status: 200,
             body: SecretBody::new(self.0.as_bytes().to_vec()),
@@ -190,9 +190,9 @@ async fn native_headers_keep_bootstrap_bearer_and_raw_subscriber_separate_and_se
 
 struct ChangingBootstrap(std::sync::atomic::AtomicU64);
 impl Transport for ChangingBootstrap {
-    async fn get(&self, request: Request) -> Result<Response, Error> {
+    async fn send(&self, request: Request) -> Result<Response, Error> {
         if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-            Fixture.get(request).await
+            Fixture.send(request).await
         } else {
             Ok(Response {
                 status: 200,
