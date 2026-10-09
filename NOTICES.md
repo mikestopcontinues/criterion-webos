@@ -2,7 +2,7 @@
 
 Criterion Unofficial's original application and probe code is GPL-3.0-or-later; the full project license is in `LICENSE`. Upstream components retain their own grants and attribution. This compendium preserves inspected notices and does not assert that a public binary release has completed licensing admission. [Binary inventory and source distribution](docs/licenses.md) owns remaining release requirements.
 
-The table is the conservative union of the locked ARM32 `criterion-app --features webos` and `criterion-account` normal/build graphs. Build scripts and procedural macros are included without claiming that their executable code is embedded. Font and rebuilt Rust runtime records follow separately. The final exact binary/feature graph must be reconciled before publication. License texts shared byte-for-byte after whitespace normalization are included once and linked from every applicable component. Upstream words, copyright statements and grant terms are retained.
+The table is the conservative union of the selected ARM32 `criterion-app` and `criterion-native-caller-probe` normal/build graphs with `webos` enabled, including the account graph selected by the application. Build scripts and procedural macros are included without claiming that their executable code is embedded. Font and rebuilt Rust runtime records follow separately. The final exact binary/feature graph must be reconciled before publication. License texts shared byte-for-byte after whitespace normalization are included once and linked from every applicable component. Upstream words, copyright statements and grant terms are retained.
 
 ## Project and adapted code
 
@@ -77,6 +77,7 @@ The LS2 declarations and compile-only ABI fixture follow LG's stock SDK `luna-se
 | `criterion-account` | `0.1.0` | `GPL-3.0-or-later` | GPL-3.0-or-later | [project GPL](LICENSE) |
 | `criterion-app` | `0.1.0` | `GPL-3.0-or-later` | GPL-3.0-or-later | [project GPL](LICENSE) |
 | `criterion-artwork` | `0.1.0` | `GPL-3.0-or-later` | GPL-3.0-or-later | [project GPL](LICENSE) |
+| `criterion-native-caller-probe` | `0.1.0` | `GPL-3.0-or-later` | GPL-3.0-or-later | [project GPL](LICENSE) |
 | `criterion-platform` | `0.1.0` | `GPL-3.0-or-later` | GPL-3.0-or-later | [project GPL](LICENSE) |
 | `criterion-provider` | `0.1.0` | `GPL-3.0-or-later` | GPL-3.0-or-later | [project GPL](LICENSE) |
 | `criterion-session` | `0.1.0` | `GPL-3.0-or-later` | GPL-3.0-or-later | [project GPL](LICENSE) |
@@ -234,12 +235,20 @@ The LS2 declarations and compile-only ABI fixture follow LG's stock SDK `luna-se
 
 ## Embedded font records
 
-All four files are unchanged `epaint_default_fonts` resources, included by `include_bytes!`. Their original grants apply to the font files. The Noto and Ubuntu copyright statements below come from the font name tables; their grant files do not name those holders. The Hack account includes its Bitstream and DejaVu contributions.
+The UI application's four files are unchanged `epaint_default_fonts` resources, included by `include_bytes!`. The disposable caller does not select this font package or AWS-LC. Their original grants apply to the font files. The Noto and Ubuntu copyright statements below come from the font name tables; their grant files do not name those holders. The Hack account includes its Bitstream and DejaVu contributions.
 
 - Hack-Regular.ttf: Source Foundry 2018 MIT; Bitstream 2003 Vera license; DejaVu public-domain account: [retained text](#notice-47c0cccbeec7).
 - NotoEmoji-Regular.ttf: Copyright 2013 Google Inc. All Rights Reserved.; SIL OFL-1.1: [retained text](#notice-6a73f9541c2d).
 - Ubuntu-Light.ttf: Copyright 2011 Canonical Ltd.; Ubuntu Font Licence 1.0: [retained text](#notice-2f0015108d68).
 - emoji-icon-font.ttf: Copyright 2014 John Slegers; MIT: [retained text](#notice-b9d2c1d909aa).
+
+## Stock SDK declaration notices
+
+These exact stock header notices identify declarations used at the native FFI seams and ABI fixtures. The application and disposable caller use stock shared libraries; these notices do not say that their library files are embedded or redistributed. Their full Apache-2.0, LGPL-2.1 and Zlib terms are retained below. Final SDK static-input attribution remains separate.
+
+- Stock SDK luna-service2/lunaservice.h: Copyright 2008-2021 LG Electronics, Apache-2.0: [retained text](#notice-41e16a250fcf).
+- Stock SDK glib/gmain.h: Copyright 1998-2000 Red Hat, LGPL-2.1-or-later: [retained text](#notice-a844088eca5b).
+- Stock SDK SDL2/SDL.h: Copyright 1997-2022 Sam Lantinga, Zlib: [retained text](#notice-9d7995d79aac).
 
 ## Rust standard library and native runtime
 
@@ -1384,6 +1393,30 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+````
+
+<a id="notice-41e16a250fcf"></a>
+
+### Notice 41e16a250fcf
+
+- Stock SDK luna-service2/lunaservice.h: Copyright 2008-2021 LG Electronics, Apache-2.0
+
+````text
+// Copyright (c) 2008-2021 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 ````
 
 <a id="notice-4249c8e6c5eb"></a>
@@ -2912,6 +2945,35 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
+<a id="notice-9d7995d79aac"></a>
+
+### Notice 9d7995d79aac
+
+- Stock SDK SDL2/SDL.h: Copyright 1997-2022 Sam Lantinga, Zlib
+
+````text
+/*
+  Simple DirectMedia Layer
+  Copyright (C) 1997-2022 Sam Lantinga <slouken@libsdl.org>
+
+  This software is provided 'as-is', without any express or implied
+  warranty.  In no event will the authors be held liable for any damages
+  arising from the use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+  2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+  3. This notice may not be removed or altered from any source distribution.
+*/
+````
+
 <a id="notice-9df9ba60a11a"></a>
 
 ### Notice 9df9ba60a11a
@@ -3272,6 +3334,31 @@ express Statement of Purpose.
       of your accepting any such warranty or additional liability.
 
    END OF TERMS AND CONDITIONS
+````
+
+<a id="notice-a844088eca5b"></a>
+
+### Notice a844088eca5b
+
+- Stock SDK glib/gmain.h: Copyright 1998-2000 Red Hat, LGPL-2.1-or-later
+
+````text
+/* gmain.h - the GLib Main loop
+ * Copyright (C) 1998-2000 Red Hat, Inc.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library; if not, see <http://www.gnu.org/licenses/>.
+ */
 ````
 
 <a id="notice-ab499c75a0f0"></a>
