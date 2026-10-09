@@ -1,0 +1,70 @@
+# Binary licenses and corresponding source
+
+The GPL-3.0-or-later application can be published as source. A public IPK also needs the licenses and notices for its embedded dependencies, an exact corresponding-source distribution, and a resolved grant for every redistributed SDK object. The current packager's starter GPL/platform/renderer/WebP texts are incomplete. [NOTICES.md](../NOTICES.md) contains the inspected dependency and font notices; [native packaging](native-package.md) owns the actual payload and release attestation.
+
+## Inventory boundary
+
+The inventory is the conservative union of the locked `criterion-app` ARM32 graph with `webos` enabled and the `criterion-account` ARM32 graph, using normal and build edges and excluding development-only edges. Account is included for its admission into the app. It includes build tools and procedural macros conservatively; their presence does not mean their executable code is embedded. Cargo features, object dead stripping and `-Z build-std` prevent `Cargo.lock` alone from being an ELF inventory. The final release must reconcile this inventory with its own clean source, selected features, compiler, link inputs and output bytes.
+
+The inspected development ELF's exact source and lock are recorded by its build receipt. Its hashes, font byte matches, SDK archive symbols, dependency graph and source-pin chain are retained in the primary journal and ignored licensing receipts. They establish the inspected artifact, rather than future binaries. The canonical Cargo cache and target volume were mounted read-only in the pinned native Docker image; only metadata and object inspection tools ran. No target executable, compiler build, GPU, account, provider or TV operation ran for this inventory.
+
+## Code and embedded data
+
+| Component | Evidence and retained terms | Release treatment |
+| --- | --- | --- |
+| Criterion code and adapted Plx event code | Root [GPL](../LICENSE), crate manifests and [platform provenance](../crates/criterion-platform/NOTICE.md) | GPL-3.0-or-later; retain attribution and changes. Include the exact application/platform source. |
+| Rust dependency graph | Versioned package table and deduplicated complete license texts in [NOTICES](../NOTICES.md) | Preserve the selected grant plus additional `AND` terms, copyright/third-party notices and modified-source notices. Include the locked source archives. |
+| Vendored `egui_glow` | [Upstream licenses and local changes](../crates/criterion-ui/vendor/egui_glow/NOTICE.md), retained MIT/Apache texts | Include the modified source and notice. The optional window integration was removed; initialization/resource cleanup changed. |
+| Vendored `image-webp` | [Archive checksum and changes](../crates/criterion-artwork/vendor/image-webp/PROVENANCE.md), retained MIT/Apache texts | Include the exact patched source and provenance. The application uses this pure Rust decoder, rather than shipping native libwebp. |
+| AWS-LC Rust wrapper and native archive | Registry `aws-lc-rs` and `aws-lc-sys` licenses; actual ARM archive and namespaced AWS-LC symbols in the ELF | Statically incorporated cryptography. Preserve the composite license/attribution record, including its compiled third-party sections. Include the complete pinned crate source and build inputs. |
+| Rust standard library and compiler builtins | Pinned `rust-src`, target fingerprints/depfiles, `COPYRIGHT-library.html` and compiler-builtins `LICENSE.txt` | Rebuilt by `-Z build-std`; not fully described by the project's lock. Retain runtime notices and exact source provenance, including the LLVM exception and Unicode terms. |
+| Default fonts | `include_bytes!` in `epaint_default_fonts`, font name tables, and all four complete TTF buffers matched inside the inspected ELF | Embedded and redistributed. Preserve the individual font grants; the original fonts remain under those grants. |
+
+An `OR` is a license choice. This inventory generally retains MIT for dual MIT/Apache Rust packages, Apache-2.0 for `self_cell`, BSD-3-Clause for `moxcms`/`pxfm`, and the complete composite grants for AWS-LC and compiler builtins. Additional notices are retained even when a shorter alternative is chosen. Do not convert `AND` terms into alternatives. In particular, `self_cell`'s GPL-2.0-only alternative is not the selected grant, and the AWS-LC umbrella explicitly selects BSD for its Jitter Entropy component.
+
+The remaining terms include Unicode-3.0 data, CDLA-Permissive-2.0 certificate roots, ISC, BSD and Zlib. These are present in the notice compendium, rather than reduced to a generic MIT/Apache label. The AWS-LC umbrella also identifies testing/build components that are not compiled into its library; preserving its complete text does not claim that Google Test or Wycheproof is inside this app.
+
+## Embedded fonts
+
+The four TTF files are the unmodified files selected by `epaint_default_fonts`. Their font bytes and source licenses must remain in the corresponding-source dependency archive. UI icon changes do not remove these fallback fonts.
+
+| File | Actual copyright and license source |
+| --- | --- |
+| `Hack-Regular.ttf` | Source Foundry Authors 2018, MIT; Bitstream Inc. 2003, Bitstream Vera license with reserved names; DejaVu work committed to the public domain. Full `fonts/Hack-Regular.txt` retained. |
+| `NotoEmoji-Regular.ttf` | Google Inc. 2013 in the font's copyright name record; `fonts/OFL.txt`, SIL OFL-1.1. |
+| `Ubuntu-Light.ttf` | Canonical Ltd. 2011 in the font's copyright name record; `fonts/UFL.txt`, Ubuntu Font Licence 1.0. |
+| `emoji-icon-font.ttf` | John Slegers 2014 in `fonts/emoji-icon-font-mit-license.txt`, MIT. |
+
+OFL and UFL allow embedding, with the copyright/license preservation and naming conditions in their retained text. Hack's component grant includes conditions not represented by the crate's top-level SPDX expression. Preserve the original notices and font names; any future font modification needs a new license/name review.
+
+## SDK and stock runtime libraries
+
+The inspected production application dynamically requires `libSDL2-2.0.so.0`, `libgcc_s.so.1`, `librt.so.1`, `libpthread.so.0`, `libm.so.6`, `libdl.so.2`, `libc.so.6` and `ld-linux.so.3`. The package does not contain those libraries. GL entry points are obtained through SDL; an absent direct GLES `DT_NEEDED` entry does not imply that the app uses no platform GL library. Stock TV versions and vendor patches require device evidence; SDK/host versions do not establish them.
+
+SDL's upstream grant is Zlib. GNU libc libraries use LGPL-2.1-or-later; the compiler runtime has its own GPL/runtime-exception terms. A separate native caller uses stock LS2 and GLib: its declarations/provenance are owned by [the native caller notice](../tools/native-caller-probe/NOTICE.md), and its runtime libraries are not bundled in the production UI IPK. SDK GLib headers declare LGPL-2.1-or-later and LS2 headers declare Apache-2.0. Keep usage notices and the applicable LGPL text when conveying a linked application; do not package copied stock binaries or invent a complete LG source distribution.
+
+GPL section 1's System Libraries definition is a specific source exclusion, not a copyright grant and not a blanket rule for every SDK file. LGPL's linked-work provisions likewise distinguish a suitable shared-library mechanism from copied or statically linked library code. The actual release must preserve modification/relinking rights and determine any non-system linked source requirements from the final interface and package. [GPL text](../LICENSE), [GPL source guidance](https://www.gnu.org/licenses/gpl-faq.html#SourceAndBinaryOnDifferentSites) and [LGPL-2.1 text](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html) own those terms.
+
+### Auxiliary vector and SDK static inputs
+
+The current [ARM link configuration](../.cargo/config.toml) excludes the SDK's static `libglibc_polyfills.a`. The [platform auxiliary-vector reader](native-platform.md#auxiliary-vector) supplies an original GPL Rust `getauxval` implementation. Final ELF inspection must confirm that Rust owns this exported symbol and that the SDK getter, debug global and initialization constructor/destructor are absent. Source admission does not establish the final binary's link inputs. Rust thread creation independently uses `dlsym`, so archive removal does not justify removing `-ldl`.
+
+The source pin chain is the [native-toolchain release](https://github.com/webosbrew/native-toolchain/releases/tag/webos-d7ed7ee.6), its [Buildroot release](https://github.com/openlgtv/buildroot-nc4/blob/79af0e655b4ae9252a93ec55a2cd786b335c4a6c/package/glibc-polyfills/glibc-polyfills.mk), and [glibc-polyfills at the pinned commit](https://github.com/smx-smx/glibc-polyfills/tree/e778cbd37d78dcbbc5808d6cd3e49611f9c57b77). The pinned tree contains Stefano Moioli's 2023 copyright statements and no explicit license grant or license file. The Buildroot recipe also declares no package license. A name, public download or successful link does not establish redistribution permission.
+
+Do not redistribute or relink this excluded archive under an assumed LGPL or System Library grant. Root owns final verification of its exclusion from the exact release ELF. The archive symbols and both-member responsibility are retained with the inspected development artifact in the primary journal and ignored receipts.
+
+SDK startup objects and any pulled compiler-runtime archive members also need final link-input attribution. Preserve their actual runtime exception/license evidence. Do not infer every object from the ELF's dynamic dependency list or copy the whole SDK into the IPK. The compiler/image/source manifests and final link map establish which startup and runtime objects were incorporated.
+
+## Corresponding source and release completion
+
+For a downloadable GPL binary, use GPL section 6(d)'s equivalent source access. Put clear directions beside the exact IPK, pointing to its exact matching source archive at no further charge. Keep that source available while satisfying the distribution terms. A generic default-branch link, an older checkout, a license file or a development label cannot replace the matching source. [FSF's source-version explanation](https://www.gnu.org/licenses/gpl-faq.html#DistributeExtendedBinary) describes the same boundary.
+
+The source distribution needs the clean release revision; all locally modified crates; locked registry crate archives with licenses, notices and embedded resources; interface definitions; and scripts/configuration needed to build, install, run and modify the application. Include `Cargo.lock`, compiler/channel and SDK source identities, target/link flags, package construction and any generated inputs that cannot be regenerated from the included source. Preserve build-tool provenance without redistributing arbitrary compiler executables or private caches. Record any System Library exclusion explicitly instead of silently excluding an entire SDK or dependency graph.
+
+Root completes these concrete admissions before a public binary:
+
+1. Freeze the final app/caller feature graphs and build-std source versions against the final receipt; compare required license/notice paths with [NOTICES](../NOTICES.md).
+2. Verify original Rust auxiliary-vector symbol ownership and SDK compatibility archive exclusion, and inspect the final ELF/link inputs for remaining SDK static code and startfiles.
+3. Add the complete notice compendium, GPL text and any additional final runtime notice texts to the exact bounded package payload. The current starter-only payload does not satisfy this inventory.
+4. Publish the exact corresponding-source archive and clear IPK-adjacent source directions; verify the source archive contains every required build/resource/license input and no `.local`, account/device material, credentials or generated private receipts.
+5. Recheck the normalized IPK's actual notice bytes, the final source/executable hashes and the public source links. Binary licensing admission is separate from C4 operation, physical input, audible output, provider entitlement and licensed playback acceptance.
