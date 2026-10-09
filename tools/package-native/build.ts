@@ -16,7 +16,7 @@ const raw = join(output, "raw-cli");
 const packages = join(output, "ipks");
 const fileName = `${APP_ID}_${VERSION}_arm.ipk`;
 const sources: Record<string, string> = {
-  "appinfo.json": "tools/package-native/packaging/appinfo.json", "icon.png": "tools/package-native/packaging/icon.png", LICENSE: "LICENSE",
+  "appinfo.json": "tools/package-native/packaging/appinfo.json", "icon.png": "tools/package-native/packaging/icon.png", LICENSE: "LICENSE", "NOTICES.md": "NOTICES.md",
   "NOTICE-platform.md": "crates/criterion-platform/NOTICE.md", "NOTICE-egui_glow.md": "crates/criterion-ui/vendor/egui_glow/NOTICE.md",
   "LICENSE-egui_glow-MIT": "crates/criterion-ui/vendor/egui_glow/LICENSE-MIT", "LICENSE-egui_glow-APACHE": "crates/criterion-ui/vendor/egui_glow/LICENSE-APACHE",
   "NOTICE-image-webp.md": "crates/criterion-artwork/vendor/image-webp/PROVENANCE.md", "LICENSE-image-webp-MIT": "crates/criterion-artwork/vendor/image-webp/LICENSE-MIT",

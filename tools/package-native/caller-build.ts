@@ -13,7 +13,7 @@ export const CALLER_APPINFO = {
   appDescription: "Disposable native caller probe; TV admission is unverified.", icon: "icon.png", nativeLifeCycleInterfaceVersion: 2, handlesRelaunch: false,
 } as const;
 export const CALLER_IDENTITY = { id: CALLER_ID, version: CALLER_VERSION, architecture: "arm" } as const;
-export const CALLER_PAYLOAD_NAMES = ["appinfo.json", CALLER_MAIN, "icon.png", "LICENSE", "NOTICE-caller.md", "NOTICE-platform.md"] as const;
+export const CALLER_PAYLOAD_NAMES = ["appinfo.json", CALLER_MAIN, "icon.png", "LICENSE", "NOTICES.md", "NOTICE-caller.md", "NOTICE-platform.md"] as const;
 export function admitCallerManifest(bytes: Buffer): void {
   let value: unknown;
   try { value = JSON.parse(bytes.toString("utf8")); } catch { throw new Error("invalidCallerManifest"); }
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
   if (!cliPackage || typeof cliPackage !== "object" || (cliPackage as Record<string, unknown>).version !== "3.2.6") throw new Error("invalidToolchain");
   const sources: Record<string, string> = {
     "appinfo.json": "tools/native-caller-probe/packaging/appinfo.json", "icon.png": "tools/native-caller-probe/packaging/icon.png",
-    LICENSE: "LICENSE", "NOTICE-caller.md": "tools/native-caller-probe/NOTICE.md", "NOTICE-platform.md": "crates/criterion-platform/NOTICE.md",
+    LICENSE: "LICENSE", "NOTICES.md": "NOTICES.md", "NOTICE-caller.md": "tools/native-caller-probe/NOTICE.md", "NOTICE-platform.md": "crates/criterion-platform/NOTICE.md",
   };
   const expected = new Map<string, PackageFile>([[CALLER_MAIN, { bytes: executable, mode: 0o755 }]]);
   for (const [name, path] of Object.entries(sources)) expected.set(name, { bytes: await readInput(join(root, path), 1024 * 1024), mode: 0o644 });

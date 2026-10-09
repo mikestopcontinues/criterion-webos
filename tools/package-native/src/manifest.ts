@@ -14,4 +14,4 @@ export function admitManifest(bytes: Buffer): void {
     || Object.entries(APPINFO).some(([key, expected]) => record[key] !== expected)) throw new Error("invalidManifest");
 }
 
-export const PAYLOAD_NAMES = ["appinfo.json", "criterion-unofficial", "icon.png", "LICENSE", "NOTICE-platform.md", "NOTICE-egui_glow.md", "LICENSE-egui_glow-MIT", "LICENSE-egui_glow-APACHE", "NOTICE-image-webp.md", "LICENSE-image-webp-MIT", "LICENSE-image-webp-APACHE"] as const;
+export const PAYLOAD_NAMES = ["appinfo.json", "criterion-unofficial", "icon.png", "LICENSE", "NOTICES.md", "NOTICE-platform.md", "NOTICE-egui_glow.md", "LICENSE-egui_glow-MIT", "LICENSE-egui_glow-APACHE", "NOTICE-image-webp.md", "LICENSE-image-webp-MIT", "LICENSE-image-webp-APACHE"] as const;

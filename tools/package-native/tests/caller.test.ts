@@ -7,6 +7,7 @@ import { tarFixture, ipkFixture } from "../../player-probe/tests/fixture-tar.js"
 import { admitBuildReceipt, sha256 } from "../src/receipt.js";
 import { APP_ID } from "../src/admission.js";
 import { metadataFixture } from "./admission.test.js";
+import { readInput } from "../src/input.js";
 
 function inputs() {
   const executable = metadataFixture(); const source = Buffer.from("frozen compile source\n");
@@ -22,16 +23,30 @@ test("caller receipt has its fixed identity and production admission stays separ
   await assert.rejects(admitCallerReceipt(Buffer.from(JSON.stringify({ ...input.receipt, appId: APP_ID })), input.executable, input.read), /invalidCallerReceipt/);
   await assert.rejects(admitBuildReceipt(bytes, input.executable, input.read), /invalidReceipt/);
 });
-test("the fixed caller output supports strict archive normalization", async () => {
-  const expected: PackageFiles = new Map(CALLER_PAYLOAD_NAMES.map((name) => [name, {
-    bytes: name === CALLER_MAIN ? metadataFixture() : name === "appinfo.json" ? Buffer.from(JSON.stringify(CALLER_APPINFO)) : Buffer.from(name),
+test("the fixed caller archive preserves the full notice compendium through normalization", async () => {
+  const notices = await readInput("/workspace/NOTICES.md", 1024 * 1024);
+  const expected: PackageFiles = new Map(CALLER_PAYLOAD_NAMES.map((name: string) => [name, {
+    bytes: name === CALLER_MAIN ? metadataFixture() : name === "appinfo.json" ? Buffer.from(JSON.stringify(CALLER_APPINFO)) : name === "NOTICES.md" ? notices : Buffer.from(name),
     mode: name === CALLER_MAIN ? 0o755 : 0o644,
   }]));
-  const data = tarFixture([...callerArchiveFiles(expected)].map(([name, file]) => ({ name, ...file })));
+  const entries = [...callerArchiveFiles(expected)].map(([name, file]) => ({ name, ...file }));
+  const data = tarFixture(entries);
   const control = Buffer.from(`Package: ${CALLER_ID}\nVersion: ${CALLER_VERSION}\nSection: misc\nPriority: optional\nArchitecture: arm\nInstalled-Size: 8192\nMaintainer: N/A <nobody@example.com>\nDescription: This is a webOS application.\nwebOS-Package-Format-Version: 2\nwebOS-Packager-Version: x.y.x\n`);
-  const raw = ipkFixture(data, tarFixture([{ name: "control", bytes: control, mode: 0o644 }]));
+  const controls = tarFixture([{ name: "control", bytes: control, mode: 0o644 }]);
+  const raw = ipkFixture(data, controls);
   const normalized = await normalizeIpk(raw, callerArchiveFiles(expected), CALLER_IDENTITY, "/workspace/.local/native-caller-package/normalization");
-  assert.equal(auditCallerIpk(normalized, expected).files[CALLER_MAIN]?.mode, 0o755);
+  const audit = auditCallerIpk(normalized, expected);
+  assert.equal(audit.files[CALLER_MAIN]?.mode, 0o755);
+  assert.deepEqual(audit.files["NOTICES.md"], { sha256: sha256(notices), bytes: notices.length, mode: 0o644 });
+  const name = `usr/palm/applications/${CALLER_ID}/NOTICES.md`;
+  const entry = entries.find((file) => file.name === name);
+  assert.ok(entry);
+  for (const changed of [
+    entries.filter((file) => file.name !== name),
+    entries.map((file) => file.name === name ? { ...file, bytes: Buffer.from("incomplete notices") } : file),
+    [...entries, entry],
+    entries.map((file) => file.name === name ? { ...file, mode: 0o666 } : file),
+  ]) assert.throws(() => auditCallerIpk(ipkFixture(tarFixture(changed), controls), expected), /invalidIpkPayload/);
   admitCallerManifest(Buffer.from(JSON.stringify(CALLER_APPINFO)));
 });
 for (const [name, change] of [

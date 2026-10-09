@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { ipkFixture, tarFixture, type TarEntry as Entry } from "../../player-probe/tests/fixture-tar.js";
 import { ipkMembers } from "../../player-probe/src/package.js";
@@ -6,12 +7,14 @@ import { APP_ID, MAX_IPK_BYTES, VERSION } from "../src/admission.js";
 import { auditIpk, type Payload } from "../src/archive.js";
 import { APPINFO, PAYLOAD_NAMES } from "../src/manifest.js";
 import { metadataFixture } from "./admission.test.js";
+import { readInput } from "../src/input.js";
+import { sha256 } from "../src/receipt.js";
 
 const appPrefix = `usr/palm/applications/${APP_ID}/`;
 const packageInfo = `usr/palm/packages/${APP_ID}/packageinfo.json`;
 export function archiveInputs() {
-  const expected: Payload = new Map(PAYLOAD_NAMES.map((name) => [name, {
-    bytes: name === "criterion-unofficial" ? metadataFixture() : name === "appinfo.json" ? Buffer.from(JSON.stringify(APPINFO)) : Buffer.from(`${name}\n`),
+  const expected: Payload = new Map(PAYLOAD_NAMES.map((name: string) => [name, {
+    bytes: name === "criterion-unofficial" ? metadataFixture() : name === "appinfo.json" ? Buffer.from(JSON.stringify(APPINFO)) : name === "NOTICES.md" ? readFileSync("/workspace/NOTICES.md") : Buffer.from(`${name}\n`),
     mode: name === "criterion-unofficial" ? 0o755 : 0o644,
   }]));
   const entries: Entry[] = [...expected].map(([name, file]) => ({ name: appPrefix + name, ...file }));
@@ -20,6 +23,20 @@ export function archiveInputs() {
   const archive = (dataEntries = entries, controlBytes = control) => ipkFixture(tarFixture(dataEntries), tarFixture([{ name: "control", bytes: controlBytes, mode: 0o644 }]));
   return { expected, entries, control, archive };
 }
+test("the native archive seals the full notice compendium as exact nonexecutable bytes", async () => {
+  const notices = await readInput("/workspace/NOTICES.md", 1024 * 1024);
+  const input = archiveInputs();
+  assert.deepEqual(auditIpk(input.archive(), input.expected).files["NOTICES.md"], { sha256: sha256(notices), bytes: notices.length, mode: 0o644 });
+  const name = appPrefix + "NOTICES.md";
+  const entry = input.entries.find((file) => file.name === name);
+  assert.ok(entry);
+  for (const entries of [
+    input.entries.filter((file) => file.name !== name),
+    input.entries.map((file) => file.name === name ? { ...file, bytes: Buffer.from("incomplete notices") } : file),
+    [...input.entries, entry],
+    input.entries.map((file) => file.name === name ? { ...file, mode: 0o666 } : file),
+  ]) assert.throws(() => auditIpk(input.archive(entries), input.expected), /invalidIpkPayload/);
+});
 test("an added payload cannot pass the native archive seal", () => {
   const input = archiveInputs();
   assert.equal(auditIpk(input.archive(), input.expected).appId, APP_ID);
