@@ -280,3 +280,61 @@ fn filter_press_keeps_the_painted_option_window_until_release() {
         matches!(&commands[..],[Command::ApplyFilters(selection)] if selection.options==vec![(0,8)])
     );
 }
+#[test]
+fn detail_tab_press_is_bound_to_the_owning_detail_identity() {
+    let first = criterion_provider::MediaId::new("qvwT6mJ4").unwrap();
+    let second = criterion_provider::MediaId::new("zxlDvz82").unwrap();
+    let card = |key| Card {
+        key,
+        artwork_key: None,
+        title: "Fixture",
+        year: "1986",
+        duration_seconds: 5820,
+    };
+    let cards = [card(&first)];
+    let rails = [criterion_ui::Rail {
+        title: "Supplements",
+        cards: &cards,
+    }];
+    let data = |key| ViewData {
+        cards: &cards,
+        rails: &rails,
+        detail: Some(criterion_ui::Detail {
+            card: card(key),
+            directors: "",
+            description: "",
+            starring: "",
+            countries: "",
+            languages: "",
+            primary_action: "WATCH NOW",
+            kind: criterion_ui::DetailKind::Film,
+        }),
+        status: LoadState::Ready,
+        ..ViewData::default()
+    };
+    let mut ui = AppUi::new();
+    let original = data(&first);
+    ui.handle(Action::Left, &original);
+    ui.handle(Action::Down, &original);
+    ui.handle(Action::Down, &original);
+    ui.handle(Action::Select, &original);
+    ui.handle(Action::Select, &original);
+    let mut frame = ui.render(
+        egui::RawInput {
+            events: vec![pointer(egui::pos2(250.0, 990.0), true)],
+            ..Default::default()
+        },
+        &original,
+    );
+    frame.output.textures_delta.clear();
+    let mut frame = ui.render(
+        egui::RawInput {
+            events: vec![pointer(egui::pos2(250.0, 990.0), false)],
+            ..Default::default()
+        },
+        &data(&second),
+    );
+    let commands = std::mem::take(&mut frame.commands);
+    frame.output.textures_delta.clear();
+    assert!(commands.is_empty());
+}

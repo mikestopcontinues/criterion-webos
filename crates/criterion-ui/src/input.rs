@@ -152,7 +152,10 @@ impl AppUi {
                 focus,
                 media: match focus {
                     Focus::Hero => data.hero.as_ref().map(|hero| hero.card.key.clone()),
-                    Focus::DetailAction(_) | Focus::InformationPrimary => {
+                    Focus::DetailAction(_)
+                    | Focus::InformationPrimary
+                    | Focus::DetailTab(_)
+                    | Focus::DetailDescription => {
                         data.detail.as_ref().map(|detail| detail.card.key.clone())
                     }
                     _ => None,

@@ -377,6 +377,7 @@ impl AppUi {
         }
         for event in &events {
             let old_page = self.page();
+            let command_start = commands.len();
             let allow_results = !commands
                 .iter()
                 .any(|command| matches!(command, crate::Command::Search { .. }));
@@ -387,7 +388,7 @@ impl AppUi {
                 allow_results,
             ));
             commands.extend(self.text_events(std::slice::from_ref(event)));
-            if commands
+            if commands[command_start..]
                 .iter()
                 .any(|command| matches!(command, crate::Command::Search { .. }))
             {
