@@ -19,5 +19,10 @@ ADD https://github.com/webosbrew/native-toolchain/releases/download/webos-d7ed7e
 RUN printf '%s  %s\n' '45a2d12ff557457d92cde4fddaa77a6f1090fca03adc43bb74397e5e0c379501' '/tmp/webos-ndk.tar.bz2' | sha256sum -c - \
     && mkdir -p /opt/webos-sdk \
     && tar -xjf /tmp/webos-ndk.tar.bz2 -C /opt/webos-sdk --strip-components=1 \
-    && rm /tmp/webos-ndk.tar.bz2
-ENV WEBOS_SDK=/opt/webos-sdk
+    && rm /tmp/webos-ndk.tar.bz2 \
+    && /opt/webos-sdk/relocate-sdk.sh
+ENV WEBOS_SDK=/opt/webos-sdk \
+    WEBOS_SYSROOT=/opt/webos-sdk/arm-webos-linux-gnueabi/sysroot \
+    CC_arm_unknown_linux_gnueabi=/opt/webos-sdk/bin/arm-webos-linux-gnueabi-gcc.br_real \
+    AR_arm_unknown_linux_gnueabi=/opt/webos-sdk/bin/arm-webos-linux-gnueabi-ar \
+    CFLAGS_arm_unknown_linux_gnueabi=--sysroot=/opt/webos-sdk/arm-webos-linux-gnueabi/sysroot

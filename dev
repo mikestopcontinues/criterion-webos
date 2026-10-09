@@ -3,14 +3,24 @@ set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 image=criterion-webos-development:20261009
+native_image=criterion-webos-native:20261009
 project_key=$(printf '%s' "$project_root" | cksum | cut -d ' ' -f 1)
 
 if [ "${1:-}" = image ]; then
   exec docker build --target development --tag "$image" "$project_root"
 fi
 
+if [ "${1:-}" = native-image ]; then
+  exec docker build --target native --tag "$native_image" "$project_root"
+fi
+
+if [ "${1:-}" = native ]; then
+  image=$native_image
+  shift
+fi
+
 if [ "$#" -eq 0 ]; then
-  printf 'Usage: ./dev image | ./dev cargo <args> | ./dev run <command> <args>\n' >&2
+  printf 'Usage: ./dev image | ./dev native-image | ./dev [native] cargo <args> | ./dev [native] run <command> <args>\n' >&2
   exit 2
 fi
 

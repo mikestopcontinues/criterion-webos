@@ -1,5 +1,5 @@
 /.local/
-/target/
+target/
 /dist/
 /node_modules/
 /.env
@@ -8,3 +8,6 @@
 /test-results/
 /playwright-report/
 .DS_Store
+*.apk
+*.apkm
+*.xapk

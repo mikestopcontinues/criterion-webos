@@ -1,0 +1,11 @@
+[target.arm-unknown-linux-gnueabi]
+linker = "/opt/webos-sdk/bin/arm-webos-linux-gnueabi-gcc.br_real"
+rustflags = [
+  "-C", "target-cpu=cortex-a9",
+  "-C", "target-feature=-neon",
+  "-C", "link-arg=--sysroot=/opt/webos-sdk/arm-webos-linux-gnueabi/sysroot",
+  "-L", "native=/opt/webos-sdk/arm-webos-linux-gnueabi/sysroot/usr/lib",
+  "-C", "link-arg=-Wl,-rpath-link,/opt/webos-sdk/arm-webos-linux-gnueabi/sysroot/usr/lib",
+  "-C", "link-arg=-lglibc_polyfills",
+  "-C", "link-arg=-ldl",
+]
