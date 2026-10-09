@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://mikestopcontinues.github.io/criterion-webos/sitemap.xml
