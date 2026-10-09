@@ -1,5 +1,5 @@
 //! Explicit opt-in: one previously verified public image, no account or GPU.
-use criterion_artwork::{ArtworkLoader, ArtworkSource};
+use criterion_artwork::{ArtworkLoader, ArtworkSource, ImageRole};
 use criterion_provider::{ImageLabel, MediaId};
 
 #[tokio::main(flavor = "current_thread")]
@@ -11,6 +11,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let source = ArtworkSource::Media {
         id: MediaId::new("qvwT6mJ4")?,
         label: ImageLabel::Landscape,
+        role: ImageRole::Card,
     };
     let artwork = ArtworkLoader::new()?.load(&source).await?;
     let [width, height] = artwork.dimensions();

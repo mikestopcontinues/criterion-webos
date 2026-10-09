@@ -1,9 +1,10 @@
 use super::*;
+use crate::ImageRole;
 use criterion_provider::{ImageLabel, MediaId};
 use std::{
     io::{Read, Write},
     net::TcpListener,
-    sync::Arc,
+    sync::{Arc, Mutex},
     thread,
 };
 
@@ -11,6 +12,7 @@ fn media() -> ArtworkSource {
     ArtworkSource::Media {
         id: MediaId::new("qvwT6mJ4").unwrap(),
         label: ImageLabel::Landscape,
+        role: ImageRole::Card,
     }
 }
 
@@ -18,6 +20,7 @@ struct Server {
     origin: url::Url,
     roots: rustls::RootCertStore,
     thread: Option<thread::JoinHandle<()>>,
+    request: Arc<Mutex<Vec<u8>>>,
 }
 
 impl Server {
@@ -42,6 +45,8 @@ impl Server {
         .unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
+        let request = Arc::new(Mutex::new(Vec::new()));
+        let captured_request = request.clone();
         let handle = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             stream
@@ -55,7 +60,11 @@ impl Server {
                 stream,
             );
             let mut request = [0_u8; 4096];
-            if stream.read(&mut request).is_ok() {
+            if let Ok(count) = stream.read(&mut request) {
+                captured_request
+                    .lock()
+                    .unwrap()
+                    .extend_from_slice(&request[..count]);
                 if split > 0 {
                     let _ = stream.write_all(&response[..split]);
                     let _ = stream.flush();
@@ -69,6 +78,7 @@ impl Server {
             origin: url::Url::parse(&format!("https://127.0.0.1:{port}")).unwrap(),
             roots,
             thread: Some(handle),
+            request,
         }
     }
     fn finish(mut self) {
@@ -256,5 +266,35 @@ async fn excess_concurrent_loads_fail_immediately_and_cancelled_network_calls_re
     // The issued TLS connections may settle after cancellation. A fresh call
     // must be admitted and reach its network deadline, rather than stay Busy.
     assert_ne!(loader.load(&source).await.unwrap_err(), ArtworkError::Busy);
+    server.finish();
+}
+
+#[tokio::test]
+async fn backdrop_requests_full_canvas_public_width_and_preserves_decoded_detail() {
+    use image::ImageEncoder;
+    let pixels = vec![67u8; 1920 * 1080 * 4];
+    let mut encoded = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut encoded)
+        .write_image(&pixels, 1920, 1080, image::ExtendedColorType::Rgba8)
+        .unwrap();
+    let server = Server::start("127.0.0.1", response("200 OK", "image/png", &encoded, ""));
+    let loader = ArtworkLoader::for_test(
+        server.origin.clone(),
+        server.roots.clone(),
+        Duration::from_secs(2),
+    );
+    let source = ArtworkSource::Media {
+        id: MediaId::new("qvwT6mJ4").unwrap(),
+        label: ImageLabel::Landscape,
+        role: ImageRole::Backdrop,
+    };
+    let result = loader.load(&source).await.unwrap();
+    assert!(
+        server.request.lock().unwrap().starts_with(
+            b"GET /v1/media/qvwT6mJ4/images/default_16x9.webp?width=1920 HTTP/1.1\r\n"
+        )
+    );
+    assert_eq!(result.dimensions(), [1920, 1080]);
+    assert_eq!(result.rgba().len(), 1920 * 1080 * 4);
     server.finish();
 }

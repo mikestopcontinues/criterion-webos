@@ -1,16 +1,39 @@
-use crate::ArtworkError;
+use crate::{ArtworkError, ImageRole};
 use criterion_provider::{EditorialImage, ImageLabel, MediaId};
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum ArtworkSource {
-    Media { id: MediaId, label: ImageLabel },
+    Media {
+        id: MediaId,
+        label: ImageLabel,
+        role: ImageRole,
+    },
     Editorial(EditorialImage),
 }
 
 impl ArtworkSource {
+    /// Output admission role used by the decoder and application working set.
+    /// Supplied editorial backgrounds retain their URL and use the backdrop bound.
+    pub fn role(&self) -> ImageRole {
+        match self {
+            Self::Media { role, .. } => *role,
+            Self::Editorial(_) => ImageRole::Backdrop,
+        }
+    }
+
     pub(crate) fn url(&self) -> Result<url::Url, ArtworkError> {
         let target = match self {
-            Self::Media { id, label } => label.url(id).map_err(|_| ArtworkError::InvalidSource),
+            Self::Media { id, label, role } => {
+                if *role == ImageRole::Backdrop && *label != ImageLabel::Landscape {
+                    return Err(ArtworkError::InvalidSource);
+                }
+                let mut target = label.url(id).map_err(|_| ArtworkError::InvalidSource)?;
+                target.set_query(Some(match role {
+                    ImageRole::Card => "width=480",
+                    ImageRole::Backdrop => "width=1920",
+                }));
+                Ok(target)
+            }
             Self::Editorial(image) => Ok(image.url().clone()),
         }?;
         check_url(&target)?;
@@ -43,7 +66,8 @@ fn check_url(target: &url::Url) -> Result<(), ArtworkError> {
                         | "default_2x3.webp"
                         | "default_bluray.webp"
                 )
-                && target.query() == Some("width=480")
+                && (target.query() == Some("width=480")
+                    || path[5] == "default_16x9.webp" && target.query() == Some("width=1920"))
         }
         Some("cc.criterion.com") => {
             let base = path.len() == 5 && path[3] == "thumbnails"
@@ -95,6 +119,12 @@ mod tests {
             "https://img.jwplayer.com:444/v1/media/qvwT6mJ4/images/default_16x9.webp?width=480",
             "https://img.jwplayer.com/v1/media/qvwT6mJ4/images/default_16x9.webp?width=480&token=secret",
             "https://img.jwplayer.com/v1/media/qvwT6mJ4/images/unknown.webp?width=480",
+            "https://img.jwplayer.com/v1/media/qvwT6mJ4/images/default_16x9.webp?width=1280",
+            "https://img.jwplayer.com/v1/media/qvwT6mJ4/images/default_16x9.webp?width=1921",
+            "https://img.jwplayer.com/v1/media/qvwT6mJ4/images/default_16x9.webp?width=1920&token=secret",
+            "https://img.jwplayer.com/v1/media/qvwT6mJ4/images/regalia_16x9.webp?width=1920",
+            "https://img.jwplayer.com/v1/media/qvwT6mJ4/images/default_2x3.webp?width=1920",
+            "https://img.jwplayer.com/v1/media/qvwT6mJ4/images/default_bluray.webp?width=1920",
             "https://img.jwplayer.com/v1/media/qvwT6mJ4/images/default_16x9.webp?width=480#fragment",
             "https://cc.criterion.com/uploads/storyBlocks/123/thumbnails/asset.webp?token=secret",
             "https://cc.criterion.com/uploads/storyBlocks/no-number/thumbnails/asset.webp",
@@ -120,6 +150,7 @@ mod tests {
             assert!(
                 ArtworkSource::Media {
                     id: id.clone(),
+                    role: ImageRole::Card,
                     label
                 }
                 .url()
@@ -141,6 +172,7 @@ mod tests {
                 "{:?}",
                 ArtworkSource::Media {
                     id,
+                    role: ImageRole::Card,
                     label: ImageLabel::Landscape
                 }
             ),
@@ -156,5 +188,58 @@ mod tests {
         )
         .unwrap();
         assert!(ArtworkSource::Editorial(image).url().is_ok());
+    }
+
+    #[test]
+    fn roles_retain_only_their_fixed_width_and_supported_backdrop_family() {
+        let id = MediaId::new("qvwT6mJ4").unwrap();
+        let backdrop = ArtworkSource::Media {
+            id: id.clone(),
+            label: ImageLabel::Landscape,
+            role: ImageRole::Backdrop,
+        };
+        assert_eq!(backdrop.role(), ImageRole::Backdrop);
+        assert_eq!(
+            backdrop.url().unwrap().as_str(),
+            "https://img.jwplayer.com/v1/media/qvwT6mJ4/images/default_16x9.webp?width=1920"
+        );
+        for label in [
+            ImageLabel::Landscape,
+            ImageLabel::Regalia,
+            ImageLabel::Portrait,
+            ImageLabel::Edition,
+        ] {
+            let card = ArtworkSource::Media {
+                id: id.clone(),
+                label,
+                role: ImageRole::Card,
+            };
+            assert_eq!(card.role(), ImageRole::Card);
+            assert_eq!(card.url().unwrap().query(), Some("width=480"));
+            if label != ImageLabel::Landscape {
+                assert_eq!(
+                    ArtworkSource::Media {
+                        id: id.clone(),
+                        label,
+                        role: ImageRole::Backdrop
+                    }
+                    .url(),
+                    Err(ArtworkError::InvalidSource)
+                );
+            }
+        }
+        let editorial = ArtworkSource::Editorial(
+            EditorialImage::new(
+                "https://cc.criterion.com/uploads/storyBlocks/thumbnails/",
+                "image.webp",
+            )
+            .unwrap(),
+        );
+        assert_eq!(editorial.role(), ImageRole::Backdrop);
+        assert_eq!(
+            editorial.url().unwrap().as_str(),
+            "https://cc.criterion.com/uploads/storyBlocks/thumbnails/image.webp"
+        );
+        assert!(editorial.url().unwrap().query().is_none());
     }
 }

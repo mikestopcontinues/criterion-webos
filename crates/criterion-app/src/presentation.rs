@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Owned validated display data; the controller owns publication and request lifetimes.
+use criterion_artwork::ImageRole;
 use criterion_provider::{
     BrowseOptions, CatalogPage, DiscoveryArtwork, DiscoveryBlock, DiscoveryPage, DiscoverySlide,
     EditorialImage, ImageLabel, MediaDetail, MediaId, MediaKind, MediaSummary, RailSource,
@@ -13,7 +14,11 @@ use std::fmt::Write;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum ImageSource {
-    Media { id: MediaId, label: ImageLabel },
+    Media {
+        id: MediaId,
+        label: ImageLabel,
+        role: ImageRole,
+    },
     Editorial(EditorialImage),
 }
 pub(crate) struct ImageBinding {
@@ -120,7 +125,12 @@ impl Presentation {
             }
         };
         let target = Target::Media(detail.media.id.clone());
-        let card = projection.media_card(detail.media, target, ImageLabel::Landscape);
+        let card = projection.media_card_for_role(
+            detail.media,
+            target,
+            ImageLabel::Landscape,
+            ImageRole::Backdrop,
+        );
         projection.detail = Some(OwnedDetail {
             card,
             kind,
@@ -407,9 +417,19 @@ impl Presentation {
         });
     }
     fn media_card(&mut self, media: MediaSummary, target: Target, label: ImageLabel) -> OwnedCard {
+        self.media_card_for_role(media, target, label, ImageRole::Card)
+    }
+    fn media_card_for_role(
+        &mut self,
+        media: MediaSummary,
+        target: Target,
+        label: ImageLabel,
+        role: ImageRole,
+    ) -> OwnedCard {
         let artwork = self.bind_image(ImageSource::Media {
             id: media.id,
             label,
+            role,
         });
         OwnedCard {
             target,
@@ -428,10 +448,14 @@ impl Presentation {
             return binding.key.clone();
         }
         let mut digest = aws_lc_rs::digest::Context::new(&aws_lc_rs::digest::SHA256);
-        digest.update(b"criterion-artwork-v1\0");
+        digest.update(b"criterion-artwork-v2\0");
         match &source {
-            ImageSource::Media { id, label } => {
+            ImageSource::Media { id, label, role } => {
                 digest.update(b"media\0");
+                digest.update(match role {
+                    ImageRole::Card => b"card\0",
+                    ImageRole::Backdrop => b"backdrop\0",
+                });
                 digest.update(id.as_str().as_bytes());
                 digest.update(b"\0");
                 digest.update(label.as_str().as_bytes());
@@ -609,6 +633,7 @@ impl OwnedCard {
 #[cfg(test)]
 mod tests {
     use super::Presentation;
+    use criterion_artwork::ImageRole;
     use criterion_ui::LoadState;
 
     #[test]
@@ -661,7 +686,7 @@ mod tests {
             assert_eq!(view.cards[0].duration_seconds, 5400);
             assert_eq!(
                 view.cards[0].artwork_key,
-                Some("3eab7720a7c7d036121a6491338d3baf1b3cd955ac0544e6ff9e57798d3946d7")
+                Some("f7d84893135109963a5083d22d8d88d0c9568a3ba603d4cf57a4a980e6040c01")
             );
         });
         assert_eq!(presentation.artwork_bindings().len(), 1);
@@ -670,6 +695,7 @@ mod tests {
             super::ImageSource::Media {
                 id: MediaId::new("ABCDEF12").unwrap(),
                 label: ImageLabel::Landscape,
+                role: ImageRole::Card,
             }
         );
     }
@@ -853,7 +879,8 @@ mod tests {
             presentation.artwork_bindings()[0].source,
             super::ImageSource::Media {
                 id: MediaId::new("qvwT6mJ4").unwrap(),
-                label: ImageLabel::Regalia
+                label: ImageLabel::Regalia,
+                role: ImageRole::Card,
             }
         );
         assert_eq!(
@@ -1196,5 +1223,77 @@ mod tests {
             presentation.live_schedule()[0].starts_at.as_str(),
             "2026-10-09T15:00:00Z"
         );
+    }
+
+    #[test]
+    fn detail_backdrop_and_same_media_playlist_cards_have_distinct_bounded_sources() {
+        use criterion_provider::{
+            ImageLabel, MediaDetail, MediaId, MediaKind, MediaSummary, Playlist,
+        };
+        let summary = |id: &str| MediaSummary {
+            id: MediaId::new(id).unwrap(),
+            title: "Fixture film".into(),
+            kind: MediaKind::Film,
+            duration_seconds: 5400,
+            release_date: None,
+        };
+        let presentation = Presentation::detail(MediaDetail {
+            media: summary("ABCDEF12"),
+            description: None,
+            directors: vec![],
+            starring: vec![],
+            countries: vec![],
+            languages: vec![],
+            genres: vec![],
+            content_warnings: None,
+            commentary_tracks: vec![],
+            first_playlist_sortable: false,
+            live_schedule: vec![],
+            playlists: vec![Playlist {
+                id: MediaId::new("ABCDEF11").unwrap(),
+                key: "fixture".into(),
+                title: "Related".into(),
+                items: vec![
+                    summary("ABCDEF12"),
+                    summary("ABCDEF13"),
+                    summary("ABCDEF12"),
+                ],
+            }],
+        });
+        let bindings = presentation.artwork_bindings();
+        assert_eq!(bindings.len(), 3);
+        assert_eq!(
+            bindings[0].source,
+            super::ImageSource::Media {
+                id: MediaId::new("ABCDEF12").unwrap(),
+                label: ImageLabel::Landscape,
+                role: ImageRole::Backdrop,
+            }
+        );
+        assert_eq!(
+            bindings[1].source,
+            super::ImageSource::Media {
+                id: MediaId::new("ABCDEF12").unwrap(),
+                label: ImageLabel::Landscape,
+                role: ImageRole::Card,
+            }
+        );
+        assert_eq!(
+            bindings[2].source,
+            super::ImageSource::Media {
+                id: MediaId::new("ABCDEF13").unwrap(),
+                label: ImageLabel::Landscape,
+                role: ImageRole::Card,
+            }
+        );
+        presentation.with_view(criterion_ui::LoginView::SignedOut, |data| {
+            let detail_key = data.detail.as_ref().unwrap().card.artwork_key.unwrap();
+            let cards = data.rails[0].cards;
+            assert_eq!(detail_key, bindings[0].key);
+            assert_ne!(detail_key, cards[0].artwork_key.unwrap());
+            assert_eq!(cards[0].artwork_key, cards[2].artwork_key);
+            assert_eq!(cards[0].artwork_key.unwrap(), bindings[1].key);
+            assert_eq!(cards[1].artwork_key.unwrap(), bindings[2].key);
+        });
     }
 }

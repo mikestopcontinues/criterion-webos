@@ -1,4 +1,4 @@
-use crate::{ArtworkError, DecodedArtwork};
+use crate::{ArtworkError, DecodedArtwork, ImageRole};
 use image::{ColorType, DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits};
 use std::io::Cursor;
 
@@ -7,7 +7,11 @@ const MAX_SIDE: u32 = 2048;
 const MAX_DECODE_PIXELS: u64 = 4 * 1024 * 1024;
 const MAX_DECODE_BYTES: u64 = 16 * 1024 * 1024;
 
-pub fn decode_artwork(content_type: &str, encoded: &[u8]) -> Result<DecodedArtwork, ArtworkError> {
+pub fn decode_artwork(
+    role: ImageRole,
+    content_type: &str,
+    encoded: &[u8],
+) -> Result<DecodedArtwork, ArtworkError> {
     if encoded.len() > MAX_ENCODED_BYTES {
         return Err(ArtworkError::EncodedTooLarge);
     }
@@ -42,7 +46,11 @@ pub fn decode_artwork(content_type: &str, encoded: &[u8]) -> Result<DecodedArtwo
     let mut image = DynamicImage::from_decoder(decoder)
         .map_err(decode_error)?
         .into_rgba8();
-    if u64::from(width) * u64::from(height) > 1024 * 1024 {
+    let resize = match role {
+        ImageRole::Card => (width > 1024 || height > 1024).then_some([1024, 1024]),
+        ImageRole::Backdrop => (width > 1920 || height > 1080).then_some([1920, 1080]),
+    };
+    if let Some([maximum_width, maximum_height]) = resize {
         let alpha = image.pixels().next().ok_or(ArtworkError::InvalidImage)?.0[3];
         let varying_alpha = image.pixels().any(|pixel| pixel.0[3] != alpha);
         if varying_alpha {
@@ -54,7 +62,7 @@ pub fn decode_artwork(content_type: &str, encoded: &[u8]) -> Result<DecodedArtwo
             }
         }
         image = DynamicImage::ImageRgba8(image)
-            .thumbnail(1024, 1024)
+            .thumbnail(maximum_width, maximum_height)
             .into_rgba8();
         if varying_alpha {
             for pixel in image.pixels_mut() {

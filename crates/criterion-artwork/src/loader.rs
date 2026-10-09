@@ -28,6 +28,7 @@ impl ArtworkLoader {
     /// reject obsolete generations before admitting the returned pixels to egui.
     pub async fn load(&self, source: &ArtworkSource) -> Result<DecodedArtwork, ArtworkError> {
         let target = source.url()?;
+        let role = source.role();
         let _network = self.network.try_acquire().map_err(|_| ArtworkError::Busy)?;
         #[cfg(test)]
         let target = if let Some(origin) = &self.origin {
@@ -89,7 +90,7 @@ impl ArtworkLoader {
             .map_err(|_| ArtworkError::Busy)?;
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            decode_artwork(&content_type, &body)
+            decode_artwork(role, &content_type, &body)
         })
         .await
         .map_err(|_| ArtworkError::Unavailable)?

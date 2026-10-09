@@ -9,6 +9,14 @@ pub use decode::decode_artwork;
 pub use loader::ArtworkLoader;
 pub use source::ArtworkSource;
 
+/// Bounded display roles; cards and full-canvas backgrounds have distinct
+/// request/output sizes and cannot share a cached source identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImageRole {
+    Card,
+    Backdrop,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArtworkError {
     InvalidSource,
