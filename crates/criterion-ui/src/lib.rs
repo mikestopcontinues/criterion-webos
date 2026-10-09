@@ -23,6 +23,7 @@ pub use search::SearchGroup;
 
 mod icons;
 mod input;
+mod rail;
 
 mod target;
 pub use target::Target;

@@ -105,6 +105,7 @@ pub struct UiFrame {
 impl AppUi {
     pub fn render(&mut self, mut input: egui::RawInput, data: &ViewData<'_>) -> UiFrame {
         self.sync_login(data.login);
+        self.sync_rail(data.login);
         if !self.wants_text_input() {
             self.search.composition.clear();
             self.search.select_all = false;
@@ -361,15 +362,7 @@ impl AppUi {
                     1400.0,
                 );
             }
-            paint_rail(
-                &p,
-                self.focus(),
-                self.page(),
-                matches!(
-                    data.login,
-                    crate::LoginView::SignedIn | crate::LoginView::SigningOut
-                ),
-            );
+            paint_rail(&p, self.focus(), self.page(), data.login);
             if self.page() == Page::AllFilms && self.filters.open {
                 self.paint_filters(&p, data);
             }
@@ -613,7 +606,7 @@ pub(crate) fn paint_card(
         MUTED,
     );
 }
-fn paint_rail(p: &egui::Painter, focus: Focus, page: Page, signed_in: bool) {
+fn paint_rail(p: &egui::Painter, focus: Focus, page: Page, login: crate::LoginView<'_>) {
     let expanded = matches!(focus, Focus::Rail(_));
     if expanded {
         p.rect_filled(
@@ -647,53 +640,19 @@ fn paint_rail(p: &egui::Painter, focus: Focus, page: Page, signed_in: bool) {
             175.0,
         );
     }
-    use crate::RailItem;
-    for (item, text, icon, y, active) in [
-        (
-            RailItem::Search,
-            "SEARCH",
-            Icon::Search,
-            208.0,
-            page == Page::Search,
-        ),
-        (
-            RailItem::Home,
-            "HOME",
-            Icon::Home,
-            356.0,
-            page == Page::Home,
-        ),
-        (
-            RailItem::New,
-            "NEW",
-            Icon::Sparkle,
-            430.0,
-            page == Page::New,
-        ),
-        (
-            RailItem::AllFilms,
-            "ALL FILMS",
-            Icon::FilmReel,
-            504.0,
-            page == Page::AllFilms,
-        ),
-        (
-            RailItem::Login,
-            if signed_in { "ACCOUNT" } else { "LOG IN" },
-            Icon::Account,
-            649.0,
-            page == Page::Login,
-        ),
-    ] {
-        let color = if focus == Focus::Rail(item) || (!expanded && active) {
+    for entry in crate::rail::entries(login) {
+        let y = entry.y(login);
+        let color = if focus == Focus::Rail(entry.item) || (!expanded && page == entry.page) {
             GOLD
         } else {
             MUTED
         };
-        icon.paint(p, centered(Pos2::new(75.0, y), 32.0), color);
+        entry
+            .icon
+            .paint(p, centered(Pos2::new(75.0, y), 32.0), color);
         if expanded {
-            label(p, [126.0, y - 15.0], text, 26.0, color, 200.0);
-            if focus == Focus::Rail(item) {
+            label(p, [126.0, y - 15.0], entry.label(login), 26.0, color, 200.0);
+            if focus == Focus::Rail(entry.item) {
                 p.line_segment(
                     [Pos2::new(108.0, y - 15.0), Pos2::new(108.0, y + 15.0)],
                     Stroke::new(2.0, GOLD),
@@ -701,7 +660,14 @@ fn paint_rail(p: &egui::Painter, focus: Focus, page: Page, signed_in: bool) {
             }
         }
     }
-    for y in [282.0, 579.0] {
+    for y in [
+        282.0,
+        if matches!(login, crate::LoginView::SignedIn) {
+            653.0
+        } else {
+            579.0
+        },
+    ] {
         p.line_segment(
             [
                 Pos2::new(58.0, y),

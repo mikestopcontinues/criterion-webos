@@ -27,6 +27,7 @@ impl AppUi {
         self.pointer_press = None;
         self.pointer_layout_focus = None;
         self.sync_login(data.login);
+        self.sync_rail(data.login);
         if let Some(commands) = self.handle_login(action, data.login) {
             return commands;
         }
@@ -62,7 +63,7 @@ impl AppUi {
         };
         let previous_page = self.page();
         let mut commands: Vec<_> = self
-            .handle_navigation(action, &rows)
+            .handle_navigation(action, &rows, data.login)
             .into_iter()
             .filter_map(|intent| match intent {
                 Intent::Navigate(page) => Some(Command::Navigate(page)),
@@ -127,6 +128,7 @@ impl AppUi {
             commands.insert(0, Command::CancelAuthentication);
         }
         self.sync_login(data.login);
+        self.sync_rail(data.login);
         if !self.wants_text_input() {
             self.search.composition.clear();
             self.search.select_all = false;

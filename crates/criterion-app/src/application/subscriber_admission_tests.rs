@@ -415,102 +415,24 @@ fn run_subscriber_admission() -> Result<(), &'static str> {
             std::thread::sleep(Duration::from_millis(16));
         }
         println!("subscriber admission: signed in");
-        key(
-            &mut app,
-            &mut window,
-            &mut painter,
-            &runtime,
-            start,
-            &mut logout_issued,
-            (41, 27),
-        )?;
-        if app.ui.page() != Page::Home {
-            return Err("activation origin restoration");
-        }
-        let deadline = Instant::now() + Duration::from_secs(45);
-        loop {
-            frame(
-                &mut app,
-                &mut window,
-                &mut painter,
-                &runtime,
-                start,
-                &mut logout_issued,
-            )?;
-            let status = app
-                .controller
-                .view
-                .with_view(app.authentication.view(), |view| view.status);
-            if matches!(
-                status,
-                LoadState::Error | LoadState::Offline | LoadState::Empty
-            ) {
-                return Err("public My List navigation admission");
-            }
-            if status == LoadState::Ready {
-                break;
-            }
-            if Instant::now() >= deadline {
-                return Err("public navigation deadline");
-            }
-            std::thread::sleep(Duration::from_millis(16));
-        }
-        let (row, column) = app
-            .controller
-            .view
-            .with_view(app.authentication.view(), |view| {
-                view.rails.iter().enumerate().find_map(|(row, rail)| {
-                    rail.cards
-                        .iter()
-                        .position(|card| {
-                            matches!(
-                                card.key,
-                                criterion_ui::Target::Content(
-                                    criterion_provider::ContentTarget::MyList
-                                )
-                            )
-                        })
-                        .map(|column| (row, column))
-                })
-            })
-            .ok_or("public My List navigation target")?;
-        if row.saturating_add(column) >= 512 || app.ui.focus() != Focus::Hero {
-            return Err("public navigation bounds");
-        }
-        for _ in 0..=row {
-            key(
-                &mut app,
-                &mut window,
-                &mut painter,
-                &runtime,
-                start,
-                &mut logout_issued,
-                (81, 1_073_741_905),
-            )?;
-        }
-        for _ in 0..column {
-            key(
-                &mut app,
-                &mut window,
-                &mut painter,
-                &runtime,
-                start,
-                &mut logout_issued,
-                (79, 1_073_741_903),
-            )?;
-        }
-        if app.ui.focus() != (Focus::Card { row, column }) {
-            return Err("My List native focus");
-        }
-        key(
-            &mut app,
-            &mut window,
-            &mut painter,
-            &runtime,
-            start,
-            &mut logout_issued,
+        // The observed subscriber rail owns My List independently of optional
+        // anonymous Home content: Account → All Films → My List.
+        for remote in [
+            (80, 1_073_741_904),
+            (82, 1_073_741_906),
+            (82, 1_073_741_906),
             (40, 13),
-        )?;
+        ] {
+            key(
+                &mut app,
+                &mut window,
+                &mut painter,
+                &runtime,
+                start,
+                &mut logout_issued,
+                remote,
+            )?;
+        }
         if app.ui.page() != Page::MyList || !app.controller.is_shelf() {
             return Err("My List navigation");
         }
@@ -550,7 +472,6 @@ fn run_subscriber_admission() -> Result<(), &'static str> {
         // executes the UI's explicit Logout command. Cleanup never replays it.
         for remote in [
             (80, 1_073_741_904),
-            (81, 1_073_741_905),
             (81, 1_073_741_905),
             (81, 1_073_741_905),
             (40, 13),
@@ -594,10 +515,13 @@ fn run_subscriber_admission() -> Result<(), &'static str> {
     if let Err(phase) = journey {
         println!("subscriber admission: stopped during {phase}");
     }
+    if cleanup.is_ok() {
+        println!("subscriber admission: issuer logout acknowledged; application disposed");
+    }
     cleanup?;
     text_cleanup?;
     journey?;
-    println!("subscriber admission: explicit logout confirmed; application disposed");
+    println!("subscriber admission: journey passed");
     Ok(())
 }
 

@@ -104,6 +104,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                 if (destination == Page::Search && self.page != Page::Search)
                     || (destination != Page::Search && self.page == Page::Search)
                     || (destination == Page::Login && self.page != Page::Login)
+                    || ((destination == Page::MyList) != (self.page == Page::MyList))
                 {
                     self.remember();
                 }
@@ -289,6 +290,12 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     pub(crate) fn set_account_session(&mut self, epoch: Option<u64>) {
+        if epoch.is_none() {
+            // Mirror UI retirement: Back may retain public origins, but must not
+            // reopen an inaccessible shelf and start another authorization.
+            self.history
+                .retain(|snapshot| snapshot.page != Page::MyList);
+        }
         if self.account_session == epoch {
             return;
         }
@@ -680,7 +687,7 @@ mod tests {
         )
     }
     #[test]
-    fn logout_erases_private_history_without_destroying_navigation() {
+    fn logout_retires_private_history_without_destroying_public_navigation() {
         let runtime = runtime();
         let mut owner = detail(&runtime);
         owner.set_account_session(Some(1));
@@ -696,23 +703,19 @@ mod tests {
             Page::Login,
             runtime.handle(),
         );
-        assert_eq!(owner.history.len(), 1);
         owner.set_account_session(None);
-        assert!(
-            owner.history[0].view.is_none(),
-            "logout must erase the private snapshot before another frame"
-        );
-        let effect = owner.command(
-            Command::Restore(Page::MyList),
-            Page::MyList,
-            runtime.handle(),
-        );
-        assert!(matches!(effect, Effect::AccountShelf));
         owner
             .view
             .with_view(criterion_ui::LoginView::SignedOut, |view| {
                 assert!(view.cards.is_empty())
             });
+        owner.command(
+            Command::Restore(Page::Detail),
+            Page::Detail,
+            runtime.handle(),
+        );
+        assert_eq!(owner.view.title(), "Fixture detail");
+        assert!(!owner.jobs.is_active());
     }
     #[test]
     fn reauthentication_rejects_old_shelf_and_departed_navigation_publication() {
@@ -744,7 +747,17 @@ mod tests {
         );
         assert!(!owner.publish_shelf(2, private_list()));
         owner.set_account_session(None);
-        assert!(owner.history[0].view.is_none());
+        owner
+            .view
+            .with_view(criterion_ui::LoginView::SignedOut, |view| {
+                assert!(view.cards.is_empty());
+            });
+        owner.command(
+            Command::Restore(Page::Detail),
+            Page::Detail,
+            runtime.handle(),
+        );
+        assert_eq!(owner.view.title(), "Fixture detail");
     }
     #[test]
     fn all_films_reentry_keeps_exact_applied_request_and_options() {

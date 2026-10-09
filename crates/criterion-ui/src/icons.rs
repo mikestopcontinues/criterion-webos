@@ -7,6 +7,7 @@ pub(crate) enum Icon {
     Home,
     Sparkle,
     FilmReel,
+    MyList,
     Account,
     Space,
     Backspace,
@@ -75,6 +76,14 @@ impl Icon {
                     dot(x, y, 1.2);
                 }
             }
+            Self::MyList => path(&[
+                [5.0, 3.0],
+                [19.0, 3.0],
+                [19.0, 21.0],
+                [12.0, 16.0],
+                [5.0, 21.0],
+                [5.0, 3.0],
+            ]),
             Self::Account => {
                 circle(12.0, 6.0, 4.0);
                 path(&[
@@ -161,6 +170,7 @@ mod tests {
             Icon::Home,
             Icon::Sparkle,
             Icon::FilmReel,
+            Icon::MyList,
             Icon::Account,
             Icon::Space,
             Icon::Backspace,

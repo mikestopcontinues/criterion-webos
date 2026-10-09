@@ -213,6 +213,332 @@ fn open_list(app: &mut App, runtime: &Runtime) {
     action(app, runtime, Action::Down);
     action(app, runtime, Action::Select);
 }
+fn native_key(app: &mut App, runtime: &Runtime, key: (u32, i32)) {
+    let surface = Surface {
+        window: Size {
+            width: 1920,
+            height: 1080,
+        },
+        drawable: Size {
+            width: 1920,
+            height: 1080,
+        },
+    };
+    for pressed in [true, false] {
+        app.event(
+            Event::Key(KeyEvent {
+                scancode: key.0,
+                keycode: key.1,
+                pressed,
+                repeat: false,
+            }),
+            surface,
+            runtime,
+            Duration::ZERO,
+        );
+        if let Some(mut output) = app.output.take() {
+            output.textures_delta.clear();
+        }
+    }
+}
+
+#[test]
+fn native_subscriber_rail_reads_list_without_home_cards_and_back_restores_display() {
+    for status in [LoadState::Empty, LoadState::Offline] {
+        let (mut app, runtime, _, issuer, middleware) = fixture(true);
+        app.controller.view = Presentation::loading("Fixture Home without navigation");
+        app.controller.view.set_status(status);
+        let origin_focus = app.ui.focus();
+        for key in [
+            (80, 1_073_741_904),
+            (81, 1_073_741_905),
+            (81, 1_073_741_905),
+            (40, 13),
+        ] {
+            native_key(&mut app, &runtime, key);
+        }
+        assert_eq!(app.ui.page(), Page::MyList);
+        pump_until(&mut app, &runtime, |app| {
+            app.controller
+                .view
+                .with_view(LoginView::SignedIn, |view| view.status == LoadState::Ready)
+        });
+        assert_eq!(
+            *middleware.calls.lock().unwrap(),
+            vec![Target::Bootstrap, Target::WatchList(Region::Us)]
+        );
+        native_key(&mut app, &runtime, (41, 27));
+        assert_eq!(app.ui.page(), Page::Home);
+        assert_eq!(app.ui.focus(), origin_focus);
+        app.controller.view.with_view(LoginView::SignedIn, |view| {
+            assert_eq!(view.title, "Fixture Home without navigation");
+            assert_eq!(view.status, status);
+            assert!(view.cards.is_empty() && view.rails.is_empty());
+        });
+        assert!(app.authentication.signed_in());
+        app.command(Command::Logout, runtime.handle());
+        app.background();
+        assert!(app.finish(&runtime));
+        assert_eq!(issuer.revokes.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[test]
+fn native_account_to_my_list_to_explicit_logout_ignores_loading_home() {
+    let (mut app, runtime, _, issuer, middleware) = fixture(true);
+    app.controller.view = Presentation::loading("Unresolved Home without navigation");
+    // The same admitted native-key route as the live subscriber test.
+    for key in [
+        (80, 1_073_741_904),
+        (81, 1_073_741_905),
+        (81, 1_073_741_905),
+        (81, 1_073_741_905),
+        (81, 1_073_741_905),
+        (40, 13),
+    ] {
+        native_key(&mut app, &runtime, key);
+    }
+    assert_eq!(app.ui.page(), Page::Login);
+    assert_eq!(app.ui.focus(), criterion_ui::Focus::LoginPrimary);
+    for key in [
+        (80, 1_073_741_904),
+        (82, 1_073_741_906),
+        (82, 1_073_741_906),
+        (40, 13),
+    ] {
+        native_key(&mut app, &runtime, key);
+    }
+    assert_eq!(app.ui.page(), Page::MyList);
+    pump_until(&mut app, &runtime, |app| {
+        app.controller
+            .view
+            .with_view(LoginView::SignedIn, |view| view.status == LoadState::Ready)
+    });
+    assert_eq!(
+        *middleware.calls.lock().unwrap(),
+        vec![Target::Bootstrap, Target::WatchList(Region::Us)]
+    );
+    for key in [
+        (80, 1_073_741_904),
+        (81, 1_073_741_905),
+        (81, 1_073_741_905),
+        (40, 13),
+        (40, 13),
+    ] {
+        native_key(&mut app, &runtime, key);
+    }
+    assert!(!app.authentication.signed_in());
+    app.background();
+    assert!(app.finish(&runtime));
+    assert_eq!(issuer.revokes.load(Ordering::SeqCst), 1);
+    native_key(&mut app, &runtime, (41, 27));
+    assert_eq!(app.ui.page(), Page::Login);
+    app.controller
+        .view
+        .with_view(app.authentication.view(), |view| {
+            assert!(view.cards.is_empty() && view.rails.is_empty());
+        });
+    assert_eq!(middleware.calls.lock().unwrap().len(), 2);
+    assert!(matches!(app.authentication.view(), LoginView::SignedOut));
+    native_key(&mut app, &runtime, (41, 27));
+    assert_eq!(app.ui.page(), Page::Home);
+    assert_eq!(
+        app.controller.view.title(),
+        "Unresolved Home without navigation"
+    );
+    assert!(app.finish(&runtime));
+    assert_eq!(issuer.revokes.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn native_logout_back_cannot_relink_a_departed_list_or_trap_cancel() {
+    let (mut app, runtime, _, issuer, middleware) = fixture(true);
+    app.controller.view = Presentation::loading("Public origin after list logout");
+    app.controller.view.set_status(LoadState::Empty);
+    let origin = app.ui.focus();
+    for key in [
+        (80, 1_073_741_904),
+        (81, 1_073_741_905),
+        (81, 1_073_741_905),
+        (40, 13),
+    ] {
+        native_key(&mut app, &runtime, key);
+    }
+    pump_until(&mut app, &runtime, |app| {
+        app.controller
+            .view
+            .with_view(LoginView::SignedIn, |view| view.status == LoadState::Ready)
+    });
+    for key in [
+        (80, 1_073_741_904),
+        (81, 1_073_741_905),
+        (81, 1_073_741_905),
+        (40, 13),
+        (40, 13),
+    ] {
+        native_key(&mut app, &runtime, key);
+    }
+    pump_until(&mut app, &runtime, |app| {
+        matches!(app.authentication.view(), LoginView::SignedOut)
+    });
+    native_key(&mut app, &runtime, (41, 27));
+    let relinked = matches!(
+        app.authentication.view(),
+        LoginView::Requesting | LoginView::Awaiting { .. }
+    );
+    // Continue cancellation through the real UI if an inaccessible restore
+    // started activation; this exposed the former repeated My List loop.
+    if app.ui.page() == Page::Login {
+        native_key(&mut app, &runtime, (41, 27));
+    }
+    assert_eq!(app.ui.page(), Page::Home);
+    assert!(!relinked, "Back must not begin another authorization");
+    assert_eq!(app.ui.focus(), origin);
+    assert!(matches!(app.authentication.view(), LoginView::SignedOut));
+    app.controller
+        .view
+        .with_view(app.authentication.view(), |view| {
+            assert_eq!(view.title, "Public origin after list logout");
+            assert_eq!(view.status, LoadState::Empty);
+            assert!(view.cards.is_empty() && view.rails.is_empty());
+        });
+    assert_eq!(middleware.calls.lock().unwrap().len(), 2);
+    assert_eq!(issuer.tokens.load(Ordering::SeqCst), 1);
+    assert_eq!(issuer.revokes.load(Ordering::SeqCst), 1);
+    app.background();
+    assert!(app.finish(&runtime));
+}
+
+#[test]
+fn native_logout_preserves_public_home_history_across_departed_list() {
+    let (mut app, runtime, _, issuer, middleware) = fixture(true);
+    app.controller.view = Presentation::loading("Original public Home");
+    app.controller.view.set_status(LoadState::Empty);
+    let origin = app.ui.focus();
+    for key in [
+        (80, 1_073_741_904),
+        (81, 1_073_741_905),
+        (81, 1_073_741_905),
+        (40, 13),
+    ] {
+        native_key(&mut app, &runtime, key);
+    }
+    pump_until(&mut app, &runtime, |app| {
+        app.controller
+            .view
+            .with_view(LoginView::SignedIn, |view| view.status == LoadState::Ready)
+    });
+    for key in [
+        (80, 1_073_741_904),
+        (82, 1_073_741_906),
+        (82, 1_073_741_906),
+        (40, 13),
+    ] {
+        native_key(&mut app, &runtime, key);
+    }
+    assert_eq!(app.ui.page(), Page::Home);
+    pump_until(&mut app, &runtime, |app| {
+        app.controller.view.status() == LoadState::Offline
+    });
+    for key in [
+        (80, 1_073_741_904),
+        (81, 1_073_741_905),
+        (81, 1_073_741_905),
+        (81, 1_073_741_905),
+        (81, 1_073_741_905),
+        (40, 13),
+        (40, 13),
+    ] {
+        native_key(&mut app, &runtime, key);
+    }
+    pump_until(&mut app, &runtime, |app| {
+        matches!(app.authentication.view(), LoginView::SignedOut)
+    });
+    native_key(&mut app, &runtime, (41, 27));
+    assert_eq!(app.ui.page(), Page::Home);
+    assert_eq!(app.controller.view.title(), "Home");
+    assert_eq!(app.controller.view.status(), LoadState::Offline);
+    native_key(&mut app, &runtime, (41, 27));
+    assert_eq!(app.ui.page(), Page::Home);
+    assert_eq!(app.ui.focus(), origin);
+    assert_eq!(app.controller.view.title(), "Original public Home");
+    assert_eq!(app.controller.view.status(), LoadState::Empty);
+    assert!(matches!(app.authentication.view(), LoginView::SignedOut));
+    assert_eq!(middleware.calls.lock().unwrap().len(), 2);
+    assert_eq!(issuer.tokens.load(Ordering::SeqCst), 1);
+    assert_eq!(issuer.revokes.load(Ordering::SeqCst), 1);
+    app.background();
+    assert!(app.finish(&runtime));
+}
+
+#[test]
+fn native_failed_refresh_then_login_cancel_or_home_back_retains_public_origin() {
+    for via_login in [true, false] {
+        let (mut app, runtime, clock, issuer, middleware) = fixture(true);
+        app.controller.view = Presentation::loading("Public origin before failed refresh");
+        app.controller.view.set_status(LoadState::Empty);
+        let origin = app.ui.focus();
+        for key in [
+            (80, 1_073_741_904),
+            (81, 1_073_741_905),
+            (81, 1_073_741_905),
+            (40, 13),
+        ] {
+            native_key(&mut app, &runtime, key);
+        }
+        pump_until(&mut app, &runtime, |app| {
+            app.controller.view.status() == LoadState::Ready
+        });
+        issuer.fail.store(true, Ordering::SeqCst);
+        clock.0.store(4000, Ordering::SeqCst);
+        pump_until(&mut app, &runtime, |app| {
+            matches!(app.authentication.view(), LoginView::Error)
+        });
+        assert_eq!(app.ui.page(), Page::MyList);
+        if via_login {
+            for key in [(80, 1_073_741_904), (40, 13)] {
+                native_key(&mut app, &runtime, key);
+            }
+            pump_until(&mut app, &runtime, |app| {
+                matches!(app.authentication.view(), LoginView::Awaiting { .. })
+            });
+        } else {
+            for key in [
+                (80, 1_073_741_904),
+                (82, 1_073_741_906),
+                (82, 1_073_741_906),
+                (82, 1_073_741_906),
+                (40, 13),
+            ] {
+                native_key(&mut app, &runtime, key);
+            }
+            pump_until(&mut app, &runtime, |app| {
+                app.controller.view.status() == LoadState::Offline
+            });
+        }
+        native_key(&mut app, &runtime, (41, 27));
+        assert_eq!(app.ui.page(), Page::Home);
+        assert_eq!(app.ui.focus(), origin);
+        assert!(if via_login {
+            matches!(app.authentication.view(), LoginView::SignedOut)
+        } else {
+            matches!(app.authentication.view(), LoginView::Error)
+        });
+        app.controller
+            .view
+            .with_view(app.authentication.view(), |view| {
+                assert_eq!(view.title, "Public origin before failed refresh");
+                assert_eq!(view.status, LoadState::Empty);
+                assert!(view.cards.is_empty() && view.rails.is_empty());
+            });
+        assert_eq!(middleware.calls.lock().unwrap().len(), 2);
+        assert_eq!(issuer.tokens.load(Ordering::SeqCst), 2);
+        assert_eq!(issuer.revokes.load(Ordering::SeqCst), 0);
+        app.background();
+        assert!(app.finish(&runtime));
+    }
+}
+
 #[test]
 fn signed_subscriber_reads_native_shelf_and_renders_real_adapter_projection() {
     let (mut app, runtime, _, _, middleware) = fixture(true);
@@ -357,7 +683,7 @@ fn expiring_shelf_read_waits_for_refresh_then_resumes_the_current_view() {
     assert!(app.finish(&runtime));
 }
 #[test]
-fn identical_token_reauthentication_reloads_private_history_in_the_new_epoch() {
+fn identical_token_reauthentication_requires_a_fresh_list_intent_in_the_new_epoch() {
     let (mut app, runtime, clock, issuer, middleware) = fixture(true);
     open_list(&mut app, &runtime);
     pump_until(&mut app, &runtime, |app| {
@@ -390,13 +716,17 @@ fn identical_token_reauthentication_reloads_private_history_in_the_new_epoch() {
     });
     assert_ne!(app.account_epoch, original);
     action(&mut app, &runtime, Action::Back);
-    assert_eq!(app.ui.page(), Page::MyList);
+    assert_eq!(app.ui.page(), Page::Home);
     app.controller.view.with_view(LoginView::SignedIn, |view| {
         assert!(
             view.cards.is_empty(),
             "identical credentials cannot restore the old private snapshot"
         )
     });
+    for key in [Action::Left, Action::Down, Action::Down, Action::Select] {
+        action(&mut app, &runtime, key);
+    }
+    assert_eq!(app.ui.page(), Page::MyList);
     pump_until(&mut app, &runtime, |app| {
         app.controller
             .view

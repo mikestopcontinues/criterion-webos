@@ -12,6 +12,7 @@ pub enum RailItem {
     Search,
     Home,
     New,
+    MyList,
     AllFilms,
     Login,
 }
@@ -121,6 +122,19 @@ impl AppUi {
             pointer_layout_focus: None,
         }
     }
+    pub(crate) fn sync_rail(&mut self, login: crate::LoginView<'_>) {
+        if !matches!(login, crate::LoginView::SignedIn) {
+            // A departed subscriber's shelf must never become an automatic
+            // authorization origin. Keep the public history in its exact order.
+            self.history
+                .retain(|snapshot| snapshot.page != Page::MyList);
+            if self.focus == Focus::Rail(RailItem::MyList) {
+                self.focus = Focus::Rail(RailItem::Login);
+                self.pointer_press = None;
+                self.pointer_layout_focus = None;
+            }
+        }
+    }
     /// Enter activation while retaining the exact current focus and scroll.
     /// The runtime mirrors this display history and executes the returned command.
     pub fn begin_authentication(&mut self) -> Vec<crate::Command> {
@@ -183,7 +197,12 @@ impl AppUi {
     pub(crate) fn layout_focus(&self) -> Focus {
         self.pointer_layout_focus.unwrap_or(self.focus)
     }
-    pub(crate) fn handle_navigation(&mut self, action: Action, rows: &[usize]) -> Vec<Intent> {
+    pub(crate) fn handle_navigation(
+        &mut self,
+        action: Action,
+        rows: &[usize],
+        login: crate::LoginView<'_>,
+    ) -> Vec<Intent> {
         if let Some(commands) = self.handle_filter(action) {
             return commands;
         }
@@ -226,6 +245,8 @@ impl AppUi {
                 Page::New => RailItem::New,
                 Page::Search => RailItem::Search,
                 Page::Login => RailItem::Login,
+                Page::MyList if matches!(login, crate::LoginView::SignedIn) => RailItem::MyList,
+                Page::MyList => RailItem::Login,
                 _ => RailItem::Home,
             });
         } else if matches!(self.focus, Focus::Rail(_))
@@ -234,34 +255,34 @@ impl AppUi {
             self.focus = self.return_focus;
             return Vec::new();
         } else if let Focus::Rail(item) = self.focus {
-            const ITEMS: [RailItem; 5] = [
-                RailItem::Search,
-                RailItem::Home,
-                RailItem::New,
-                RailItem::AllFilms,
-                RailItem::Login,
-            ];
-            let index = ITEMS
-                .iter()
-                .position(|candidate| *candidate == item)
+            let mut items = crate::rail::entries(login);
+            let index = items
+                .clone()
+                .position(|candidate| candidate.item == item)
                 .unwrap_or(1);
             match action {
-                Action::Down if index < 4 => self.focus = Focus::Rail(ITEMS[index + 1]),
-                Action::Up if index > 0 => self.focus = Focus::Rail(ITEMS[index - 1]),
+                Action::Down => {
+                    if let Some(next) = items.clone().nth(index + 1) {
+                        self.focus = Focus::Rail(next.item);
+                    }
+                }
+                Action::Up if index > 0 => {
+                    if let Some(previous) = items.clone().nth(index - 1) {
+                        self.focus = Focus::Rail(previous.item);
+                    }
+                }
                 Action::Select => {
                     if (item == RailItem::Search && self.page != Page::Search)
                         || (item != RailItem::Search && self.page == Page::Search)
                         || (item == RailItem::Login && self.page != Page::Login)
+                        || ((item == RailItem::MyList) != (self.page == Page::MyList))
                     {
                         self.push_history();
                     }
-                    self.page = match item {
-                        RailItem::Search => Page::Search,
-                        RailItem::Home => Page::Home,
-                        RailItem::New => Page::New,
-                        RailItem::AllFilms => Page::AllFilms,
-                        RailItem::Login => Page::Login,
+                    let Some(selected) = items.find(|entry| entry.item == item) else {
+                        return Vec::new();
                     };
+                    self.page = selected.page;
                     if self.page == Page::AllFilms {
                         self.filters.open = false;
                     }

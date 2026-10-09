@@ -279,7 +279,7 @@ fn signed_in_rail_opens_account_without_starting_a_new_activation() {
         ..Default::default()
     };
     ui.handle(Action::Left, &data);
-    for _ in 0..3 {
+    for _ in 0..4 {
         ui.handle(Action::Down, &data);
     }
     let mut frame = ui.render(egui::RawInput::default(), &data);

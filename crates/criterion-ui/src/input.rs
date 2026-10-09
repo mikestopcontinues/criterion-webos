@@ -227,15 +227,9 @@ impl AppUi {
                 130.0
             }
         {
-            for (item, y) in [
-                (crate::RailItem::Search, 208.0),
-                (crate::RailItem::Home, 356.0),
-                (crate::RailItem::New, 430.0),
-                (crate::RailItem::AllFilms, 504.0),
-                (crate::RailItem::Login, 649.0),
-            ] {
-                if (pos.y - y).abs() < 34.0 {
-                    return target(Focus::Rail(item));
+            for entry in crate::rail::entries(data.login) {
+                if (pos.y - entry.y(data.login)).abs() < 34.0 {
+                    return target(Focus::Rail(entry.item));
                 }
             }
             return None;
