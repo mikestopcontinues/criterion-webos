@@ -37,6 +37,26 @@ async fn browse_returns_the_public_catalog_title() {
 }
 
 #[tokio::test]
+async fn browse_keeps_the_page_and_omits_the_observed_missing_release_year() {
+    let expected = Catalog::with_transport(FixtureTransport)
+        .browse(&BrowseRequest::default())
+        .await
+        .unwrap();
+    let mut body: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../tests/fixtures/provider/all-films.json"
+    ))
+    .unwrap();
+    body["items"][0]["release_date"] = serde_json::json!("0-01-01");
+    let page = Catalog::with_transport(BodyFixture(serde_json::to_vec(&body).unwrap()))
+        .browse(&BrowseRequest::default())
+        .await
+        .unwrap();
+    let mut expected = expected;
+    expected.items[0].release_date = None;
+    assert_eq!(page, expected);
+}
+
+#[tokio::test]
 async fn browse_rejects_a_response_with_an_invalid_media_identity() {
     let catalog = Catalog::with_transport(BodyFixture(br#"{"items":[{"contentType":"film","duration":5245,"mediaid":"../secret","release_date":"1967-01-01","title":"Secret"}],"paging":{"page_limit":2},"total":1}"#.to_vec()));
     assert_eq!(
@@ -403,6 +423,27 @@ async fn catalog_rejects_invalid_requests_before_transport() {
     );
 }
 
+#[tokio::test]
+async fn detail_omits_the_observed_missing_release_year_in_media_and_nested_items() {
+    let mut body: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../tests/fixtures/provider/media-film.json"
+    ))
+    .unwrap();
+    let expected = Catalog::with_transport(BodyFixture(serde_json::to_vec(&body).unwrap()))
+        .detail(&MediaId::new("qvwT6mJ4").unwrap())
+        .await
+        .unwrap();
+    body["release_date"] = serde_json::json!("0-01-01");
+    body["playlists"][0]["playlist"][0]["release_date"] = serde_json::json!("0-01-01");
+    let detail = Catalog::with_transport(BodyFixture(serde_json::to_vec(&body).unwrap()))
+        .detail(&MediaId::new("qvwT6mJ4").unwrap())
+        .await
+        .unwrap();
+    let mut expected = expected;
+    expected.media.release_date = None;
+    assert_eq!(detail, expected);
+}
+
 #[test]
 fn identifiers_cursors_and_filters_reject_invalid_input_without_retaining_it() {
     for id in [
@@ -465,13 +506,30 @@ async fn catalog_rejects_invalid_dates_durations_totals_and_detail_resource_coun
         "../../../tests/fixtures/provider/all-films.json"
     ))
     .unwrap();
-    let mut bad_date = browse.clone();
-    bad_date["items"][0]["release_date"] = serde_json::json!("2026-02-31");
+    for date in [
+        "2026-02-31",
+        "0000-01-01",
+        "0-01-02",
+        "0-02-01",
+        "1-01-01",
+        "2024-01",
+        "0-01-01T00:00:00Z",
+        "0-01-01 ",
+    ] {
+        let mut bad_date = browse.clone();
+        bad_date["items"][0]["release_date"] = serde_json::json!(date);
+        assert_eq!(
+            Catalog::with_transport(BodyFixture(serde_json::to_vec(&bad_date).unwrap()))
+                .browse(&BrowseRequest::default())
+                .await,
+            Err(Error::InvalidResponse)
+        );
+    }
     let mut bad_duration = browse.clone();
     bad_duration["items"][0]["duration"] = serde_json::json!(4294967295_u32);
     let mut bad_total = browse;
     bad_total["total"] = serde_json::json!(4294967295_u32);
-    for value in [bad_date, bad_duration, bad_total] {
+    for value in [bad_duration, bad_total] {
         assert_eq!(
             Catalog::with_transport(BodyFixture(serde_json::to_vec(&value).unwrap()))
                 .browse(&BrowseRequest::default())

@@ -74,6 +74,12 @@ fn check_names(values: &[String]) -> Result<(), Error> {
         .try_for_each(|value| check_text(value, 512, false))
 }
 
+// The public catalog uses this exact short zero-year value on films whose
+// official card has no release-year label. It is absent metadata, not a date.
+fn missing_release_date(value: &str) -> bool {
+    value.is_empty() || value == "0-01-01"
+}
+
 pub(super) fn valid_date(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 10
@@ -193,7 +199,7 @@ impl WireMedia {
             || self
                 .release_date
                 .as_deref()
-                .is_some_and(|date| !date.is_empty() && !valid_date(date))
+                .is_some_and(|date| !missing_release_date(date) && !valid_date(date))
         {
             return Err(Error::InvalidResponse);
         }
@@ -247,7 +253,7 @@ impl WireMedia {
             title: self.title,
             kind: MediaKind::parse(&self.content_type)?,
             duration_seconds: self.duration,
-            release_date: self.release_date.filter(|date| !date.is_empty()),
+            release_date: self.release_date.filter(|date| !missing_release_date(date)),
         })
     }
 

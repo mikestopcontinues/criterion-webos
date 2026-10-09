@@ -207,6 +207,8 @@ fn canonical_utc_timestamps_validate_calendar_boundaries_and_sort_chronologicall
     assert!(leap < next);
     assert_eq!(leap.as_str(), "2024-02-29T23:59:59Z");
     for invalid in [
+        "0-01-01T00:00:00Z",
+        "0000-01-01T00:00:00Z",
         "1900-02-29T00:00:00Z",
         "2024-04-31T00:00:00Z",
         "2024-13-01T00:00:00Z",
