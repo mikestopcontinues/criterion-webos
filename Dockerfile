@@ -1,4 +1,4 @@
-FROM rust:1.94.0-slim-bookworm@sha256:a86cada82e36ebd7a9bffed7548792c55a952fdb20718eea9278a936bcb76e62 AS development
+FROM public.ecr.aws/docker/library/rust:1.94.0-slim-bookworm@sha256:a86cada82e36ebd7a9bffed7548792c55a952fdb20718eea9278a936bcb76e62 AS development
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
