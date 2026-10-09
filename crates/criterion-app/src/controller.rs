@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Main-thread catalog publication and bounded navigation snapshots.
+mod catalog;
 use crate::{jobs::Jobs, presentation::Presentation};
 use criterion_provider::{
     BrowseOptions, BrowseRequest, Catalog, CatalogPage, ContentTarget, DiscoveryPage,
@@ -39,6 +40,7 @@ struct Snapshot {
     browse: Option<Arc<BrowseRequest>>,
     private_epoch: Option<u64>,
     search_loaded: bool,
+    pager: Option<catalog::Pager>,
 }
 
 pub(crate) enum Effect {
@@ -67,6 +69,7 @@ pub(crate) struct Controller<T = HttpTransport, C: MonotonicClock = SystemClock>
     suspended: bool,
     options: Option<Arc<BrowseOptions>>,
     browse: Option<Arc<BrowseRequest>>,
+    pager: Option<catalog::Pager>,
     account_session: Option<u64>,
     private_epoch: Option<u64>,
 }
@@ -91,6 +94,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             suspended: false,
             options: None,
             browse: None,
+            pager: None,
             account_session: None,
             private_epoch: None,
         };
@@ -154,9 +158,24 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                     self.browse = snapshot.browse;
                     self.private_epoch = snapshot.private_epoch;
                     self.search_loaded = snapshot.search_loaded;
+                    self.pager = snapshot.pager;
                     if snapshot.page == destination {
                         if let Some(view) = snapshot.view {
                             self.view = view;
+                        } else if let Some(pager) = &mut self.pager {
+                            self.view = Presentation::loading("All Films");
+                            if let Some(request) = pager.rehydrate(&mut self.view, self.clock.now())
+                            {
+                                self.issue(
+                                    Query::Browse {
+                                        request: Arc::new(request),
+                                        options: self.options.clone(),
+                                    },
+                                    runtime,
+                                );
+                            } else if let Some(query) = self.query.clone() {
+                                self.start(query, runtime);
+                            }
                         } else if let Some(query) = self.query.clone() {
                             self.start(query, runtime);
                         } else {
@@ -230,6 +249,39 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                     Err(_) => self.view.set_status(criterion_ui::LoadState::Error),
                 }
             }
+            Command::Catalog { anchor, target } if self.page == Page::AllFilms => {
+                if let Some(pager) = &mut self.pager
+                    && pager.retire_obsolete(target, &mut self.view)
+                {
+                    self.jobs.cancel();
+                }
+                if let Some(pager) = &mut self.pager
+                    && let Some(request) =
+                        pager.demand(anchor, target, &mut self.view, self.clock.now())
+                {
+                    self.issue(
+                        Query::Browse {
+                            request: Arc::new(request),
+                            options: self.options.clone(),
+                        },
+                        runtime,
+                    );
+                }
+            }
+            Command::RetryCatalog if self.page == Page::AllFilms => {
+                if let Some(pager) = &mut self.pager
+                    && let Some(request) = pager.retry(&mut self.view, self.clock.now())
+                {
+                    self.issue(
+                        Query::Browse {
+                            request: Arc::new(request),
+                            options: self.options.clone(),
+                        },
+                        runtime,
+                    );
+                }
+            }
+            Command::Catalog { .. } | Command::RetryCatalog => {}
             Command::SelectPlaylist(index) => self.view.select_playlist(index),
             Command::Authenticate => {
                 if self.page != Page::Login {
@@ -256,6 +308,15 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     pub(crate) fn poll(&mut self, runtime: &Runtime) {
+        if self.page == Page::AllFilms
+            && self
+                .pager
+                .as_ref()
+                .is_some_and(|p| p.expired(self.clock.now()))
+        {
+            self.jobs.cancel();
+            self.pager.as_mut().unwrap().fail(&mut self.view);
+        }
         if self.search_due.is_some_and(|due| self.clock.now() >= due) {
             self.search_due = None;
             if let Some(query @ Query::Search(_, _)) = self.query.clone() {
@@ -266,10 +327,26 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             match result {
                 Ok(Ok(Loaded::Discovery(page))) => self.view = Presentation::discovery(page),
                 Ok(Ok(Loaded::Browse(page, options))) => {
-                    self.view = Presentation::catalog("All Films", page);
-                    self.view.set_options(&options);
-                    self.options = Some(options);
+                    let next = if let Some(pager) = &mut self.pager {
+                        pager.loaded(page, &mut self.view)
+                    } else {
+                        self.view = Presentation::catalog("All Films", page);
+                        None
+                    };
+                    if next.is_none() {
+                        self.view.set_options(&options);
+                    }
+                    self.options = Some(options.clone());
                     self.trim_history();
+                    if let Some(request) = next {
+                        self.issue(
+                            Query::Browse {
+                                request: Arc::new(request),
+                                options: Some(options),
+                            },
+                            runtime.handle(),
+                        );
+                    }
                 }
                 Ok(Ok(Loaded::Detail(detail))) => self.view = Presentation::detail(*detail),
                 Ok(Ok(Loaded::Search(results, loaded_query))) => {
@@ -280,6 +357,9 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                         self.view = Presentation::search(results, *group);
                         self.search_loaded = true;
                     }
+                }
+                _ if self.page == Page::AllFilms && self.pager.is_some() => {
+                    self.pager.as_mut().unwrap().fail(&mut self.view);
                 }
                 Ok(Err(Error::Unavailable | Error::Deadline)) => {
                     self.view.set_status(criterion_ui::LoadState::Offline)
@@ -340,12 +420,27 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         self.suspended |= self.jobs.is_active() || self.search_due.is_some();
         self.search_due = None;
         self.jobs.cancel();
+        if let Some(pager) = &mut self.pager {
+            pager.fail(&mut self.view);
+        }
     }
     pub(crate) fn foreground(&mut self, runtime: &Handle) {
         if std::mem::take(&mut self.suspended)
             && let Some(query) = self.query.clone()
         {
-            self.start(query, runtime);
+            if let Some(pager) = &mut self.pager {
+                if let Some(request) = pager.retry(&mut self.view, self.clock.now()) {
+                    self.issue(
+                        Query::Browse {
+                            request: Arc::new(request),
+                            options: self.options.clone(),
+                        },
+                        runtime,
+                    );
+                }
+            } else {
+                self.start(query, runtime);
+            }
         }
     }
 
@@ -353,7 +448,12 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         if self.history.len() == MAX_HISTORY {
             self.history.remove(0);
         }
-        let view = std::mem::replace(&mut self.view, Presentation::loading(""));
+        let mut view = std::mem::replace(&mut self.view, Presentation::loading(""));
+        let mut pager = self.pager.take();
+        let committed_catalog = pager.as_ref().is_some_and(catalog::Pager::has_window);
+        if let Some(p) = &mut pager {
+            p.cancel(&mut view);
+        }
         let interrupted_shelf = self.private_epoch.is_some()
             && view.with_view(criterion_ui::LoginView::SignedOut, |data| {
                 data.status == criterion_ui::LoadState::Loading
@@ -364,7 +464,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             });
         self.history.push(Snapshot {
             page: self.page,
-            view: if self.jobs.is_active()
+            view: if (self.jobs.is_active() && !committed_catalog)
                 || self.search_due.is_some()
                 || interrupted_shelf
                 || interrupted_search
@@ -377,6 +477,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             browse: self.browse.clone(),
             private_epoch: self.private_epoch.take(),
             search_loaded: self.search_loaded,
+            pager,
         });
         self.trim_history();
     }
@@ -389,7 +490,11 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             .history
             .iter()
             .map(|snapshot| {
-                query_bytes(snapshot.query.as_ref())
+                snapshot
+                    .pager
+                    .as_ref()
+                    .map_or(0, catalog::Pager::estimated_bytes)
+                    + query_bytes(snapshot.query.as_ref())
                     + snapshot
                         .browse
                         .as_ref()
@@ -454,8 +559,10 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         }
         self.suspended = false;
         self.query = Some(query.clone());
+        self.pager = None;
         if let Query::Browse { request, .. } = &query {
             self.browse = Some(request.clone());
+            self.pager = Some(catalog::Pager::new(request.clone(), self.clock.now()));
         }
         self.view = Presentation::loading(title(self.page));
         if matches!(query, Query::Search(_, _)) {
@@ -867,3 +974,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "controller/catalog_tests.rs"]
+mod catalog_tests;

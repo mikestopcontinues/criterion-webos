@@ -53,6 +53,7 @@ pub(crate) struct Presentation {
     card_indices: Option<Vec<usize>>,
     filters: Option<Vec<OwnedFilter>>,
     live_schedule: Vec<criterion_provider::LiveProgram>,
+    catalog_window: Option<criterion_ui::CatalogWindow>,
 }
 impl Presentation {
     pub(crate) fn loading(title: impl Into<String>) -> Self {
@@ -71,6 +72,7 @@ impl Presentation {
             card_indices: None,
             filters: None,
             live_schedule: Vec::new(),
+            catalog_window: None,
         }
     }
     pub(crate) fn set_status(&mut self, status: LoadState) {
@@ -106,6 +108,64 @@ impl Presentation {
             projection.cards.push(card);
         }
         projection
+    }
+    pub(crate) fn set_catalog_total(&mut self, total: u32) {
+        self.total = total;
+    }
+    pub(crate) fn catalog_len(&self) -> usize {
+        self.cards.len()
+    }
+    pub(crate) fn set_catalog_window(&mut self, window: criterion_ui::CatalogWindow) {
+        self.catalog_window = Some(window);
+    }
+    pub(crate) fn catalog_id(&self, index: usize) -> Option<MediaId> {
+        self.cards
+            .get(index)
+            .and_then(|c| c.target.media_id())
+            .cloned()
+    }
+    pub(crate) fn catalog_bytes(&self) -> usize {
+        vec_bytes(&self.cards)
+            + self.cards.iter().map(OwnedCard::heap_bytes).sum::<usize>()
+            + vec_bytes(&self.artwork)
+            + self
+                .artwork
+                .iter()
+                .map(|b| {
+                    b.key.capacity()
+                        + match &b.source {
+                            ImageSource::Media { id, .. } => id.as_str().len(),
+                            ImageSource::Editorial(i) => i.url().as_str().len(),
+                        }
+                })
+                .sum::<usize>()
+    }
+    pub(crate) fn merge_catalog(&mut self, mut projection: Self) {
+        self.cards.append(&mut projection.cards);
+        for binding in projection.artwork {
+            if !self.artwork.iter().any(|b| b.key == binding.key) {
+                self.artwork.push(binding);
+            }
+        }
+        self.cards.shrink_to_fit();
+        self.artwork.shrink_to_fit();
+    }
+    pub(crate) fn replace_catalog(&mut self, mut projection: Self) {
+        projection.filters = self.filters.take();
+        if self.catalog_window.is_some() {
+            projection.total = self.total;
+        }
+        *self = projection;
+    }
+    pub(crate) fn drop_catalog_prefix(&mut self, count: usize) {
+        self.cards.drain(..count);
+        self.artwork.retain(|b| {
+            self.cards
+                .iter()
+                .any(|c| c.artwork.as_ref() == Some(&b.key))
+        });
+        self.cards.shrink_to_fit();
+        self.artwork.shrink_to_fit();
     }
     pub(crate) fn artwork_bindings(&self) -> &[ImageBinding] {
         &self.artwork
@@ -550,6 +610,7 @@ impl Presentation {
             status: self.status,
             total: self.total,
             cards: &cards,
+            catalog: self.catalog_window,
             search_counts: self.search_counts,
             login,
         })

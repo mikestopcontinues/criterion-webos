@@ -59,12 +59,26 @@ pub enum LoadState {
     Offline,
     Error,
 }
+/// Global positions in the bounded All Films window. Opaque cursors stay with the controller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CatalogTail {
+    More,
+    Loading,
+    Error,
+    End,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CatalogWindow {
+    pub first: usize,
+    pub tail: CatalogTail,
+}
 pub struct ViewData<'a> {
     pub title: &'a str,
     pub hero: Option<Hero<'a>>,
     pub rails: &'a [Rail<'a>],
     pub cards: &'a [Card<'a>],
     pub total: u32,
+    pub catalog: Option<CatalogWindow>,
     pub status: LoadState,
     pub filters: Option<FilterMenu<'a>>,
     pub detail: Option<Detail<'a>>,
@@ -79,6 +93,7 @@ impl Default for ViewData<'_> {
             rails: &[],
             cards: &[],
             total: 0,
+            catalog: None,
             status: LoadState::Loading,
             filters: None,
             detail: None,
@@ -106,6 +121,7 @@ impl AppUi {
     pub fn render(&mut self, mut input: egui::RawInput, data: &ViewData<'_>) -> UiFrame {
         self.sync_login(data.login);
         self.sync_rail(data.login);
+        self.sync_catalog(data);
         if !self.wants_text_input() {
             self.search.composition.clear();
             self.search.select_all = false;
@@ -307,11 +323,15 @@ impl AppUi {
                         .cards
                         .iter()
                         .enumerate()
-                        .skip(first_row * columns)
+                        .skip(
+                            (first_row * columns)
+                                .saturating_sub(data.catalog.map_or(0, |w| w.first)),
+                        )
                         .take(16)
                     {
-                        let row = index / columns;
-                        let column = index % columns;
+                        let global = index + data.catalog.map_or(0, |w| w.first);
+                        let row = global / columns;
+                        let column = global % columns;
                         let y = 248.0 + row as f32 * 321.0 - self.scroll_y();
                         if y + 285.0 < 0.0
                             || y >= 1080.0
@@ -362,6 +382,31 @@ impl AppUi {
                     1400.0,
                 );
             }
+            if self.page() == Page::AllFilms
+                && let Some(window) = data.catalog
+            {
+                let end = window.first + data.cards.len();
+                let end_y = 248.0 + end.div_ceil(4) as f32 * 321.0 - self.scroll_y();
+                let y = if window.tail == CatalogTail::End {
+                    end_y
+                } else {
+                    end_y.clamp(600.0, 970.0)
+                };
+                match window.tail {
+                    CatalogTail::Loading => {
+                        label(&p, [150.0, y], "Loading more films…", 28.0, WHITE, 1200.0)
+                    }
+                    CatalogTail::Error => button(
+                        &p,
+                        catalog_retry_rect(),
+                        "Unable to load — retry",
+                        self.focus() == Focus::CatalogRetry,
+                    ),
+                    CatalogTail::End if data.cards.is_empty() => (),
+                    CatalogTail::End => label(&p, [150.0, y], "End of films", 28.0, MUTED, 1200.0),
+                    CatalogTail::More => (),
+                }
+            }
             paint_rail(&p, self.focus(), self.page(), data.login);
             if self.page() == Page::AllFilms && self.filters.open {
                 self.paint_filters(&p, data);
@@ -382,8 +427,10 @@ impl AppUi {
                     .get(card.row)
                     .and_then(|rail| rail.cards.get(card.column))
             } else {
-                data.cards
-                    .get(card.row * if self.page() == Page::Search { 3 } else { 4 } + card.column)
+                data.cards.get(
+                    (card.row * if self.page() == Page::Search { 3 } else { 4 } + card.column)
+                        .saturating_sub(data.catalog.map_or(0, |w| w.first)),
+                )
             };
             if let Some(key) = source.and_then(|card| card.artwork_key)
                 && !visible_artwork.iter().any(|candidate| candidate == key)
@@ -418,6 +465,13 @@ impl AppUi {
             {
                 break;
             }
+        }
+        if let Some(demand) = self.catalog_demand(data)
+            && !commands
+                .iter()
+                .any(|c| matches!(c, crate::Command::Catalog { .. }))
+        {
+            commands.push(demand);
         }
         UiFrame {
             commands,
@@ -1051,4 +1105,8 @@ fn duration(seconds: u32) -> String {
     } else {
         format!("{} min", seconds / 60)
     }
+}
+
+pub(crate) fn catalog_retry_rect() -> Rect {
+    Rect::from_min_size(Pos2::new(150.0, 970.0), Vec2::new(650.0, 80.0))
 }

@@ -49,6 +49,7 @@ pub enum Focus {
     FilterApply,
     FilterReset,
     FilterClose,
+    CatalogRetry,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Intent {
@@ -98,6 +99,7 @@ pub struct AppUi {
     pub(crate) login: crate::login::LoginState,
     pub(crate) pointer_press: Option<crate::input::PointerTarget>,
     pub(crate) pointer_layout_focus: Option<Focus>,
+    pub(crate) catalog_pending: Option<(Focus, usize)>,
 }
 impl Default for AppUi {
     fn default() -> Self {
@@ -120,6 +122,7 @@ impl AppUi {
             login: crate::login::LoginState::default(),
             pointer_press: None,
             pointer_layout_focus: None,
+            catalog_pending: None,
         }
     }
     pub(crate) fn sync_rail(&mut self, login: crate::LoginView<'_>) {
@@ -357,18 +360,27 @@ impl AppUi {
         }
         Vec::new()
     }
-    fn push_history(&mut self) {
+    pub(crate) fn push_history(&mut self) {
+        let catalog_restore = self.catalog_pending.map(|(focus, _)| focus);
+        self.catalog_pending = None;
+        let restore_focus = |focus| {
+            if focus == Focus::CatalogRetry {
+                catalog_restore.unwrap_or(Focus::Card { row: 0, column: 0 })
+            } else {
+                focus
+            }
+        };
         if self.history.len() == 16 {
             self.history.remove(0);
         }
         self.history.push(Snapshot {
             page: self.page,
             focus: if matches!(self.focus, Focus::Rail(_)) {
-                self.return_focus
+                restore_focus(self.return_focus)
             } else {
-                self.focus
+                restore_focus(self.focus)
             },
-            return_focus: self.return_focus,
+            return_focus: restore_focus(self.return_focus),
             scroll_y: self.scroll_y,
             detail_state: self.detail_state,
             search_query: self.search.query.clone(),

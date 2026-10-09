@@ -30,3 +30,5 @@ pub use target::Target;
 
 mod login;
 pub use login::LoginView;
+
+mod catalog;

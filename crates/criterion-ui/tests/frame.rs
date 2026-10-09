@@ -31,6 +31,7 @@ fn cpu_frame_uses_observed_four_landscape_columns_and_visible_budget() {
         status: LoadState::Ready,
         filters: None,
         detail: None,
+        catalog: None,
         search_counts: [0; 4],
         login: criterion_ui::LoginView::SignedOut,
     };

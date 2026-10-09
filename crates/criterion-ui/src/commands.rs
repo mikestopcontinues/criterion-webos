@@ -19,6 +19,11 @@ pub enum Command {
     },
     Exit,
     ApplyFilters(FilterSelection),
+    Catalog {
+        anchor: usize,
+        target: usize,
+    },
+    RetryCatalog,
 }
 impl AppUi {
     /// Transform one remote action using the current admitted display model.
@@ -28,6 +33,9 @@ impl AppUi {
         self.pointer_layout_focus = None;
         self.sync_login(data.login);
         self.sync_rail(data.login);
+        if let Some(commands) = self.handle_catalog(action, data) {
+            return commands;
+        }
         if let Some(commands) = self.handle_login(action, data.login) {
             return commands;
         }
@@ -61,6 +69,7 @@ impl AppUi {
         } else {
             data.cards.chunks(columns).map(<[_]>::len).collect()
         };
+        let catalog_anchor = self.catalog_anchor(data);
         let previous_page = self.page();
         let mut commands: Vec<_> = self
             .handle_navigation(action, &rows, data.login)
@@ -77,6 +86,9 @@ impl AppUi {
                     } else {
                         row.checked_mul(if page == Page::Search { 3 } else { 4 })
                             .and_then(|index| index.checked_add(column))
+                            .and_then(|index| {
+                                index.checked_sub(data.catalog.map_or(0, |w| w.first))
+                            })
                             .and_then(|index| data.cards.get(index))
                     };
                     card.map(|card| {
@@ -118,6 +130,15 @@ impl AppUi {
                 Intent::ApplyFilters(selection) => Some(Command::ApplyFilters(selection)),
             })
             .collect();
+        if let Some(anchor) = catalog_anchor {
+            commands.insert(
+                0,
+                Command::Catalog {
+                    anchor,
+                    target: anchor,
+                },
+            );
+        }
         if previous_page == Page::Login
             && self.page() != Page::Login
             && matches!(

@@ -98,6 +98,15 @@ impl AppUi {
                     });
                     if *pressed {
                         self.pointer_layout_focus = Some(self.focus());
+                        if target
+                            .as_ref()
+                            .is_some_and(|t| t.focus == Focus::CatalogRetry)
+                            && self.catalog_pending.is_none()
+                            && let Some(window) = data.catalog
+                        {
+                            self.catalog_pending =
+                                Some((self.focus, window.first + data.cards.len()));
+                        }
                         if let Some(target) = &target {
                             self.pointer_focus(target.focus);
                         }
@@ -162,6 +171,15 @@ impl AppUi {
                 },
             })
         };
+        if self.page() == Page::AllFilms
+            && !self.filters.open
+            && data
+                .catalog
+                .is_some_and(|w| w.tail == crate::CatalogTail::Error)
+            && crate::view::catalog_retry_rect().contains(pos)
+        {
+            return target(Focus::CatalogRetry);
+        }
         if self.page() == Page::AllFilms && self.filters.open {
             for (focus, area) in [
                 (Focus::FilterClose, rect(1630.0, 139.0, 82.0, 82.0)),
