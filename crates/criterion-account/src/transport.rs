@@ -1,4 +1,4 @@
-use crate::{Error, Request, Response, SecretBody, Target, Transport};
+use crate::{Credentials, Error, Region, Request, Response, SecretBody, Target, Transport};
 use std::sync::Arc;
 use std::time::Duration;
 use zeroize::Zeroizing;
@@ -65,6 +65,10 @@ impl HttpTransport {
             Target::Bootstrap => {
                 url::Url::parse(crate::BOOTSTRAP_URL).map_err(|_| Error::InvalidRequest)?
             }
+            Target::MyListIds(region) => account_target(region, "/content/my-stuff-ids")?,
+            Target::ContinueWatching(region) => {
+                account_target(region, "/content/continue-watching")?
+            }
         };
         #[cfg(test)]
         if let Some(origin) = &self.test_origin {
@@ -75,6 +79,34 @@ impl HttpTransport {
         }
         Ok(target)
     }
+}
+
+fn account_target(region: Region, path: &str) -> Result<url::Url, Error> {
+    let base = match region {
+        Region::Us => crate::US_BASE,
+        Region::Ca => crate::CA_BASE,
+    };
+    // Both suffixes and regional bases are fixed source-owned values, never
+    // payload-selected paths, provider URLs or caller-supplied route strings.
+    url::Url::parse(&format!("{base}{path}")).map_err(|_| Error::InvalidRequest)
+}
+
+fn valid_credentials(credentials: &Credentials) -> Result<(), Error> {
+    if !credentials.bootstrap.is_sensitive() || !credentials.subscriber.is_sensitive() {
+        return Err(Error::InvalidRequest);
+    }
+    let bootstrap = credentials
+        .bootstrap
+        .to_str()
+        .map_err(|_| Error::InvalidRequest)?
+        .strip_prefix("Bearer ")
+        .ok_or(Error::InvalidRequest)?;
+    let subscriber = credentials
+        .subscriber
+        .to_str()
+        .map_err(|_| Error::InvalidRequest)?;
+    crate::wire::valid_token(bootstrap).map_err(|_| Error::InvalidRequest)?;
+    crate::wire::valid_token(subscriber).map_err(|_| Error::InvalidRequest)
 }
 
 fn tls_config(roots: rustls::RootCertStore) -> Result<rustls::ClientConfig, Error> {
@@ -153,24 +185,36 @@ fn request_error(error: reqwest::Error) -> Error {
 
 impl Transport for HttpTransport {
     async fn get(&self, request: Request) -> Result<Response, Error> {
-        // Bootstrap is public. Reject a confused credential-bearing request
+        // Refuse confused credential roles and malformed private capabilities
         // before taking capacity or constructing any outbound HTTP request.
-        match request.target {
-            Target::Bootstrap if request.credentials.is_some() => {
-                return Err(Error::InvalidRequest);
+        let Request {
+            target,
+            credentials,
+        } = request;
+        let credentials = match target {
+            Target::Bootstrap if credentials.is_some() => return Err(Error::InvalidRequest),
+            Target::Bootstrap => None,
+            Target::MyListIds(_) | Target::ContinueWatching(_) => {
+                let credentials = credentials.ok_or(Error::InvalidRequest)?;
+                valid_credentials(&credentials)?;
+                Some(credentials)
             }
-            Target::Bootstrap => {}
-        }
+        };
         let _permit = self.permit.try_acquire().map_err(|_| Error::Busy)?;
-        let target = self.target(request.target)?;
-        let mut response = self
+        let target = self.target(target)?;
+        let mut outbound = self
             .client
             .get(target)
             .header(reqwest::header::ACCEPT, "application/json")
-            .header(reqwest::header::ACCEPT_ENCODING, "identity")
-            .send()
-            .await
-            .map_err(request_error)?;
+            .header(reqwest::header::ACCEPT_ENCODING, "identity");
+        if let Some(credentials) = credentials {
+            // Move the existing sensitive HeaderValue owners into this request;
+            // never store either private value in client-wide default headers.
+            outbound = outbound
+                .header(reqwest::header::AUTHORIZATION, credentials.bootstrap)
+                .header("x-auth-token", credentials.subscriber);
+        }
+        let mut response = outbound.send().await.map_err(request_error)?;
         let status = response.status().as_u16();
         if !(200..300).contains(&status) {
             return Err(Error::HttpStatus(status));

@@ -50,7 +50,7 @@ pub(crate) fn bootstrap(response: &Response) -> Result<Bootstrap, Error> {
     })
 }
 
-fn valid_token(value: &str) -> Result<(), Error> {
+pub(crate) fn valid_token(value: &str) -> Result<(), Error> {
     if value.is_empty()
         || value.len() > MAX_TOKEN
         || !value.bytes().all(|byte| (33..=126).contains(&byte))

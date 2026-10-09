@@ -1,4 +1,4 @@
-use crate::{Credentials, Error, HttpTransport, Request, Target, Transport};
+use crate::{Credentials, Error, HttpTransport, Region, Request, Target, Transport};
 use reqwest::header::HeaderValue;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -586,4 +586,271 @@ async fn wait_requests(server: &Server, expected: usize) {
         tokio::time::sleep(Duration::from_millis(2)).await;
     }
     assert_eq!(server.requests.lock().unwrap().len(), expected);
+}
+
+fn private_credentials(bootstrap: &[u8], subscriber: &[u8]) -> Credentials {
+    let mut bootstrap = HeaderValue::from_bytes(bootstrap).unwrap();
+    let mut subscriber = HeaderValue::from_bytes(subscriber).unwrap();
+    bootstrap.set_sensitive(true);
+    subscriber.set_sensitive(true);
+    Credentials {
+        bootstrap,
+        subscriber,
+    }
+}
+
+fn account_request(target: Target) -> Request {
+    Request {
+        target,
+        credentials: Some(private_credentials(
+            b"Bearer synthetic-bootstrap-capability",
+            b"synthetic-subscriber-capability",
+        )),
+    }
+}
+
+fn header_values<'a>(head: &'a str, name: &str) -> Vec<&'a str> {
+    head.lines()
+        .filter_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            key.eq_ignore_ascii_case(name).then_some(value.trim())
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn verified_account_gets_use_exact_regional_routes_and_distinct_private_headers() {
+    for (target, path) in [
+        (
+            Target::MyListIds(Region::Us),
+            "/api/us/content/my-stuff-ids",
+        ),
+        (
+            Target::MyListIds(Region::Ca),
+            "/api/ca/content/my-stuff-ids",
+        ),
+        (
+            Target::ContinueWatching(Region::Us),
+            "/api/us/content/continue-watching",
+        ),
+        (
+            Target::ContinueWatching(Region::Ca),
+            "/api/ca/content/continue-watching",
+        ),
+    ] {
+        let server = Server::json(200, br#"{"private":"synthetic-account-result"}"#);
+        let private_request = account_request(target);
+        assert!(!format!("{private_request:?}").contains("synthetic-bootstrap-capability"));
+        assert!(!format!("{private_request:?}").contains("synthetic-subscriber-capability"));
+        let response = server
+            .transport(Duration::from_secs(1))
+            .get(private_request)
+            .await
+            .unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            response.body.expose(),
+            br#"{"private":"synthetic-account-result"}"#
+        );
+        assert!(!format!("{response:?}").contains("synthetic-account-result"));
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .head
+                .starts_with(&format!("GET {path} HTTP/1.1\r\n"))
+        );
+        assert_eq!(
+            header_values(&requests[0].head, "Authorization"),
+            ["Bearer synthetic-bootstrap-capability"]
+        );
+        assert_eq!(
+            header_values(&requests[0].head, "x-auth-token"),
+            ["synthetic-subscriber-capability"]
+        );
+        assert_eq!(
+            header_values(&requests[0].head, "Accept"),
+            ["application/json"]
+        );
+        assert!(header_values(&requests[0].head, "Cookie").is_empty());
+        assert!(requests[0].body.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn maximal_valid_private_headers_survive_the_bounded_request_path() {
+    let bootstrap = format!("Bearer {}", "b".repeat(16_384));
+    let subscriber = "s".repeat(16_384);
+    let server = Server::json(200, b"{}");
+    let response = server
+        .transport(Duration::from_secs(1))
+        .get(Request {
+            target: Target::MyListIds(Region::Us),
+            credentials: Some(private_credentials(
+                bootstrap.as_bytes(),
+                subscriber.as_bytes(),
+            )),
+        })
+        .await
+        .unwrap();
+    assert_eq!(response.body.expose(), b"{}");
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        header_values(&requests[0].head, "Authorization"),
+        [bootstrap.as_str()]
+    );
+    assert_eq!(
+        header_values(&requests[0].head, "x-auth-token"),
+        [subscriber.as_str()]
+    );
+}
+
+#[tokio::test]
+async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers_before_contact() {
+    let oversized_bootstrap = format!("Bearer {}", "b".repeat(16_385));
+    let oversized_subscriber = "s".repeat(16_385);
+    for target in [
+        Target::MyListIds(Region::Us),
+        Target::ContinueWatching(Region::Ca),
+    ] {
+        let server = Server::json(200, b"{}");
+        let transport = server.transport(Duration::from_secs(1));
+        assert_eq!(
+            transport
+                .get(Request {
+                    target,
+                    credentials: None
+                })
+                .await
+                .err(),
+            Some(Error::InvalidRequest)
+        );
+        for (bootstrap, subscriber) in [
+            (&b""[..], &b"subscriber"[..]),
+            (&b"Bearer "[..], &b"subscriber"[..]),
+            (&b"Basic bootstrap"[..], &b"subscriber"[..]),
+            (&b"bearer bootstrap"[..], &b"subscriber"[..]),
+            (&b"Bearer bootstrap with-space"[..], &b"subscriber"[..]),
+            (&b"Bearer bootstrap\t"[..], &b"subscriber"[..]),
+            (&b"Bearer \x80"[..], &b"subscriber"[..]),
+            (&b"Bearer bootstrap"[..], &b""[..]),
+            (&b"Bearer bootstrap"[..], &b"Bearer subscriber"[..]),
+            (&b"Bearer bootstrap"[..], &b"subscriber with-space"[..]),
+            (&b"Bearer bootstrap"[..], &b"subscriber\t"[..]),
+            (&b"Bearer bootstrap"[..], &b"\x80"[..]),
+            (oversized_bootstrap.as_bytes(), &b"subscriber"[..]),
+            (&b"Bearer bootstrap"[..], oversized_subscriber.as_bytes()),
+        ] {
+            let request = Request {
+                target,
+                credentials: Some(private_credentials(bootstrap, subscriber)),
+            };
+            assert_eq!(
+                transport.get(request).await.err(),
+                Some(Error::InvalidRequest)
+            );
+        }
+        for clear_bootstrap in [true, false] {
+            let mut credentials = private_credentials(b"Bearer bootstrap", b"subscriber");
+            if clear_bootstrap {
+                credentials.bootstrap.set_sensitive(false);
+            } else {
+                credentials.subscriber.set_sensitive(false);
+            }
+            assert_eq!(
+                transport
+                    .get(Request {
+                        target,
+                        credentials: Some(credentials)
+                    })
+                    .await
+                    .err(),
+                Some(Error::InvalidRequest)
+            );
+        }
+        assert_eq!(server.connections.load(Ordering::Acquire), 0);
+        assert!(server.requests.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn account_redirects_never_reissue_private_headers_to_bootstrap_or_another_origin() {
+    for status in [302, 307, 308] {
+        let outside = Server::json(200, b"{}");
+        let location = format!("{}api/init", outside.origin);
+        let redirect = Server::new("127.0.0.1", move |tls, _| {
+            let _ = write!(
+                tls,
+                "HTTP/1.1 {status} Fixture\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+        });
+        assert_eq!(
+            redirect
+                .transport(Duration::from_secs(1))
+                .get(account_request(Target::MyListIds(Region::Us)))
+                .await
+                .err(),
+            Some(Error::HttpStatus(status))
+        );
+        assert_eq!(outside.connections.load(Ordering::Acquire), 0);
+        assert_eq!(redirect.requests.lock().unwrap().len(), 1);
+
+        let same_origin = Server::new("127.0.0.1", move |tls, _| {
+            let _ = write!(
+                tls,
+                "HTTP/1.1 {status} Fixture\r\nLocation: /api/init\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+        });
+        assert_eq!(
+            same_origin
+                .transport(Duration::from_secs(1))
+                .get(account_request(Target::ContinueWatching(Region::Ca)))
+                .await
+                .err(),
+            Some(Error::HttpStatus(status))
+        );
+        let requests = same_origin.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .head
+                .starts_with("GET /api/ca/content/continue-watching HTTP/1.1\r\n")
+        );
+    }
+}
+
+#[tokio::test]
+async fn subscriber_errors_do_not_retry_and_later_bootstrap_has_no_stale_headers() {
+    for status in [401, 429, 503] {
+        let responses = Arc::new(AtomicUsize::new(0));
+        let server_responses = responses.clone();
+        let server = Server::new("127.0.0.1", move |tls, _| {
+            let status = if server_responses.fetch_add(1, Ordering::AcqRel) == 0 {
+                status
+            } else {
+                200
+            };
+            let _ = write!(
+                tls,
+                "HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nSet-Cookie: account=synthetic-cookie; Secure; Path=/\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+            );
+        });
+        let transport = server.transport(Duration::from_secs(1));
+        assert_eq!(
+            transport
+                .get(account_request(Target::ContinueWatching(Region::Us)))
+                .await
+                .err(),
+            Some(Error::HttpStatus(status))
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        assert!(transport.get(request()).await.is_ok());
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].head.starts_with("GET /api/init HTTP/1.1\r\n"));
+        assert!(header_values(&requests[1].head, "Authorization").is_empty());
+        assert!(header_values(&requests[1].head, "x-auth-token").is_empty());
+        assert!(header_values(&requests[1].head, "Cookie").is_empty());
+    }
 }

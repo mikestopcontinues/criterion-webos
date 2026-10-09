@@ -1,10 +1,13 @@
 //! Native middleware bootstrap and bounded subscriber-account capabilities.
 use std::future::Future;
 mod client;
+mod model;
+mod native_wire;
 mod transport;
 mod wire;
 pub use client::AccountClient;
 pub use criterion_session::SecretBody;
+pub use model::{ContinueWatching, MediaKind, MediaSummary, MyListIds, Position};
 pub use transport::HttpTransport;
 pub use wire::{BOOTSTRAP_URL, CA_BASE, US_BASE};
 
@@ -37,6 +40,8 @@ pub enum Region {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     Bootstrap,
+    MyListIds(Region),
+    ContinueWatching(Region),
 }
 pub struct Credentials {
     pub(crate) bootstrap: reqwest::header::HeaderValue,
@@ -70,5 +75,7 @@ pub trait Transport: Send + Sync {
 }
 #[cfg(test)]
 mod client_tests;
+#[cfg(test)]
+mod native_tests;
 #[cfg(test)]
 mod transport_tests;
