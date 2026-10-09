@@ -117,3 +117,91 @@ fn search_detail_back_restores_query_group_card_then_home_focus() {
     assert_eq!(ui.focus(), Focus::Card { row: 0, column: 0 });
     assert_eq!(ui.scroll_y(), 632.0);
 }
+
+#[test]
+fn separate_search_visits_restore_their_query_and_group() {
+    let data = ViewData::default();
+    let mut ui = AppUi::new();
+    search(&mut ui, &data);
+    ui.handle(Action::Select, &data);
+    for _ in 0..6 {
+        ui.handle(Action::Right, &data);
+    }
+    ui.handle(Action::Down, &data);
+    ui.handle(Action::Right, &data);
+    ui.handle(Action::Right, &data);
+    ui.handle(Action::Select, &data);
+    assert_eq!(ui.search_group(), SearchGroup::Collections);
+    for _ in 0..4 {
+        ui.handle(Action::Left, &data);
+    }
+    ui.handle(Action::Down, &data);
+    ui.handle(Action::Select, &data);
+    assert_eq!(ui.page(), criterion_ui::Page::Home);
+    search(&mut ui, &data);
+    let mut frame = ui.render(
+        egui::RawInput {
+            events: vec![
+                egui::Event::Key {
+                    key: egui::Key::A,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers {
+                        ctrl: true,
+                        ..Default::default()
+                    },
+                },
+                egui::Event::Text("Beta".into()),
+            ],
+            ..Default::default()
+        },
+        &data,
+    );
+    frame.output.textures_delta.clear();
+    for _ in 0..6 {
+        ui.handle(Action::Right, &data);
+    }
+    ui.handle(Action::Down, &data);
+    ui.handle(Action::Right, &data);
+    ui.handle(Action::Select, &data);
+    assert_eq!(ui.query(), "beta");
+    assert_eq!(ui.search_group(), SearchGroup::Films);
+    assert_eq!(
+        ui.handle(Action::Back, &data),
+        vec![Command::Restore(criterion_ui::Page::Home)]
+    );
+    assert_eq!(
+        ui.handle(Action::Back, &data),
+        vec![Command::Restore(criterion_ui::Page::Search)]
+    );
+    assert_eq!(ui.query(), "a");
+    assert_eq!(ui.search_group(), SearchGroup::Collections);
+}
+
+#[test]
+fn leaving_the_text_field_clears_transient_preedit() {
+    let mut ui = AppUi::new();
+    let data = ViewData::default();
+    search(&mut ui, &data);
+    let mut frame = ui.render(
+        egui::RawInput {
+            events: vec![egui::Event::Ime(egui::ImeEvent::Preedit {
+                text: "TRANSIENT".into(),
+                active_range_chars: None,
+            })],
+            ..Default::default()
+        },
+        &data,
+    );
+    frame.output.textures_delta.clear();
+    for _ in 0..6 {
+        ui.handle(Action::Right, &data);
+    }
+    assert!(!ui.wants_text_input());
+    let mut frame = ui.render(egui::RawInput::default(), &data);
+    frame.output.textures_delta.clear();
+    assert!(!frame.output.shapes.iter().any(|shape| {
+        matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("TRANSIENT"))
+    }));
+}

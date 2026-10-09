@@ -5,7 +5,7 @@ pub struct FilterSelection {
     pub descending: bool,
     pub options: Vec<(usize, usize)>,
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct FilterState {
     pub open: bool,
     pub group: usize,
@@ -14,6 +14,10 @@ pub(crate) struct FilterState {
     pub counts: [usize; 4],
 }
 impl AppUi {
+    /// Committed selection for the current restored browse display.
+    pub fn filter_selection(&self) -> &FilterSelection {
+        &self.filters.committed
+    }
     pub fn set_filter_option_counts(&mut self, counts: [usize; 4]) {
         self.filters.counts = counts.map(|count| count.min(2048));
     }

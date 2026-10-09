@@ -460,3 +460,73 @@ fn activation_can_leave_and_restore_an_open_filter_without_interception() {
     );
     assert_eq!(ui.focus(), Focus::FilterGroup(0));
 }
+
+fn film_view(target: &criterion_ui::Target) -> ViewData<'_> {
+    let card = criterion_ui::Card {
+        key: target,
+        artwork_key: None,
+        title: "Fixture",
+        year: "1986",
+        duration_seconds: 5820,
+    };
+    ViewData {
+        hero: Some(criterion_ui::Hero {
+            card,
+            description: "Fixture",
+            action: "SEE MORE",
+            action_kind: criterion_ui::HeroAction::Open,
+            background_key: None,
+            title_logo_key: None,
+        }),
+        detail: Some(criterion_ui::Detail {
+            card,
+            directors: "Fixture director",
+            description: "Fixture synopsis",
+            starring: "Fixture cast",
+            countries: "Fixture country",
+            languages: "English",
+            primary_action: "WATCH NOW",
+            kind: criterion_ui::DetailKind::Film,
+        }),
+        ..Default::default()
+    }
+}
+#[test]
+fn fresh_detail_does_not_inherit_an_earlier_modal_and_back_restores_that_modal() {
+    let mut ui = AppUi::new();
+    let first = criterion_ui::Target::Media(criterion_provider::MediaId::new("qvwT6mJ4").unwrap());
+    let second = criterion_ui::Target::Media(criterion_provider::MediaId::new("zxlDvz82").unwrap());
+    let first_data = film_view(&first);
+    let second_data = film_view(&second);
+    ui.handle(Action::Select, &first_data);
+    ui.handle(Action::Right, &first_data);
+    ui.handle(Action::Select, &first_data);
+    assert_eq!(ui.focus(), Focus::InformationPrimary);
+    ui.begin_authentication();
+    let login = ViewData {
+        login: LoginView::Requesting,
+        ..Default::default()
+    };
+    ui.handle(Action::Left, &login);
+    for _ in 0..3 {
+        ui.handle(Action::Up, &login);
+    }
+    ui.handle(Action::Select, &login);
+    assert_eq!(ui.page(), Page::Home);
+    ui.handle(Action::Select, &second_data);
+    ui.handle(Action::Right, &second_data);
+    assert_eq!(ui.focus(), Focus::DetailAction(1));
+    assert_eq!(
+        ui.handle(Action::Back, &second_data),
+        vec![Command::Restore(Page::Home)]
+    );
+    assert_eq!(
+        ui.handle(Action::Back, &second_data),
+        vec![Command::Restore(Page::Detail)]
+    );
+    assert_eq!(ui.focus(), Focus::InformationPrimary);
+    assert_eq!(
+        ui.handle(Action::Select, &first_data),
+        vec![Command::Play(first.media_id().unwrap().clone())]
+    );
+}

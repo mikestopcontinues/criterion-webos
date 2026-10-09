@@ -104,6 +104,10 @@ pub struct UiFrame {
 impl AppUi {
     pub fn render(&mut self, mut input: egui::RawInput, data: &ViewData<'_>) -> UiFrame {
         self.sync_login(data.login);
+        if !self.wants_text_input() {
+            self.search.composition.clear();
+            self.search.select_all = false;
+        }
         if let Some(menu) = &data.filters {
             let mut counts = [0; 4];
             for (index, group) in menu.groups.iter().take(4).enumerate() {
@@ -121,6 +125,7 @@ impl AppUi {
             self.pointer_press = None;
             self.pointer_layout_focus = None;
             self.search.composition.clear();
+            self.search.select_all = false;
             Vec::new()
         };
         let mut commands = Vec::new();
@@ -558,6 +563,9 @@ pub(crate) fn paint_card(
         MUTED,
         120.0,
     );
+    if card.duration_seconds == 0 {
+        return;
+    }
     let duration = if card.duration_seconds >= 3600 {
         format!(
             "{} h {} min",
@@ -1033,7 +1041,9 @@ impl AppUi {
     }
 }
 fn duration(seconds: u32) -> String {
-    if seconds >= 3600 {
+    if seconds == 0 {
+        String::new()
+    } else if seconds >= 3600 {
         format!("{}h {}m", seconds / 3600, (seconds % 3600) / 60)
     } else {
         format!("{} min", seconds / 60)

@@ -6,6 +6,7 @@ pub enum DetailKind {
     Collection,
     Supplement,
 }
+#[derive(Clone, Copy)]
 pub(crate) struct DetailState {
     pub kind: DetailKind,
     pub information: bool,

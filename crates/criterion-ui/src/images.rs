@@ -75,6 +75,25 @@ impl AppUi {
         self.images.bytes += bytes;
         Ok(())
     }
+    /// Presence includes decoded images waiting for upload and uploaded textures.
+    /// This check does not change cache recency.
+    pub fn has_image(&self, key: &str) -> bool {
+        self.images.entries.iter().any(|entry| entry.key == key)
+    }
+    /// Remove one admitted image; uploaded handles queue their texture release.
+    pub fn discard_image(&mut self, key: &str) -> bool {
+        let Some(index) = self
+            .images
+            .entries
+            .iter()
+            .position(|entry| entry.key == key)
+        else {
+            return false;
+        };
+        let removed = self.images.entries.remove(index).expect("existing image");
+        self.images.bytes -= removed.bytes;
+        true
+    }
     pub fn image_cache_len(&self) -> usize {
         self.images.entries.len()
     }

@@ -72,12 +72,16 @@ pub(crate) enum Intent {
     ApplyFilters(crate::FilterSelection),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Snapshot {
     page: Page,
     focus: Focus,
     return_focus: Focus,
     scroll_y: f32,
+    detail_state: crate::detail::DetailState,
+    search_query: String,
+    search_group: crate::SearchGroup,
+    filters: crate::filter::FilterState,
 }
 pub struct AppUi {
     pub(crate) detail_state: crate::detail::DetailState,
@@ -127,6 +131,10 @@ impl AppUi {
         self.focus = Focus::LoginCancel;
         self.scroll_y = 0.0;
         self.login = crate::login::LoginState::default();
+        self.search.composition.clear();
+        self.search.select_all = false;
+        self.pointer_press = None;
+        self.pointer_layout_focus = None;
         vec![crate::Command::Authenticate]
     }
     pub(crate) fn restore_previous(&mut self) -> Option<Page> {
@@ -135,6 +143,12 @@ impl AppUi {
         self.focus = previous.focus;
         self.return_focus = previous.return_focus;
         self.scroll_y = previous.scroll_y;
+        self.detail_state = previous.detail_state;
+        self.search.query = previous.search_query;
+        self.search.group = previous.search_group;
+        self.search.composition.clear();
+        self.search.select_all = false;
+        self.filters = previous.filters;
         Some(self.page)
     }
     pub fn page(&self) -> Page {
@@ -145,6 +159,12 @@ impl AppUi {
     }
     pub(crate) fn activate_target(&mut self, target: &crate::Target) {
         self.page = target.page();
+        if self.page == Page::AllFilms {
+            self.filters.open = false;
+        }
+        if self.page == Page::Detail {
+            self.detail_state = crate::detail::DetailState::default();
+        }
         self.focus = match self.page {
             Page::Detail => Focus::DetailAction(0),
             Page::Home | Page::New | Page::Discovery => Focus::Hero,
@@ -167,13 +187,9 @@ impl AppUi {
         }
         if action == Action::Back
             && !matches!(self.focus, Focus::Rail(_))
-            && let Some(previous) = self.history.pop()
+            && let Some(page) = self.restore_previous()
         {
-            self.page = previous.page;
-            self.focus = previous.focus;
-            self.return_focus = previous.return_focus;
-            self.scroll_y = previous.scroll_y;
-            return vec![Intent::Restore(self.page)];
+            return vec![Intent::Restore(page)];
         }
         if action == Action::Select && self.focus == Focus::Hero {
             self.push_history();
@@ -238,6 +254,9 @@ impl AppUi {
                         RailItem::AllFilms => Page::AllFilms,
                         RailItem::Login => Page::Login,
                     };
+                    if self.page == Page::AllFilms {
+                        self.filters.open = false;
+                    }
                     self.focus = if self.page == Page::Login {
                         Focus::LoginCancel
                     } else if self.page == Page::Search {
@@ -322,6 +341,10 @@ impl AppUi {
             },
             return_focus: self.return_focus,
             scroll_y: self.scroll_y,
+            detail_state: self.detail_state,
+            search_query: self.search.query.clone(),
+            search_group: self.search.group,
+            filters: self.filters.clone(),
         });
     }
     pub fn scroll_y(&self) -> f32 {

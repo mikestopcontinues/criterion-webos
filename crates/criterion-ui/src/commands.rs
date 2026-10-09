@@ -127,6 +127,10 @@ impl AppUi {
             commands.insert(0, Command::CancelAuthentication);
         }
         self.sync_login(data.login);
+        if !self.wants_text_input() {
+            self.search.composition.clear();
+            self.search.select_all = false;
+        }
         commands
     }
 }
