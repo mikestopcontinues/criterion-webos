@@ -1,6 +1,6 @@
 # Official Reference App
 
-The running reference for [the product contract](product.md) is the current Android TV Criterion Channel app. Publisher screenshots and help articles provide supporting evidence; actual frames, accessibility state and remote inputs establish the observed behavior below. They do not establish subscriber playback or native LG behavior. [TASKS.md](../TASKS.md) owns unfinished acceptance.
+The running references for [the product contract](product.md) are the current Android TV Criterion Channel app and the official subscriber website. Actual frames, accessibility state and remote inputs establish the observed behavior below. The captain selected PlxNative as the player-control starting point because a physical Android TV reference is unavailable. Website playback and Android browsing do not establish licensed LG playback. [TASKS.md](../TASKS.md) owns unfinished acceptance.
 
 ## Running reference and identity
 
@@ -30,6 +30,18 @@ Search initially focuses A on a custom six-column A–Z/0–9 keyboard, with Spa
 
 Log In instructs the viewer to scan a QR code or visit `https://login.criterion.com/activate` and enter an activation code. These visible instructions establish the current entry URL, not the underlying network protocol. The sole code-bearing capture remains private; credentials and actual codes never belong in Git or public documentation.
 
+## Observed subscriber behavior
+
+The captain completed the Android app's first-party device activation. The settled Home rail exposes My List and Account, and relaunch restores the linked session. The official website also restores his existing subscriber session. These observations concern the official clients; Criterion Unofficial must acquire its own authorized session.
+
+A test film's detail exposes Watch Now, Details and Add to My List. Adding it in the Android app changes the list control to a checkmark and appears in the website's settled My List. Removing it in Android restores the add control and removes the website entry. This establishes Android-to-website list synchronization; the opposite direction is untested. The temporary membership was restored.
+
+Android protected playback fails in this emulator with `ERROR_CODE_DRM_DISALLOWED_OPERATION`. No decoded film or TV player controls were observed there. The official website successfully decoded the same licensed film. Its player exposes pause/play, ten-second backward/forward seeks, timeline, mute, captions, audio tracks, fullscreen, picture-in-picture and Close.
+
+While paused, forward seek advanced the timeline by ten seconds; backward seek returned it by ten seconds. Captions offered No Captions and SDH English; selecting SDH changed the selected state, then disabling restored No Captions. Audio offered English 5.1 and English Stereo; both selections changed the selected state, then the original English 5.1 selection was restored. These controls establish track selection, not audible channel output or preference persistence.
+
+Closing website playback changed the film action to Resume and created a Continue Watching card. Its information popup exposes Remove from Continue Watching. Removing the test-only entry removed that card and the empty shelf. All temporary list/progress changes were restored; private account contents and session material stay outside Git.
+
 ## Unobserved boundaries
 
 | Area | Evidence still required |
@@ -37,10 +49,10 @@ Log In instructs the viewer to scan a QR code or visit `https://login.criterion.
 | Navigation/catalog | Remaining focus graph, hero controls/timing, applied sort order, complete filter semantics, long-press clearing, route/session retention, pagination and loading/error behavior. |
 | Search | Exact matching/ranking, clearing, voice input and persistence after re-entry or a new session. |
 | Collections/supplements | Ordering, nested programs, trailer behavior, commentary assets versus audio tracks and complete metadata variations. |
-| My List/Continue Watching | Shelf placement/order, add/remove, per-asset progress/completion, synchronization and failure feedback. |
-| Playback | Startup, quality, buffering, focus/controls, pause/resume, seek, track selection, expiry and close/relaunch. Current feature copy advertises ad-free video and 5.1, without establishing these controls. |
-| Captions | Current tracks, defaults, disabling/style/persistence and remote mapping. [Caption help](https://criterionchannel.zendesk.com/hc/en-us/articles/29838061680540-How-do-I-activate-subtitles-on-Criterion-Channel) describes optional English CC/SDH and automatic English subtitles for foreign-language films, but predates the update. |
-| Sessions/settings | Authorized linking, polling, expiry, cancellation/retry, restored sessions, logout and preferences. [Device requirements](https://criterionchannel.zendesk.com/hc/en-us/articles/24806312682012-What-devices-can-I-watch-The-Criterion-Channel-on) document three concurrent streams; [Manage Devices help](https://criterionchannel.zendesk.com/hc/en-us/articles/29838517339932-How-do-I-log-off-all-devices) describes web signout. |
+| My List/Continue Watching | Ordering, website-to-TV synchronization, per-asset completion and failure feedback. |
+| Playback | Actual C4 licensed startup, quality/audio, buffering, TV focus/controls, expiry/renewal and close/relaunch. PlxNative supplies control/lifecycle inspiration; its elementary-stream player does not establish Criterion DRM support. |
+| Captions | Styling, persistence and TV remote mapping. [Caption help](https://criterionchannel.zendesk.com/hc/en-us/articles/29838061680540-How-do-I-activate-subtitles-on-Criterion-Channel) describes optional English CC/SDH and automatic English subtitles for foreign-language films, but predates the update. |
+| Sessions/settings | Independent-client linking, polling, expiry, cancellation/retry, secure persistence, logout and preferences. [Device requirements](https://criterionchannel.zendesk.com/hc/en-us/articles/24806312682012-What-devices-can-I-watch-The-Criterion-Channel-on) document three concurrent streams; [Manage Devices help](https://criterionchannel.zendesk.com/hc/en-us/articles/29838517339932-How-do-I-log-off-all-devices) describes web signout. |
 | Criterion 24/7 | TV entry/exit, current title/countdown, controls and return focus. [Live-channel help](https://criterionchannel.zendesk.com/hc/en-us/articles/29453323767708-What-is-Criterion-24-7) describes discovery without a general public schedule. |
 
 Mobile feature copy advertises offline movies/extras; TV copy omits downloads. Offline playback is not an observed TV capability. iPad screenshots do not extend the running Android contract.

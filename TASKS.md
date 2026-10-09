@@ -6,7 +6,7 @@ Deliver every acceptance criterion in [the product contract](docs/product.md). T
 
 ## Checkpoint
 
-Root owns integration, product/docs, subscriber/device access and publication. The signed current Android TV reference and official website are linked to the captain's subscription; subscriber comparison and temporary-state restoration are active. Public catalog and native window/input crates are integrated. Home/New discovery, the Rust interface and application input adapter have isolated implementation owners. Platform executables and the TLS catalog library cross-compile against the pinned ARM32 SDK. The public GitHub repository exists; source publication, Pages deployment, application E2E, C4 execution and licensed playback remain unfinished.
+Root owns integration, product/docs, subscriber/device access and publication. The signed Android TV reference and official website are linked; list, browser player controls and progress were compared, and temporary account changes restored. The captain selected PlxNative player inspiration. Public catalog, native window/input and the Rust interface core are integrated. Home/New discovery, Search/pointer input, account linking, artwork and the app runtime have isolated implementation owners. Platform executables and the TLS catalog library cross-compile against the pinned ARM32 SDK. The public GitHub source and landing page are live and initial CI passed; the complete application, E2E, C4 execution and licensed release remain unfinished.
 
 ## Unfinished work
 
@@ -16,6 +16,6 @@ Root owns integration, product/docs, subscriber/device access and publication. T
 - [ ] Build reproducible tooling and the first working native TV slice; verify before extending it.
 - [ ] Implement verified discovery/search/details/supplements, My List, Continue Watching, account, playback and lifecycle behavior.
 - [ ] Complete behavioral unit/integration/E2E coverage, independent reviews and exact-package device/physical/audible validation.
-- [ ] Publish the public GitHub repository, verified release and complete GitHub Pages landing page.
+- [ ] Publish the verified release and update the live GitHub Pages landing page with measured capabilities and limitations.
 
 Resume by reading this tracker, the relevant owning docs and the latest primary-log evidence; verify actual branches/work before repeating work.
