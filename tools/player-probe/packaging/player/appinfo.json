@@ -1,0 +1,12 @@
+{
+  "id": "com.mikestopcontinues.criterion.probe.player",
+  "version": "0.1.0",
+  "vendor": "Mike Stop Continues",
+  "type": "web",
+  "main": "index.html",
+  "title": "Criterion Probe Player",
+  "icon": "icon.png",
+  "resolution": "1920x1080",
+  "handlesRelaunch": true,
+  "disableBackHistoryAPI": true
+}

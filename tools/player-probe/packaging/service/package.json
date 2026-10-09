@@ -1,0 +1,5 @@
+{
+  "name": "com.mikestopcontinues.criterion.probe.player.bridge",
+  "version": "0.1.0",
+  "main": "bridge.js"
+}

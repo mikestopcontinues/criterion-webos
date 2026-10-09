@@ -1,0 +1,22 @@
+{
+  "id": "com.mikestopcontinues.criterion.probe.player.bridge",
+  "services": [
+    {
+      "name": "com.mikestopcontinues.criterion.probe.player.bridge",
+      "commands": [
+        {
+          "name": "attach",
+          "public": true
+        },
+        {
+          "name": "ping",
+          "public": true
+        },
+        {
+          "name": "close",
+          "public": true
+        }
+      ]
+    }
+  ]
+}

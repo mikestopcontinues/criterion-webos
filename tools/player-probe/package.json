@@ -1,0 +1,17 @@
+{
+  "name": "criterion-player-probe-tools",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "check": "tsc --noEmit",
+    "compile": "tsc",
+    "test": "/opt/node16/bin/node dist/tests/run.js",
+    "package": "node dist/build.js"
+  },
+  "devDependencies": {
+    "@webos-tools/cli": "3.2.6",
+    "@types/node": "16.18.126",
+    "esbuild": "0.28.2",
+    "typescript": "6.0.3"
+  }
+}
