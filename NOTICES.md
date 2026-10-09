@@ -254,7 +254,7 @@ These exact stock header notices identify declarations used at the native FFI se
 
 The pinned Rust standard library states: “Copyrights in the Rust Standard Library are retained by their contributors.” Its default grant is Apache-2.0 OR MIT, and the source account names The Rust Project Developers. Its `library/std/src/sync/mpmc` account also names 2019 The Crossbeam Project Developers. Generated core Unicode data carries Copyright 1991-2024 Unicode, Inc. with Unicode-3.0; the Unicode license text in the package index also supplies that grant. The `stdarch`, portable SIMD and compiler-builtins texts below preserve their original notices. This is separate from the project's dependency lock; the exact installed Rust `COPYRIGHT-library.html`, runtime source and licenses belong in the release source/notice bundle.
 
-Stock TV SDL, GL/GLES, GNU libc/compiler runtime, and the separate caller's LS2/GLib libraries are not copied into the application package. Their runtime version and vendor patch provenance cannot be inferred from the host SDK. GNU libc and GLib usage is covered by their LGPL-2.1-or-later grants; the LGPL text is retained below. The current ARM source excludes the SDK compatibility archive and supplies original GPL Rust auxiliary-vector code. Exact ELF confirmation of archive exclusion and final SDK startfile/compiler-runtime attribution remain publication gates in `docs/licenses.md`.
+Stock TV SDL, GL/GLES, GNU libc/compiler runtime, and the separate caller's LS2/GLib shared-library files are not copied into the application package. Their runtime version and vendor patch provenance cannot be inferred from the host SDK. GNU libc and GLib usage is covered by their LGPL-2.1-or-later grants; the LGPL text is retained below. The current ARM source excludes the SDK compatibility archive and supplies original GPL Rust auxiliary-vector code. Incorporated GNU startup/nonshared code has separate [retained file grants](#gnu-startup-and-nonshared-code). Exact final-artifact attribution, archive exclusion and corresponding-source admission remain owned by `docs/licenses.md`.
 
 - Rust compiler_builtins 0.1.160: complete MIT/Apache-2.0/LLVM-exception and libm record: [retained text](#notice-ab6eec6caf0f).
 - Rust stdarch: MIT, Copyright 2017 The Rust Project Developers: [retained text](#notice-29662666b44d).
@@ -263,6 +263,27 @@ Stock TV SDL, GL/GLES, GNU libc/compiler runtime, and the separate caller's LS2/
 - Rust build-std dependency cfg-if 1.0.4: LICENSE-MIT: [retained text](#notice-378f5840b258).
 - Rust build-std dependency rustc-demangle 0.1.27: LICENSE-MIT: [retained text](#notice-378f5840b258).
 - GNU libc / stock GLib linked-work notice: LGPL-2.1 text, version-or-later grant belongs to the library: [retained text](#notice-dbc8eab14212).
+
+## GNU startup and nonshared code
+
+The [binary inventory](docs/licenses.md#gnu-startup-code-and-retained-permissions) distinguishes incorporated SDK objects from stock shared libraries, discarded sections and archives listed only as link inputs. The following source notices cover the identified glibc startup/nonshared files and GCC startfiles; they do not attribute every SDK object or admit a final public binary.
+
+The toolchain is [native-toolchain release `webos-d7ed7ee.6`](https://github.com/webosbrew/native-toolchain/releases/tag/webos-d7ed7ee.6), [immutable port source](https://github.com/webosbrew/native-toolchain/tree/a2787d6c9607f70a5946454fcd06d99909a7a604), and its [Buildroot source](https://github.com/openlgtv/buildroot-nc4/tree/79af0e655b4ae9252a93ec55a2cd786b335c4a6c). The glibc sources are pinned to `ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9` (2.12.2); GCC is pinned to official 12.2.0 commit `2ee5e4300186a92ad73f1a1a64cb918dc76c8d67`. Each complete source-file hash accompanies its unaltered copyright/grant header below.
+
+Each listed glibc file grants LGPL-2.1-or-later with its explicit compiled-link/program-distribution permission. Preserve the [existing LGPL text](#notice-dbc8eab14212) and each file's additional permission and limits. GCC `crtstuff.c` grants GPL-3.0-or-later with Runtime Library Exception 3.1; the complete [project GPL text](LICENSE) and exception apply together. Source/build-configuration limits and final artifact reconciliation are owned by [licenses.md](docs/licenses.md#sdk-source-provenance-and-its-limits).
+
+| Source file | Copyright/grant header |
+| --- | --- |
+| [`ports/sysdeps/arm/elf/start.S`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/ports/sysdeps/arm/elf/start.S) | [retained header](#notice-c74a74ee42c6) |
+| [`csu/abi-note.S`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/csu/abi-note.S) | [retained header](#notice-71eae6cc335c) |
+| [`ports/sysdeps/arm/initfini.c`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/ports/sysdeps/arm/initfini.c) | [retained header](#notice-1a9d5faf431a) |
+| [`csu/elf-init.c`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/csu/elf-init.c) | [retained header](#notice-9d3cf481ef56) |
+| [`ports/sysdeps/unix/sysv/linux/arm/aeabi_read_tp.S`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/ports/sysdeps/unix/sysv/linux/arm/aeabi_read_tp.S) | [retained header](#notice-1e2536514ccf) |
+| [`io/stat64.c`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/io/stat64.c) | [retained header](#notice-a459bb8f8571) |
+| [`io/fstat64.c`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/io/fstat64.c) | [retained header](#notice-a459bb8f8571) |
+| [`libgcc/crtstuff.c`](https://raw.githubusercontent.com/gcc-mirror/gcc/2ee5e4300186a92ad73f1a1a64cb918dc76c8d67/libgcc/crtstuff.c) | [retained header](#notice-fc84a5cc0eac) |
+
+- GCC 12.2.0 `COPYING.RUNTIME`: complete GCC Runtime Library Exception 3.1, Copyright 2009 Free Software Foundation, Inc.: [retained text](#notice-9d6b43ce4d8d).
 
 ## Retained license and notice texts
 
@@ -5650,4 +5671,376 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+````
+
+<a id="notice-c74a74ee42c6"></a>
+
+### Notice c74a74ee42c6
+
+- glibc 2.12.2: [`ports/sysdeps/arm/elf/start.S`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/ports/sysdeps/arm/elf/start.S), source SHA-256 `43267605fb6693ee1e9684f772d9e9972a46ae82dc1d0925a78ca86f01bdebee`.
+
+````text
+/* Startup code for ARM & ELF
+   Copyright (C) 1995, 1996, 1997, 1998, 2001, 2002, 2005, 2008
+   Free Software Foundation, Inc.
+   This file is part of the GNU C Library.
+
+   The GNU C Library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   In addition to the permissions in the GNU Lesser General Public
+   License, the Free Software Foundation gives you unlimited
+   permission to link the compiled version of this file with other
+   programs, and to distribute those programs without any restriction
+   coming from the use of this file. (The GNU Lesser General Public
+   License restrictions do apply in other respects; for example, they
+   cover modification of the file, and distribution when not linked
+   into another program.)
+
+   Note that people who make modified versions of this file are not
+   obligated to grant this special exception for their modified
+   versions; it is their choice whether to do so. The GNU Lesser
+   General Public License gives permission to release a modified
+   version without this exception; this exception also makes it
+   possible to release a modified version which carries forward this
+   exception.
+
+   The GNU C Library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with the GNU C Library; if not, write to the Free
+   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+   02111-1307 USA.  */
+````
+
+<a id="notice-71eae6cc335c"></a>
+
+### Notice 71eae6cc335c
+
+- glibc 2.12.2: [`csu/abi-note.S`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/csu/abi-note.S), source SHA-256 `c0516d24a4b6ee7fe248060e94ea8ff7c0132bc9dd10dff3d5bfb115de3f516a`.
+
+````text
+/* Special .init and .fini section support.
+   Copyright (C) 1997, 2001, 2002 Free Software Foundation, Inc.
+   This file is part of the GNU C Library.
+
+   The GNU C Library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   In addition to the permissions in the GNU Lesser General Public
+   License, the Free Software Foundation gives you unlimited
+   permission to link the compiled version of this file with other
+   programs, and to distribute those programs without any restriction
+   coming from the use of this file.  (The Lesser General Public
+   License restrictions do apply in other respects; for example, they
+   cover modification of the file, and distribution when not linked
+   into another program.)
+
+   The GNU C Library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with the GNU C Library; if not, write to the Free
+   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+   02111-1307 USA.  */
+````
+
+<a id="notice-1a9d5faf431a"></a>
+
+### Notice 1a9d5faf431a
+
+- glibc 2.12.2: [`ports/sysdeps/arm/initfini.c`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/ports/sysdeps/arm/initfini.c), source SHA-256 `477e8d1290256aba3c5e2edb1e1ad5039cad3356077cf5d041a175aa09679e6a`.
+
+````text
+/* Special .init and .fini section support.  ARM version.
+   Copyright (C) 2006 Free Software Foundation, Inc.
+   This file is part of the GNU C Library.
+
+   The GNU C Library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   In addition to the permissions in the GNU Lesser General Public
+   License, the Free Software Foundation gives you unlimited
+   permission to link the compiled version of this file with other
+   programs, and to distribute those programs without any restriction
+   coming from the use of this file. (The GNU Lesser General Public
+   License restrictions do apply in other respects; for example, they
+   cover modification of the file, and distribution when not linked
+   into another program.)
+
+   Note that people who make modified versions of this file are not
+   obligated to grant this special exception for their modified
+   versions; it is their choice whether to do so. The GNU Lesser
+   General Public License gives permission to release a modified
+   version without this exception; this exception also makes it
+   possible to release a modified version which carries forward this
+   exception.
+
+   The GNU C Library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with the GNU C Library; if not, write to the Free
+   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+   02111-1307 USA.  */
+````
+
+<a id="notice-9d3cf481ef56"></a>
+
+### Notice 9d3cf481ef56
+
+- glibc 2.12.2: [`csu/elf-init.c`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/csu/elf-init.c), source SHA-256 `a5ede9871089207c1fdddbf3f562c73f9cb581dcb19a3dd07b0e7e920b9ef784`.
+
+````text
+/* Startup support for ELF initializers/finalizers in the main executable.
+   Copyright (C) 2002, 2003, 2004, 2005, 2009 Free Software Foundation, Inc.
+   This file is part of the GNU C Library.
+
+   The GNU C Library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   In addition to the permissions in the GNU Lesser General Public
+   License, the Free Software Foundation gives you unlimited
+   permission to link the compiled version of this file with other
+   programs, and to distribute those programs without any restriction
+   coming from the use of this file. (The GNU Lesser General Public
+   License restrictions do apply in other respects; for example, they
+   cover modification of the file, and distribution when not linked
+   into another program.)
+
+   Note that people who make modified versions of this file are not
+   obligated to grant this special exception for their modified
+   versions; it is their choice whether to do so. The GNU Lesser
+   General Public License gives permission to release a modified
+   version without this exception; this exception also makes it
+   possible to release a modified version which carries forward this
+   exception.
+
+   The GNU C Library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with the GNU C Library; if not, write to the Free
+   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+   02111-1307 USA.  */
+````
+
+<a id="notice-1e2536514ccf"></a>
+
+### Notice 1e2536514ccf
+
+- glibc 2.12.2: [`ports/sysdeps/unix/sysv/linux/arm/aeabi_read_tp.S`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/ports/sysdeps/unix/sysv/linux/arm/aeabi_read_tp.S), source SHA-256 `7421769ae12f38c79d25dbc2970909d7e6a7b97ffc44fd3d5cd59630ad6e89f2`.
+
+````text
+/* Copyright (C) 2005 Free Software Foundation, Inc.
+   This file is part of the GNU C Library.
+
+   The GNU C Library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   In addition to the permissions in the GNU Lesser General Public
+   License, the Free Software Foundation gives you unlimited
+   permission to link the compiled version of this file with other
+   programs, and to distribute those programs without any restriction
+   coming from the use of this file. (The GNU Lesser General Public
+   License restrictions do apply in other respects; for example, they
+   cover modification of the file, and distribution when not linked
+   into another program.)
+
+   Note that people who make modified versions of this file are not
+   obligated to grant this special exception for their modified
+   versions; it is their choice whether to do so. The GNU Lesser
+   General Public License gives permission to release a modified
+   version without this exception; this exception also makes it
+   possible to release a modified version which carries forward this
+   exception.
+
+   The GNU C Library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with the GNU C Library; if not, write to the Free
+   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+   02111-1307 USA.  */
+````
+
+<a id="notice-a459bb8f8571"></a>
+
+### Notice a459bb8f8571
+
+- glibc 2.12.2: [`io/stat64.c`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/io/stat64.c), source SHA-256 `547b70847ad968a5d5e176b97bb52f6a2adcb43b65d864a7d32e1aa9b6fbb9ff`.
+- glibc 2.12.2: [`io/fstat64.c`](https://raw.githubusercontent.com/openlgtv/glibc/ddbe4400ebed0b7fb34e989a3ac7a73a71669bf9/io/fstat64.c), source SHA-256 `570bb2b1dd66516de1a6023113ba7e3b8114fa18caaefe2ce05f003dca7daa23`.
+
+````text
+/* Copyright (C) 1996, 1997, 2001, 2006 Free Software Foundation, Inc.
+   This file is part of the GNU C Library.
+
+   The GNU C Library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   In addition to the permissions in the GNU Lesser General Public
+   License, the Free Software Foundation gives you unlimited
+   permission to link the compiled version of this file with other
+   programs, and to distribute those programs without any restriction
+   coming from the use of this file. (The GNU Lesser General Public
+   License restrictions do apply in other respects; for example, they
+   cover modification of the file, and distribution when not linked
+   into another program.)
+
+   Note that people who make modified versions of this file are not
+   obligated to grant this special exception for their modified
+   versions; it is their choice whether to do so. The GNU Lesser
+   General Public License gives permission to release a modified
+   version without this exception; this exception also makes it
+   possible to release a modified version which carries forward this
+   exception.
+
+   The GNU C Library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with the GNU C Library; if not, write to the Free
+   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+   02111-1307 USA.  */
+````
+
+<a id="notice-fc84a5cc0eac"></a>
+
+### Notice fc84a5cc0eac
+
+- GCC 12.2.0: [`libgcc/crtstuff.c`](https://raw.githubusercontent.com/gcc-mirror/gcc/2ee5e4300186a92ad73f1a1a64cb918dc76c8d67/libgcc/crtstuff.c), source SHA-256 `564c9d0c375a494203d6885cd37b8fc22e21fa609dc511497dfb07d44639bf4f`.
+
+````text
+/* Specialized bits of code needed to support construction and
+   destruction of file-scope objects in C++ code.
+   Copyright (C) 1991-2022 Free Software Foundation, Inc.
+   Contributed by Ron Guilmette (rfg@monkeys.com).
+
+This file is part of GCC.
+
+GCC is free software; you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free
+Software Foundation; either version 3, or (at your option) any later
+version.
+
+GCC is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details.
+
+Under Section 7 of GPL version 3, you are granted additional
+permissions described in the GCC Runtime Library Exception, version
+3.1, as published by the Free Software Foundation.
+
+You should have received a copy of the GNU General Public License and
+a copy of the GCC Runtime Library Exception along with this program;
+see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+<http://www.gnu.org/licenses/>.  */
+````
+
+<a id="notice-9d6b43ce4d8d"></a>
+
+### Notice 9d6b43ce4d8d
+
+- GCC 12.2.0: [COPYING.RUNTIME](https://raw.githubusercontent.com/gcc-mirror/gcc/2ee5e4300186a92ad73f1a1a64cb918dc76c8d67/COPYING.RUNTIME), SHA-256 `9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74`.
+
+````text
+GCC RUNTIME LIBRARY EXCEPTION
+
+Version 3.1, 31 March 2009
+
+Copyright (C) 2009 Free Software Foundation, Inc. <http://fsf.org/>
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed.
+
+This GCC Runtime Library Exception ("Exception") is an additional
+permission under section 7 of the GNU General Public License, version
+3 ("GPLv3"). It applies to a given file (the "Runtime Library") that
+bears a notice placed by the copyright holder of the file stating that
+the file is governed by GPLv3 along with this Exception.
+
+When you use GCC to compile a program, GCC may combine portions of
+certain GCC header files and runtime libraries with the compiled
+program. The purpose of this Exception is to allow compilation of
+non-GPL (including proprietary) programs to use, in this way, the
+header files and runtime libraries covered by this Exception.
+
+0. Definitions.
+
+A file is an "Independent Module" if it either requires the Runtime
+Library for execution after a Compilation Process, or makes use of an
+interface provided by the Runtime Library, but is not otherwise based
+on the Runtime Library.
+
+"GCC" means a version of the GNU Compiler Collection, with or without
+modifications, governed by version 3 (or a specified later version) of
+the GNU General Public License (GPL) with the option of using any
+subsequent versions published by the FSF.
+
+"GPL-compatible Software" is software whose conditions of propagation,
+modification and use would permit combination with GCC in accord with
+the license of GCC.
+
+"Target Code" refers to output from any compiler for a real or virtual
+target processor architecture, in executable form or suitable for
+input to an assembler, loader, linker and/or execution
+phase. Notwithstanding that, Target Code does not include data in any
+format that is used as a compiler intermediate representation, or used
+for producing a compiler intermediate representation.
+
+The "Compilation Process" transforms code entirely represented in
+non-intermediate languages designed for human-written code, and/or in
+Java Virtual Machine byte code, into Target Code. Thus, for example,
+use of source code generators and preprocessors need not be considered
+part of the Compilation Process, since the Compilation Process can be
+understood as starting with the output of the generators or
+preprocessors.
+
+A Compilation Process is "Eligible" if it is done using GCC, alone or
+with other GPL-compatible software, or if it is done without using any
+work based on GCC. For example, using non-GPL-compatible Software to
+optimize any GCC intermediate representations would not qualify as an
+Eligible Compilation Process.
+
+1. Grant of Additional Permission.
+
+You have permission to propagate a work of Target Code formed by
+combining the Runtime Library with Independent Modules, even if such
+propagation would otherwise violate the terms of GPLv3, provided that
+all Target Code was generated by Eligible Compilation Processes. You
+may then convey such a combination under terms of your choice,
+consistent with the licensing of the Independent Modules.
+
+2. No Weakening of GCC Copyleft.
+
+The availability of this Exception does not imply any general
+presumption that third-party software is unaffected by the copyleft
+requirements of the license of GCC.
+
 ````
