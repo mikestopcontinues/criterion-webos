@@ -713,6 +713,8 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
     for target in [
         Target::MyListIds(Region::Us),
         Target::ContinueWatching(Region::Ca),
+        Target::WatchList(Region::Us),
+        Target::WatchList(Region::Ca),
     ] {
         let server = Server::json(200, b"{}");
         let transport = server.transport(Duration::from_secs(1));
@@ -777,46 +779,58 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
 #[tokio::test]
 async fn account_redirects_never_reissue_private_headers_to_bootstrap_or_another_origin() {
     for status in [302, 307, 308] {
-        let outside = Server::json(200, b"{}");
-        let location = format!("{}api/init", outside.origin);
-        let redirect = Server::new("127.0.0.1", move |tls, _| {
-            let _ = write!(
-                tls,
-                "HTTP/1.1 {status} Fixture\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        for (target, path) in [
+            (
+                Target::MyListIds(Region::Us),
+                "/api/us/content/my-stuff-ids",
+            ),
+            (
+                Target::ContinueWatching(Region::Ca),
+                "/api/ca/content/continue-watching",
+            ),
+            (Target::WatchList(Region::Us), "/api/us/content/watch-list"),
+            (Target::WatchList(Region::Ca), "/api/ca/content/watch-list"),
+        ] {
+            let outside = Server::json(200, b"{}");
+            let location = format!("{}api/init", outside.origin);
+            let redirect = Server::new("127.0.0.1", move |tls, _| {
+                let _ = write!(
+                    tls,
+                    "HTTP/1.1 {status} Fixture\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+            });
+            assert_eq!(
+                redirect
+                    .transport(Duration::from_secs(1))
+                    .get(account_request(target))
+                    .await
+                    .err(),
+                Some(Error::HttpStatus(status))
             );
-        });
-        assert_eq!(
-            redirect
-                .transport(Duration::from_secs(1))
-                .get(account_request(Target::MyListIds(Region::Us)))
-                .await
-                .err(),
-            Some(Error::HttpStatus(status))
-        );
-        assert_eq!(outside.connections.load(Ordering::Acquire), 0);
-        assert_eq!(redirect.requests.lock().unwrap().len(), 1);
-
-        let same_origin = Server::new("127.0.0.1", move |tls, _| {
-            let _ = write!(
-                tls,
-                "HTTP/1.1 {status} Fixture\r\nLocation: /api/init\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            assert_eq!(outside.connections.load(Ordering::Acquire), 0);
+            assert_eq!(redirect.requests.lock().unwrap().len(), 1);
+            let same_origin = Server::new("127.0.0.1", move |tls, _| {
+                let _ = write!(
+                    tls,
+                    "HTTP/1.1 {status} Fixture\r\nLocation: /api/init\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+            });
+            assert_eq!(
+                same_origin
+                    .transport(Duration::from_secs(1))
+                    .get(account_request(target))
+                    .await
+                    .err(),
+                Some(Error::HttpStatus(status))
             );
-        });
-        assert_eq!(
-            same_origin
-                .transport(Duration::from_secs(1))
-                .get(account_request(Target::ContinueWatching(Region::Ca)))
-                .await
-                .err(),
-            Some(Error::HttpStatus(status))
-        );
-        let requests = same_origin.requests.lock().unwrap();
-        assert_eq!(requests.len(), 1);
-        assert!(
-            requests[0]
-                .head
-                .starts_with("GET /api/ca/content/continue-watching HTTP/1.1\r\n")
-        );
+            let requests = same_origin.requests.lock().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert!(
+                requests[0]
+                    .head
+                    .starts_with(&format!("GET {path} HTTP/1.1\r\n"))
+            );
+        }
     }
 }
 
@@ -852,5 +866,39 @@ async fn subscriber_errors_do_not_retry_and_later_bootstrap_has_no_stale_headers
         assert!(header_values(&requests[1].head, "Authorization").is_empty());
         assert!(header_values(&requests[1].head, "x-auth-token").is_empty());
         assert!(header_values(&requests[1].head, "Cookie").is_empty());
+    }
+}
+
+#[tokio::test]
+async fn default_watch_list_gets_use_fixed_regional_routes_without_query_or_body() {
+    for (target, path) in [
+        (Target::WatchList(Region::Us), "/api/us/content/watch-list"),
+        (Target::WatchList(Region::Ca), "/api/ca/content/watch-list"),
+    ] {
+        let server = Server::json(200, br#"{"playlist":[],"paging":{}}"#);
+        let response = server
+            .transport(Duration::from_secs(1))
+            .get(account_request(target))
+            .await
+            .unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body.expose(), br#"{"playlist":[],"paging":{}}"#);
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .head
+                .starts_with(&format!("GET {path} HTTP/1.1\r\n"))
+        );
+        assert_eq!(
+            header_values(&requests[0].head, "Authorization"),
+            ["Bearer synthetic-bootstrap-capability"]
+        );
+        assert_eq!(
+            header_values(&requests[0].head, "x-auth-token"),
+            ["synthetic-subscriber-capability"]
+        );
+        assert!(header_values(&requests[0].head, "Cookie").is_empty());
+        assert!(requests[0].body.is_empty());
     }
 }

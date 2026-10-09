@@ -3,12 +3,12 @@
 use crate::{
     ContinueWatching, Error, MediaKind, MediaSummary, MyListIds, Position, Response, wire::MAX_BODY,
 };
-use criterion_provider::MediaId;
+use criterion_provider::{MediaId, PageCursor};
 use serde::{
     Deserialize, Deserializer,
-    de::{self, SeqAccess, Visitor},
+    de::{self, MapAccess, SeqAccess, Visitor},
 };
-use std::{fmt, marker::PhantomData, sync::LazyLock};
+use std::{collections::BTreeMap, fmt, marker::PhantomData, sync::LazyLock};
 
 const MAX_ITEMS: usize = 512;
 struct Items<T>(Vec<T>);
@@ -259,5 +259,68 @@ pub(crate) fn continue_watching(response: &Response) -> Result<ContinueWatching,
     Ok(ContinueWatching {
         playlist: data.playlist.0.into_iter().map(Into::into).collect(),
         positions: data.positions.0.into_iter().map(Into::into).collect(),
+    })
+}
+struct Cursor(PageCursor);
+impl<'de> Deserialize<'de> for Cursor {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = Text::<512>::deserialize(deserializer)?;
+        PageCursor::new(&value.0)
+            .map(Self)
+            .map_err(|_| de::Error::custom("invalid continuation"))
+    }
+}
+#[derive(Deserialize)]
+struct PagingWire {
+    page_limit: i32,
+    #[serde(default)]
+    next_pagination_key: Option<Cursor>,
+}
+struct TypeCounts(BTreeMap<String, i32>);
+impl<'de> Deserialize<'de> for TypeCounts {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Counts;
+        impl<'de> Visitor<'de> for Counts {
+            type Value = TypeCounts;
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a bounded count map")
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut values = BTreeMap::new();
+                while let Some(key) = map.next_key::<Text<64>>()? {
+                    if values.len() == 128 || values.contains_key(&key.0) {
+                        return Err(de::Error::custom("count map limit or duplicate"));
+                    }
+                    values.insert(key.0, map.next_value::<i32>()?);
+                }
+                Ok(TypeCounts(values))
+            }
+        }
+        deserializer.deserialize_map(Counts)
+    }
+}
+#[derive(Deserialize)]
+struct WatchWire {
+    paging: PagingWire,
+    type_counts: TypeCounts,
+    playlist: Items<MediaWire>,
+}
+pub(crate) fn watch_list(response: &Response) -> Result<crate::WatchList, Error> {
+    let data: WatchWire = parse(response)?;
+    Ok(crate::WatchList {
+        paging: crate::PagingInfo {
+            page_limit: data.paging.page_limit,
+            next_pagination_key: data.paging.next_pagination_key.map(|value| value.0),
+        },
+        type_counts: data
+            .type_counts
+            .0
+            .into_iter()
+            .map(|(content_type, count)| crate::TypeCount {
+                content_type,
+                count,
+            })
+            .collect(),
+        playlist: data.playlist.0.into_iter().map(Into::into).collect(),
     })
 }

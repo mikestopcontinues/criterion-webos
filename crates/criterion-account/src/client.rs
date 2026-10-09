@@ -110,6 +110,13 @@ impl<T: Transport> AccountClient<T> {
         )
         .await
     }
+    pub async fn watch_list<S: criterion_session::Transport, C: MonotonicClock>(
+        &self,
+        session: &Session<S, C>,
+    ) -> Result<crate::WatchList, Error> {
+        self.read(session, Target::WatchList, native_wire::watch_list)
+            .await
+    }
     async fn read<S: criterion_session::Transport, C: MonotonicClock, R>(
         &self,
         session: &Session<S, C>,

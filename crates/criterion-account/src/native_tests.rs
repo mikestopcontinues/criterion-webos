@@ -325,3 +325,81 @@ async fn native_reads_require_bootstrap_and_live_subscriber_and_preserve_status_
     );
     assert_eq!(requests.lock().unwrap().len(), 2);
 }
+
+const WATCH: &str = r#"{"paging":{"page_limit":60,"next_pagination_key":"opaque-synthetic-cursor"},"type_counts":{"film":2,"opaque-future-type":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic listed film","duration":95.25}]}"#;
+#[tokio::test]
+async fn native_watch_list_uses_default_route_and_preserves_required_paging_counts_cards() {
+    let (session, _) = linked().await;
+    let requests: Arc<Mutex<Vec<Target>>> = Arc::default();
+    let client = AccountClient::with_transport(NativeFixture {
+        payload: WATCH.into(),
+        requests: requests.clone(),
+        status: 200,
+    });
+    client.bootstrap().await.unwrap();
+    let result = client.watch_list(&session).await.unwrap();
+    assert_eq!(result.paging.page_limit, 60);
+    assert_eq!(
+        result.paging.next_pagination_key,
+        Some(criterion_provider::PageCursor::new("opaque-synthetic-cursor").unwrap())
+    );
+    assert_eq!(result.type_counts.len(), 2);
+    assert!(
+        result
+            .type_counts
+            .iter()
+            .any(|entry| entry.content_type == "opaque-future-type" && entry.count == 1)
+    );
+    assert_eq!(result.playlist[0].duration, Some(95.25));
+    assert_eq!(
+        *requests.lock().unwrap(),
+        [Target::Bootstrap, Target::WatchList(Region::Ca)]
+    );
+    let diagnostic = format!("{result:?} {:?} {:?}", result.paging, result.type_counts[0]);
+    assert!(!diagnostic.contains("opaque") && !diagnostic.contains("Synthetic"));
+    let empty = account(
+        r#"{"paging":{"page_limit":60,"next_pagination_key":null},"type_counts":{},"playlist":[]}"#,
+    )
+    .await
+    .watch_list(&session)
+    .await
+    .unwrap();
+    assert!(empty.playlist.is_empty() && empty.paging.next_pagination_key.is_none());
+}
+#[tokio::test]
+async fn native_watch_list_rejects_missing_wrong_duplicate_and_oversized_metadata() {
+    let (session, _) = linked().await;
+    for body in [
+        r#"{"paging":{"page_limit":60},"playlist":[]}"#,
+        r#"{"paging":{},"type_counts":{},"playlist":[]}"#,
+        r#"{"paging":{"page_limit":2147483648},"type_counts":{},"playlist":[]}"#,
+        r#"{"paging":{"page_limit":60},"type_counts":{"film":1.5},"playlist":[]}"#,
+        r#"{"paging":{"page_limit":60},"type_counts":{"film":null},"playlist":[]}"#,
+        r#"{"paging":{"page_limit":60},"type_counts":{"film":1,"film":2},"playlist":[]}"#,
+        r#"{"paging":{"page_limit":60,"next_pagination_key":""},"type_counts":{},"playlist":[]}"#,
+    ] {
+        assert_eq!(
+            account(body).await.watch_list(&session).await,
+            Err(Error::InvalidResponse)
+        );
+    }
+    let counts: serde_json::Map<String, serde_json::Value> = (0..129)
+        .map(|index| (format!("type{index}"), serde_json::json!(1)))
+        .collect();
+    let body = serde_json::json!({"paging":{"page_limit":60},"type_counts":counts,"playlist":[]})
+        .to_string();
+    assert_eq!(
+        account(&body).await.watch_list(&session).await,
+        Err(Error::InvalidResponse)
+    );
+    let body = serde_json::json!({"paging":{"page_limit":60,"next_pagination_key":"x".repeat(513)},"type_counts":{},"playlist":[]}).to_string();
+    assert_eq!(
+        account(&body).await.watch_list(&session).await,
+        Err(Error::InvalidResponse)
+    );
+    let body = serde_json::json!({"paging":{"page_limit":60},"type_counts":{"x".repeat(65):1},"playlist":[]}).to_string();
+    assert_eq!(
+        account(&body).await.watch_list(&session).await,
+        Err(Error::InvalidResponse)
+    );
+}

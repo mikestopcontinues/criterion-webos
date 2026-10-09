@@ -65,6 +65,7 @@ impl HttpTransport {
             Target::Bootstrap => {
                 url::Url::parse(crate::BOOTSTRAP_URL).map_err(|_| Error::InvalidRequest)?
             }
+            Target::WatchList(region) => account_target(region, "/content/watch-list")?,
             Target::MyListIds(region) => account_target(region, "/content/my-stuff-ids")?,
             Target::ContinueWatching(region) => {
                 account_target(region, "/content/continue-watching")?
@@ -86,7 +87,7 @@ fn account_target(region: Region, path: &str) -> Result<url::Url, Error> {
         Region::Us => crate::US_BASE,
         Region::Ca => crate::CA_BASE,
     };
-    // Both suffixes and regional bases are fixed source-owned values, never
+    // The suffixes and regional bases are fixed source-owned values, never
     // payload-selected paths, provider URLs or caller-supplied route strings.
     url::Url::parse(&format!("{base}{path}")).map_err(|_| Error::InvalidRequest)
 }
@@ -194,7 +195,7 @@ impl Transport for HttpTransport {
         let credentials = match target {
             Target::Bootstrap if credentials.is_some() => return Err(Error::InvalidRequest),
             Target::Bootstrap => None,
-            Target::MyListIds(_) | Target::ContinueWatching(_) => {
+            Target::MyListIds(_) | Target::ContinueWatching(_) | Target::WatchList(_) => {
                 let credentials = credentials.ok_or(Error::InvalidRequest)?;
                 valid_credentials(&credentials)?;
                 Some(credentials)
