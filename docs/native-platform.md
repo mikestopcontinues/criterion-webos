@@ -12,7 +12,7 @@ Both host and TV request GLES2 and RGBA8. The backend measures window/drawable a
 
 ## Ownership and lifetime
 
-Open the window on the application's main thread, before other SDL users. No external code may initialize SDL video/events concurrently or change the current context during the window's lifetime. The webOS entry point must set `SDL_WEBOS_ACCESS_POLICY_KEYS_BACK=true` before starting threads; the library validates it instead of mutating the process environment. The native entry point also owns the SDK libc auxiliary-vector preflight before SDL or worker startup; [development tooling](development.md) owns that build/runtime constraint.
+Open the window on the application's main thread, before other SDL users. No external code may initialize SDL video/events concurrently or change the current context during the window's lifetime. The webOS entry point must set `SDL_WEBOS_ACCESS_POLICY_KEYS_BACK=true` before starting threads; the library validates it instead of mutating the process environment. The native entry point warms the platform's auxiliary-vector cache before SDL or worker startup.
 
 A window owns the video/event dependency, GL context and SDL window on its initialization thread. `Window` cannot move or share across threads. Construction rejects existing video/event owners. Failure releases acquired references; disposal stops owned text input, destroys the GL context/window and releases its video reference. It never calls global `SDL_Quit`.
 
@@ -23,3 +23,13 @@ Background notifications block swaps. Will-foreground does not reopen them; did-
 ## Evidence boundary
 
 Literal fixtures establish decoder and geometry behavior. Isolated CPU startup tests establish error recovery and preservation of existing SDL event ownership. Host rendering, actual stock-TV event delivery, IME activation/reopening, lifecycle restoration and physical remote behavior require their designated executors. A successful SDL swap has no compositor completion acknowledgment.
+
+## Auxiliary vector
+
+The current ARM32 little-endian `webos` target supplies an original GPL Rust `getauxval(unsigned long)` implementation. It reads only fixed `/proc/self/auxv` through Linux kernel syscalls and retains one immutable bounded result, including a failed read. It allocates no heap storage and delegates no symbol. The SDK compatibility archive is excluded from linking; `libdl` remains required by Rust thread creation. [Development tooling](development.md) owns the complete cross-link and ELF/device gate.
+
+The [GNU/Linux function contract](https://man7.org/linux/man-pages/man3/getauxval.3.html) returns unsigned values, including a present zero. Missing or unavailable entries return zero with thread-local `ENOENT`; successful lookup preserves the incoming errno. The [proc format](https://man7.org/linux/man-pages/man5/proc_pid_auxv.5.html) uses native unsigned-long pairs ending in two zeros. This adapter admits only the current target's little-endian 32-bit encoding. Its conservative policy rejects duplicate types, nonzero `AT_NULL` values, missing/truncated terminators, trailing bytes and oversized vectors; duplicate refusal is an adapter policy, not a general ELF prohibition.
+
+`auxv.rs` owns entry and read-attempt limits, including partial reads and bounded interrupted-read retries. The fixed proc descriptor uses close-on-exec/nonblocking flags, is released on every parser path and is never retried after Linux close. Original [ARM EABI syscalls](https://man7.org/linux/man-pages/man2/syscall.2.html) preserve the frame register and stack alignment. Cache initialization consists of the bounded reader and immutable publication, with no libc file calls, application callbacks, logging or allocation. `__errno_location` runs outside initialization and only raw TLS pointers cross cache waiting. This is thread-safe initialization; signal-handler recursion is not an admitted use.
+
+Pure fixtures exercise the same parser/cache interface without opening proc or replacing host libc. They cover zero/missing/unsigned results, partial/interrupted reads, malformed/oversized data and concurrent immutable publication. ARM object compilation and disassembly establish source/ABI acceptance; root must verify the complete application's linked symbol ownership, archive exclusion and actual native behavior separately.

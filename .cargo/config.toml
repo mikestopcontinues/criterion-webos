@@ -6,6 +6,5 @@ rustflags = [
   "-C", "link-arg=--sysroot=/opt/webos-sdk/arm-webos-linux-gnueabi/sysroot",
   "-L", "native=/opt/webos-sdk/arm-webos-linux-gnueabi/sysroot/usr/lib",
   "-C", "link-arg=-Wl,-rpath-link,/opt/webos-sdk/arm-webos-linux-gnueabi/sysroot/usr/lib",
-  "-C", "link-arg=-lglibc_polyfills",
   "-C", "link-arg=-ldl",
 ]
