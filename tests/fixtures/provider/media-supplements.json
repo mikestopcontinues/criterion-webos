@@ -1,0 +1,164 @@
+{
+  "mediaid": "pH6QX6Zq",
+  "criterion_id": "27525",
+  "title": "The Night of the Hunter",
+  "title_original": "The Night of the Hunter",
+  "title_sort": "night of the hunter",
+  "title_short": "",
+  "duration": 5584,
+  "paywall": "subscriber",
+  "drm": true,
+  "director": [
+    "Charles Laughton"
+  ],
+  "starring": [
+    "Robert Mitchum",
+    "Shelley Winters",
+    "Lillian Gish"
+  ],
+  "content_warnings": "",
+  "country": [
+    "United States"
+  ],
+  "language": [
+    "English"
+  ],
+  "release_date": "1955-11-24",
+  "genre": "Thriller",
+  "genre_2": "Drama",
+  "contentType": "film",
+  "introduction_primary": "",
+  "trailer": "eNoefIY3",
+  "commentary_tracks": [
+    "Commentary: Terry Sanders, Robert Gitt, F. X. Feeney, and Preston Neal Jones"
+  ],
+  "siteid": "TXXJgKqJ",
+  "license_end_date_time": "2026-11-01T03:59:59Z",
+  "license_start_date_time": "2026-08-01T04:00:00Z",
+  "deeplink": "https://www.criterionchannel.com/films/pH6QX6Zq/the-night-of-the-hunter",
+  "is_first_tab_sortable": false,
+  "playlists": [
+    {
+      "key": "playlist_supplements",
+      "title": "Supplements",
+      "type": "GENERIC_PLAYLIST",
+      "playlistId": "i2dTTQo7",
+      "playlist": [
+        {
+          "mediaid": "w0jwPisC",
+          "criterion_id": "",
+          "feedid": "i2dTTQo7",
+          "title": "The Making of THE NIGHT OF THE HUNTER",
+          "title_original": "The Making of THE NIGHT OF THE HUNTER",
+          "title_sort": "Making of THE NIGHT OF THE HUNTER, The",
+          "title_short": "",
+          "duration": 2282,
+          "paywall": "subscriber",
+          "drm": false,
+          "release_date": "2019-03-27",
+          "contentType": "supplement",
+          "siteid": "TXXJgKqJ",
+          "license_end_date_time": "2026-11-01T03:59:59Z",
+          "license_start_date_time": "2026-01-01T05:00:00Z",
+          "deeplink": "https://www.criterionchannel.com/supplements/w0jwPisC/the-making-of-the-night-of-the-hunter"
+        },
+        {
+          "mediaid": "QF3oXvu5",
+          "criterion_id": "",
+          "feedid": "i2dTTQo7",
+          "title": "Moving Pictures",
+          "title_original": "Moving Pictures",
+          "title_sort": "Night of the Hunter - Moving Pictures, The",
+          "title_short": "",
+          "duration": 867,
+          "paywall": "subscriber",
+          "drm": false,
+          "release_date": "2019-03-27",
+          "contentType": "supplement",
+          "siteid": "TXXJgKqJ",
+          "license_end_date_time": "2026-11-01T03:59:59Z",
+          "license_start_date_time": "2026-01-01T05:00:00Z",
+          "deeplink": "https://www.criterionchannel.com/supplements/QF3oXvu5/moving-pictures"
+        }
+      ]
+    },
+    {
+      "key": "playlist_collections_appears_in",
+      "title": "Collections",
+      "type": "GENERIC_PLAYLIST",
+      "playlistId": "2G8WCnHP",
+      "playlist": [
+        {
+          "mediaid": "SJVms1iT",
+          "criterion_id": "",
+          "feedid": "2G8WCnHP",
+          "title": "Southern Gothic",
+          "title_original": "",
+          "title_sort": "Southern Gothic",
+          "title_short": "",
+          "logo": true,
+          "contentType": "collection",
+          "teaser": "ETddh6cQ",
+          "collection_count": 7,
+          "siteid": "TXXJgKqJ",
+          "duration": 0,
+          "deeplink": "https://www.criterionchannel.com/collections/SJVms1iT/southern-gothic"
+        },
+        {
+          "mediaid": "cXwl9wBV",
+          "criterion_id": "",
+          "feedid": "2G8WCnHP",
+          "title": "Unwelcome Guests",
+          "title_original": "",
+          "title_sort": "Unwelcome Guests",
+          "title_short": "",
+          "logo": true,
+          "contentType": "collection",
+          "teaser": "",
+          "collection_count": 11,
+          "siteid": "TXXJgKqJ",
+          "duration": 0,
+          "deeplink": "https://www.criterionchannel.com/collections/cXwl9wBV/unwelcome-guests"
+        }
+      ]
+    },
+    {
+      "key": "playlist_categories_appears_in",
+      "title": "Categories",
+      "type": "GENERIC_PLAYLIST",
+      "playlistId": "DMIblUVO",
+      "playlist": [
+        {
+          "mediaid": "fol2GQre",
+          "criterion_id": "",
+          "feedid": "DMIblUVO",
+          "title": "Classic Hollywood",
+          "title_original": "",
+          "title_sort": "Classic Hollywood",
+          "title_short": "",
+          "logo": true,
+          "contentType": "category",
+          "teaser": "",
+          "siteid": "TXXJgKqJ",
+          "duration": 0,
+          "deeplink": "https://www.criterionchannel.com/categories/fol2GQre/classic-hollywood"
+        },
+        {
+          "mediaid": "QGtQj94z",
+          "criterion_id": "",
+          "feedid": "DMIblUVO",
+          "title": "Popular Now",
+          "title_original": "",
+          "title_sort": "Popular Now",
+          "title_short": "",
+          "logo": true,
+          "contentType": "category",
+          "teaser": "",
+          "siteid": "TXXJgKqJ",
+          "duration": 0,
+          "deeplink": "https://www.criterionchannel.com/categories/QGtQj94z/popular-now"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "mediaid": "rqsQ0P3H",
+  "criterion_id": "",
+  "title": "Highway Horror",
+  "title_original": "",
+  "title_sort": "Highway Horror",
+  "title_short": "",
+  "logo": true,
+  "contentType": "collection",
+  "teaser": "fAjU3RyE",
+  "introduction_primary": "",
+  "siteid": "TXXJgKqJ",
+  "duration": 0,
+  "deeplink": "https://www.criterionchannel.com/collections/rqsQ0P3H/highway-horror",
+  "is_first_tab_sortable": true,
+  "playlists": [
+    {
+      "key": "playlist_primary",
+      "title": "Films",
+      "type": "GENERIC_PLAYLIST",
+      "playlistId": "VCsalvQK",
+      "playlist": [
+        {
+          "mediaid": "qvwT6mJ4",
+          "criterion_id": "36117",
+          "feedid": "VCsalvQK",
+          "title": "The Hitcher",
+          "title_original": "",
+          "title_sort": "Hitcher, The",
+          "title_short": "",
+          "duration": 5851,
+          "paywall": "subscriber",
+          "drm": true,
+          "release_date": "1986-01-01",
+          "contentType": "film",
+          "commentary_tracks": [],
+          "siteid": "TXXJgKqJ",
+          "license_end_date_time": "2026-12-01T04:59:59Z",
+          "license_start_date_time": "2026-10-01T04:00:00Z",
+          "deeplink": "https://www.criterionchannel.com/films/qvwT6mJ4/the-hitcher"
+        },
+        {
+          "mediaid": "TivRmuqN",
+          "criterion_id": "33260",
+          "feedid": "VCsalvQK",
+          "title": "Road Games",
+          "title_original": "Road Games",
+          "title_sort": "road games",
+          "title_short": "",
+          "duration": 6040,
+          "paywall": "subscriber",
+          "drm": true,
+          "release_date": "1981-06-08",
+          "contentType": "film",
+          "commentary_tracks": [],
+          "siteid": "TXXJgKqJ",
+          "license_end_date_time": "2027-01-01T04:59:59Z",
+          "license_start_date_time": "2026-10-01T04:00:00Z",
+          "deeplink": "https://www.criterionchannel.com/films/TivRmuqN/road-games"
+        },
+        {
+          "mediaid": "zN8uM7IR",
+          "criterion_id": "36120",
+          "feedid": "VCsalvQK",
+          "title": "The Appointment",
+          "title_original": "",
+          "title_sort": "Appointment, The",
+          "title_short": "",
+          "duration": 5366,
+          "paywall": "subscriber",
+          "drm": true,
+          "release_date": "1981-01-01",
+          "contentType": "film",
+          "commentary_tracks": [],
+          "siteid": "TXXJgKqJ",
+          "license_end_date_time": "2027-06-01T03:59:59Z",
+          "license_start_date_time": "2026-10-01T04:00:00Z",
+          "deeplink": "https://www.criterionchannel.com/films/zN8uM7IR/the-appointment"
+        }
+      ]
+    },
+    {
+      "key": "playlist_categories_appears_in",
+      "title": "Categories",
+      "type": "GENERIC_PLAYLIST",
+      "playlistId": "Qh2mSAH8",
+      "playlist": [
+        {
+          "mediaid": "QqhpWMzf",
+          "criterion_id": "",
+          "feedid": "Qh2mSAH8",
+          "title": "Horror",
+          "title_original": "",
+          "title_sort": "Horror",
+          "title_short": "",
+          "logo": true,
+          "contentType": "category",
+          "teaser": "",
+          "siteid": "TXXJgKqJ",
+          "duration": 0,
+          "deeplink": "https://www.criterionchannel.com/categories/QqhpWMzf/horror"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "filterGroups": [
+    {
+      "label": "Genres",
+      "value": "genres",
+      "options": [
+        {
+          "label": "Action/Adventure",
+          "value": "action-adventure"
+        },
+        {
+          "label": "Animation",
+          "value": "animation"
+        },
+        {
+          "label": "Avant-garde",
+          "value": "avant-garde"
+        }
+      ]
+    },
+    {
+      "label": "Decades",
+      "value": "decades",
+      "options": [
+        {
+          "label": "1900s",
+          "value": "1900s"
+        },
+        {
+          "label": "1910s",
+          "value": "1910s"
+        },
+        {
+          "label": "1920s",
+          "value": "1920s"
+        }
+      ]
+    },
+    {
+      "label": "Countries",
+      "value": "countries",
+      "options": [
+        {
+          "label": "Algeria",
+          "value": "algeria"
+        },
+        {
+          "label": "Angola",
+          "value": "angola"
+        },
+        {
+          "label": "Argentina",
+          "value": "argentina"
+        }
+      ]
+    },
+    {
+      "label": "Directors",
+      "value": "directors",
+      "options": [
+        {
+          "label": "Abbasi, Naghmeh",
+          "value": "abbasi-naghmeh"
+        },
+        {
+          "label": "Abel, Robert",
+          "value": "abel-robert"
+        },
+        {
+          "label": "Abrams, Abiola",
+          "value": "abrams-abiola"
+        }
+      ]
+    }
+  ],
+  "sortOptions": [
+    {
+      "label": "Title",
+      "value": "title"
+    },
+    {
+      "label": "Director",
+      "value": "director"
+    },
+    {
+      "label": "Year",
+      "value": "year"
+    },
+    {
+      "label": "Country",
+      "value": "primary_country_slug"
+    },
+    {
+      "label": "Duration",
+      "value": "duration"
+    }
+  ]
+}

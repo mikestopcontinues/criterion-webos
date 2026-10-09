@@ -1,0 +1,23 @@
+{
+  "items": [
+    {
+      "contentType": "film",
+      "duration": 10984,
+      "mediaid": "KwgkF9Lq",
+      "release_date": "1979-01-01",
+      "title": "Salem’s Lot"
+    },
+    {
+      "contentType": "film",
+      "duration": 9369,
+      "mediaid": "DgwBaPJP",
+      "release_date": "2016-01-01",
+      "title": "The Wailing"
+    }
+  ],
+  "paging": {
+    "next_pagination_key": "2",
+    "page_limit": 2
+  },
+  "total": 123
+}

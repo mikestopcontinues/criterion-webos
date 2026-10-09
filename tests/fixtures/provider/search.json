@@ -1,0 +1,65 @@
+{
+  "type_counts": {
+    "film": 2,
+    "collection": 1
+  },
+  "paging": {
+    "page_limit": 100
+  },
+  "playlist": [
+    {
+      "mediaid": "qvwT6mJ4",
+      "criterion_id": "36117",
+      "feedid": "03gzSeIm",
+      "title": "The Hitcher",
+      "title_original": "",
+      "title_sort": "Hitcher, The",
+      "title_short": "",
+      "duration": 5851,
+      "paywall": "subscriber",
+      "drm": true,
+      "release_date": "1986-01-01",
+      "contentType": "film",
+      "commentary_tracks": [],
+      "siteid": "TXXJgKqJ",
+      "license_end_date_time": "2026-12-01T04:59:59Z",
+      "license_start_date_time": "2026-10-01T04:00:00Z",
+      "deeplink": "https://www.criterionchannel.com/films/qvwT6mJ4/the-hitcher"
+    },
+    {
+      "mediaid": "rqsQ0P3H",
+      "criterion_id": "",
+      "feedid": "03gzSeIm",
+      "title": "Highway Horror",
+      "title_original": "",
+      "title_sort": "Highway Horror",
+      "title_short": "",
+      "logo": true,
+      "contentType": "collection",
+      "teaser": "fAjU3RyE",
+      "siteid": "TXXJgKqJ",
+      "duration": 0,
+      "collection_count": 15,
+      "deeplink": "https://www.criterionchannel.com/collections/rqsQ0P3H/highway-horror"
+    },
+    {
+      "mediaid": "L0CTe6fK",
+      "criterion_id": "36094",
+      "feedid": "03gzSeIm",
+      "title": "Cohen and Tate",
+      "title_original": "",
+      "title_sort": "Cohen and Tate",
+      "title_short": "",
+      "duration": 5154,
+      "paywall": "subscriber",
+      "drm": true,
+      "release_date": "1989-01-01",
+      "contentType": "film",
+      "commentary_tracks": [],
+      "siteid": "TXXJgKqJ",
+      "license_end_date_time": "2026-12-01T04:59:59Z",
+      "license_start_date_time": "2026-10-01T04:00:00Z",
+      "deeplink": "https://www.criterionchannel.com/films/L0CTe6fK/cohen-and-tate"
+    }
+  ]
+}

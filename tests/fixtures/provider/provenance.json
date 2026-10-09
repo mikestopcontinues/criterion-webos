@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "application": {
+    "version": "1.6.1",
+    "build": "5106280",
+    "deployment_id": "dpl_7eMB71KaeoNK76mTh4VDTvjFHD6S"
+  },
+  "captured_at_definition": "Raw file download completion time, from filesystem mtime. Response Date is preserved separately.",
+  "fixture_extraction": {
+    "all": "Editorial description variants, sources, tracks and vimeo_id removed recursively. Remaining metadata retained.",
+    "media-film": "First 20 words of actual description_medium retained for parser coverage; all other editorial description fields removed.",
+    "filters": "Only first three options of each filter group retained.",
+    "media-collection": "Only first three items of each nested playlist retained.",
+    "media-supplements": "Only first two items of each nested playlist retained."
+  },
+  "observations": "Public unauthenticated HTTP200 JSON responses; unsupported service contracts. Totals and availability are transient.",
+  "fixtures": [
+    {
+      "file": "all-films.json",
+      "source_url": "https://www.criterionchannel.com/api/all-films/results?page_limit=2",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_date": "Fri, 09 Oct 2026 12:30:47 GMT",
+      "captured_at_utc": "2026-10-09T12:30:47.821Z",
+      "raw_sha256": "b5379635f2fd11b47b6ecac4ad1132856887fb07e8ccbcf624d4e4b2f8ee0a26",
+      "fixture_sha256": "f48e258922eb674fb3ffc7cfa60be4369cf76117cf299661fa7da90b363f835c",
+      "fixture_bytes": 448
+    },
+    {
+      "file": "all-films-next.json",
+      "source_url": "https://www.criterionchannel.com/api/all-films/results?page_limit=2&pagination_key=2",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_date": "Fri, 09 Oct 2026 12:32:17 GMT",
+      "captured_at_utc": "2026-10-09T12:32:17.661Z",
+      "raw_sha256": "3757acd71583666b9739b79552bbd13539fc0089a2d8d652841f5385bf58a06a",
+      "fixture_sha256": "45051181adfb8548962d596d4ec4b6d38b5db8891c689cb1b76f233d72086315",
+      "fixture_bytes": 456
+    },
+    {
+      "file": "all-films-filtered.json",
+      "source_url": "https://www.criterionchannel.com/api/all-films/results?page_limit=2&genres=horror&sort=duration&sortDir=desc",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_date": "Fri, 09 Oct 2026 12:36:27 GMT",
+      "captured_at_utc": "2026-10-09T12:36:27.250Z",
+      "raw_sha256": "f3fc97b8f23cc951b436987101598f7f91057384cfbd95146d9691d8d7eba53f",
+      "fixture_sha256": "0103ce0e7b2a782639c22090a2274fa377101028567c6280dcaaef21fed51b1b",
+      "fixture_bytes": 430
+    },
+    {
+      "file": "filters.json",
+      "source_url": "https://www.criterionchannel.com/api/all-films/filters",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_date": "Fri, 09 Oct 2026 12:30:47 GMT",
+      "captured_at_utc": "2026-10-09T12:30:47.764Z",
+      "raw_sha256": "2baa6ce7c8f3c58e34add4d800f4348548bfecdff66a5818e40aba86f2f799ce",
+      "fixture_sha256": "e6b61e31af166c4fcb4113482c5a4340f15fd68234fae0c57920a64174f342ef",
+      "fixture_bytes": 1764
+    },
+    {
+      "file": "search.json",
+      "source_url": "https://www.criterionchannel.com/api/search?q=hitcher",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_date": "Fri, 09 Oct 2026 12:30:47 GMT",
+      "captured_at_utc": "2026-10-09T12:30:47.673Z",
+      "raw_sha256": "f723907c0af69ab77ff3df79ec8fbbdf976566db607ee7e1fe17b07674b59fce",
+      "fixture_sha256": "839816c27dcc0676ad31de194778c407349205344cb4b61e2affe985e14d7a8d",
+      "fixture_bytes": 1822
+    },
+    {
+      "file": "media-film.json",
+      "source_url": "https://www.criterionchannel.com/api/media/qvwT6mJ4",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_date": "Fri, 09 Oct 2026 12:30:47 GMT",
+      "captured_at_utc": "2026-10-09T12:30:47.521Z",
+      "raw_sha256": "76846d752343613032d82d002f0ec4a3d7529eb5e79fb768bfb52536cd8f460f",
+      "fixture_sha256": "eb74da9f3272be959be06e0b4c612848339946fd01e8b3b9cd019c91c8bcc2af",
+      "fixture_bytes": 2870
+    },
+    {
+      "file": "media-collection.json",
+      "source_url": "https://www.criterionchannel.com/api/media/rqsQ0P3H",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_date": "Fri, 09 Oct 2026 12:31:41 GMT",
+      "captured_at_utc": "2026-10-09T12:31:41.938Z",
+      "raw_sha256": "b76041bac2f3aa62fb0afa332c0ad074cbb8e31af3bf5d6c28034da0c87ba795",
+      "fixture_sha256": "ab259ea0711ae39e0dd54351031ae86547895be906b06d7336bce83879d8220e",
+      "fixture_bytes": 3327
+    },
+    {
+      "file": "media-supplements.json",
+      "source_url": "https://www.criterionchannel.com/api/media/pH6QX6Zq",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_date": "Fri, 09 Oct 2026 12:31:41 GMT",
+      "captured_at_utc": "2026-10-09T12:31:41.926Z",
+      "raw_sha256": "6eea17fed1305d7d6eae886292c1937a9a1117e5b5e23dad6e32d0fcb0fa04bf",
+      "fixture_sha256": "f7776e9bb69de052cddd2dbe1abfcf8bb7c32b08b68e1124418bb896dc792e67",
+      "fixture_bytes": 5108
+    }
+  ],
+  "static_sources": [
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/44eoegzk9ht6u.js",
+      "captured_at_utc": "2026-10-09T12:28:35.545Z",
+      "sha256": "a2cb17346be23ba97dd361d0dae46cdb3b3d41e03162d73eacf89826e058f2e3",
+      "bytes": 28513,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/1z1ya1oc-yyrn.js",
+      "captured_at_utc": "2026-10-09T12:28:31.802Z",
+      "sha256": "98802ae78d9e26c65b99da8f7773e03297799d4197bff1179390f0f2780e21f5",
+      "bytes": 19047,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/041rmhcvia7aq.js",
+      "captured_at_utc": "2026-10-09T12:28:30.034Z",
+      "sha256": "da54ad5c65e8985cea6da51d93a41919e59b025782f86b1e6e9efe16289a4474",
+      "bytes": 23762,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/3yjgq_qr-o81n.js",
+      "captured_at_utc": "2026-10-09T12:28:35.359Z",
+      "sha256": "04ce2994bdb29ddbdc8922800049fdde6eee8ecd2f91305df478bb385e68d6f8",
+      "bytes": 10009,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/3-c73_d_zowt2.js",
+      "captured_at_utc": "2026-10-09T12:28:34.784Z",
+      "sha256": "dc10d15cf23054ec47a1b96ad56f499979be9d0073e6225652823b0bbf44e3a4",
+      "bytes": 20574,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/1n_n48e9_udja.js",
+      "captured_at_utc": "2026-10-09T12:28:31.363Z",
+      "sha256": "394afc920de55c8ae131915cc564235f303c68834c5ff15ce86b590384436cf9",
+      "bytes": 456452,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/04xx7_qje3b36.js",
+      "captured_at_utc": "2026-10-09T12:30:24.553Z",
+      "sha256": "e0a7c05ed309695e337f21489bed288df4f480ff8987360d7f4ca511edc77152",
+      "bytes": 11741,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/06e9ymw11xjmc.js",
+      "captured_at_utc": "2026-10-09T12:30:24.754Z",
+      "sha256": "812febe4dc7651332ec816ec02b34f3ce2006584f6cdc5e1e4aa73c3687c1e12",
+      "bytes": 19756,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/3ses1hbaqk5_a.js",
+      "captured_at_utc": "2026-10-09T12:31:41.887Z",
+      "sha256": "e93ceec01a5713e27f8ce9df2c3448e7a7c0150304718b791c945c26747010a0",
+      "bytes": 12433,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/2tpknm2s8cqz7.js",
+      "captured_at_utc": "2026-10-09T12:30:24.938Z",
+      "sha256": "0ca5171b404c5b622b4b3b14f5f6949f6a05a2c52924300906bf762ca7ed153f",
+      "bytes": 21741,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/3x9g_1b8uocho.js?dpl=dpl_7eMB71KaeoNK76mTh4VDTvjFHD6S",
+      "captured_at_utc": "2026-10-09T12:30:09.411Z",
+      "sha256": "01d123bd7234867f6d2c740f4360a806d7e92088273bcd8471a96b19bccefe52",
+      "bytes": 7935,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/2wyhltnt9y3o6.js?dpl=dpl_7eMB71KaeoNK76mTh4VDTvjFHD6S",
+      "captured_at_utc": "2026-10-09T12:30:09.762Z",
+      "sha256": "8a04e702369fa7dbcac8ac885d07502070179ac684e2f2ca74afe043d076ae76",
+      "bytes": 6754,
+      "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/3k3sjiru8d99i.js?dpl=dpl_7eMB71KaeoNK76mTh4VDTvjFHD6S",
+      "captured_at_utc": "2026-10-09T12:29:51.079Z",
+      "sha256": "8c9c42b6c2046f3f5aee5f1ae361328148db7ea44fd8471766f93b96829a5544",
+      "bytes": 5713,
+      "scope": "Public static source inspected as data; never executed."
+    }
+  ]
+}

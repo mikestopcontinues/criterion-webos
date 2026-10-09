@@ -1,0 +1,104 @@
+{
+  "mediaid": "qvwT6mJ4",
+  "criterion_id": "36117",
+  "title": "The Hitcher",
+  "title_original": "",
+  "title_sort": "Hitcher, The",
+  "title_short": "",
+  "duration": 5851,
+  "paywall": "subscriber",
+  "drm": true,
+  "director": [
+    "Robert Harmon"
+  ],
+  "starring": [
+    "Rutger Hauer",
+    "C. Thomas Howell",
+    "Jennifer Jason Leigh"
+  ],
+  "content_warnings": "",
+  "country": [
+    "United States"
+  ],
+  "language": [
+    "English",
+    "French"
+  ],
+  "release_date": "1986-01-01",
+  "genre": "Horror",
+  "genre_2": "",
+  "contentType": "film",
+  "introduction_primary": "",
+  "trailer": "",
+  "commentary_tracks": [],
+  "siteid": "TXXJgKqJ",
+  "license_end_date_time": "2026-12-01T04:59:59Z",
+  "license_start_date_time": "2026-10-01T04:00:00Z",
+  "deeplink": "https://www.criterionchannel.com/films/qvwT6mJ4/the-hitcher",
+  "is_first_tab_sortable": false,
+  "playlists": [
+    {
+      "key": "playlist_collections_appears_in",
+      "title": "Collections",
+      "type": "GENERIC_PLAYLIST",
+      "playlistId": "nJqcdxe4",
+      "playlist": [
+        {
+          "mediaid": "rqsQ0P3H",
+          "criterion_id": "",
+          "feedid": "nJqcdxe4",
+          "title": "Highway Horror",
+          "title_original": "",
+          "title_sort": "Highway Horror",
+          "title_short": "",
+          "logo": true,
+          "contentType": "collection",
+          "teaser": "fAjU3RyE",
+          "collection_count": 15,
+          "siteid": "TXXJgKqJ",
+          "duration": 0,
+          "deeplink": "https://www.criterionchannel.com/collections/rqsQ0P3H/highway-horror"
+        }
+      ]
+    },
+    {
+      "key": "playlist_categories_appears_in",
+      "title": "Categories",
+      "type": "GENERIC_PLAYLIST",
+      "playlistId": "ntJ9KKoT",
+      "playlist": [
+        {
+          "mediaid": "QqhpWMzf",
+          "criterion_id": "",
+          "feedid": "ntJ9KKoT",
+          "title": "Horror",
+          "title_original": "",
+          "title_sort": "Horror",
+          "title_short": "",
+          "logo": true,
+          "contentType": "category",
+          "teaser": "",
+          "siteid": "TXXJgKqJ",
+          "duration": 0,
+          "deeplink": "https://www.criterionchannel.com/categories/QqhpWMzf/horror"
+        },
+        {
+          "mediaid": "QGtQj94z",
+          "criterion_id": "",
+          "feedid": "ntJ9KKoT",
+          "title": "Popular Now",
+          "title_original": "",
+          "title_sort": "Popular Now",
+          "title_short": "",
+          "logo": true,
+          "contentType": "category",
+          "teaser": "",
+          "siteid": "TXXJgKqJ",
+          "duration": 0,
+          "deeplink": "https://www.criterionchannel.com/categories/QGtQj94z/popular-now"
+        }
+      ]
+    }
+  ],
+  "description_medium": "A young man is plunged into a grisly game of cat and mouse when he picks up a deranged hitchhiker"
+}
