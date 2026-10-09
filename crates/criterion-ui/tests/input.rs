@@ -9,7 +9,7 @@ fn pointer(pos: egui::Pos2, pressed: bool) -> egui::Event {
 }
 #[test]
 fn pointer_release_activates_only_the_current_pressed_media_identity() {
-    let id = criterion_provider::MediaId::new("qvwT6mJ4").unwrap();
+    let id = criterion_ui::Target::Media(criterion_provider::MediaId::new("qvwT6mJ4").unwrap());
     let cards = [Card {
         key: &id,
         artwork_key: None,
@@ -39,7 +39,7 @@ fn pointer_release_activates_only_the_current_pressed_media_identity() {
     );
     let commands = std::mem::take(&mut frame.commands);
     frame.output.textures_delta.clear();
-    assert_eq!(commands, vec![Command::OpenMedia(id)]);
+    assert_eq!(commands, vec![Command::Open(id)]);
 }
 #[test]
 fn committed_text_and_ime_are_bounded_and_only_search_field_edits_publish() {
@@ -84,8 +84,8 @@ fn committed_text_and_ime_are_bounded_and_only_search_field_edits_publish() {
 }
 #[test]
 fn pointer_gone_and_replaced_media_cancel_pending_activation() {
-    let first = criterion_provider::MediaId::new("qvwT6mJ4").unwrap();
-    let second = criterion_provider::MediaId::new("zxlDvz82").unwrap();
+    let first = criterion_ui::Target::Media(criterion_provider::MediaId::new("qvwT6mJ4").unwrap());
+    let second = criterion_ui::Target::Media(criterion_provider::MediaId::new("zxlDvz82").unwrap());
     let card = |key| Card {
         key,
         artwork_key: None,
@@ -161,8 +161,8 @@ fn native_query_admission_bounds_unicode_and_drops_controls() {
 }
 #[test]
 fn hero_press_cannot_activate_replacement_media() {
-    let first = criterion_provider::MediaId::new("qvwT6mJ4").unwrap();
-    let second = criterion_provider::MediaId::new("zxlDvz82").unwrap();
+    let first = criterion_ui::Target::Media(criterion_provider::MediaId::new("qvwT6mJ4").unwrap());
+    let second = criterion_ui::Target::Media(criterion_provider::MediaId::new("zxlDvz82").unwrap());
     let data = |key| ViewData {
         hero: Some(criterion_ui::Hero {
             card: Card {
@@ -174,7 +174,7 @@ fn hero_press_cannot_activate_replacement_media() {
             },
             description: "",
             action: "SEE MORE",
-            action_kind: criterion_ui::HeroAction::OpenMedia,
+            action_kind: criterion_ui::HeroAction::Open,
             background_key: None,
             title_logo_key: None,
         }),
@@ -282,8 +282,8 @@ fn filter_press_keeps_the_painted_option_window_until_release() {
 }
 #[test]
 fn detail_tab_press_is_bound_to_the_owning_detail_identity() {
-    let first = criterion_provider::MediaId::new("qvwT6mJ4").unwrap();
-    let second = criterion_provider::MediaId::new("zxlDvz82").unwrap();
+    let first = criterion_ui::Target::Media(criterion_provider::MediaId::new("qvwT6mJ4").unwrap());
+    let second = criterion_ui::Target::Media(criterion_provider::MediaId::new("zxlDvz82").unwrap());
     let card = |key| Card {
         key,
         artwork_key: None,

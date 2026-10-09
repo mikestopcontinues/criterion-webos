@@ -4,7 +4,7 @@ use criterion_provider::MediaId;
 pub enum Command {
     Navigate(Page),
     Restore(Page),
-    OpenMedia(MediaId),
+    Open(crate::Target),
     Play(MediaId),
     ToggleList(MediaId),
     SelectPlaylist(usize),
@@ -35,12 +35,20 @@ impl AppUi {
             && let Some(hero) = &data.hero
             && hero.action_kind == crate::HeroAction::Play
         {
-            return vec![Command::Play(hero.card.key.clone())];
+            return hero
+                .card
+                .key
+                .media_id()
+                .map(|id| vec![Command::Play(id.clone())])
+                .unwrap_or_default();
         }
         let columns = if self.page() == Page::Search { 3 } else { 4 };
         let rows: Vec<_> = if self.page() == Page::Search && self.query().trim().is_empty() {
             Vec::new()
-        } else if matches!(self.page(), Page::Home | Page::New | Page::Detail) {
+        } else if matches!(
+            self.page(),
+            Page::Home | Page::New | Page::Discovery | Page::Detail
+        ) {
             data.rails.iter().map(|rail| rail.cards.len()).collect()
         } else {
             data.cards.chunks(columns).map(<[_]>::len).collect()
@@ -51,27 +59,35 @@ impl AppUi {
                 Intent::Navigate(page) => Some(Command::Navigate(page)),
                 Intent::Restore(page) => Some(Command::Restore(page)),
                 Intent::OpenCard { page, row, column } => {
-                    let card = if matches!(page, Page::Home | Page::New | Page::Detail) {
+                    let card = if matches!(
+                        page,
+                        Page::Home | Page::New | Page::Discovery | Page::Detail
+                    ) {
                         data.rails.get(row).and_then(|rail| rail.cards.get(column))
                     } else {
                         row.checked_mul(if page == Page::Search { 3 } else { 4 })
                             .and_then(|index| index.checked_add(column))
                             .and_then(|index| data.cards.get(index))
                     };
-                    card.map(|card| Command::OpenMedia(card.key.clone()))
+                    card.map(|card| {
+                        self.activate_target(card.key);
+                        Command::Open(card.key.clone())
+                    })
                 }
-                Intent::OpenHero => data
-                    .hero
-                    .as_ref()
-                    .map(|hero| Command::OpenMedia(hero.card.key.clone())),
+                Intent::OpenHero => data.hero.as_ref().map(|hero| {
+                    self.activate_target(hero.card.key);
+                    Command::Open(hero.card.key.clone())
+                }),
                 Intent::Play => data
                     .detail
                     .as_ref()
-                    .map(|detail| Command::Play(detail.card.key.clone())),
+                    .and_then(|detail| detail.card.key.media_id())
+                    .map(|id| Command::Play(id.clone())),
                 Intent::ToggleList => data
                     .detail
                     .as_ref()
-                    .map(|detail| Command::ToggleList(detail.card.key.clone())),
+                    .and_then(|detail| detail.card.key.media_id())
+                    .map(|id| Command::ToggleList(id.clone())),
                 Intent::SelectPlaylist(index) => Some(Command::SelectPlaylist(index)),
                 Intent::Authenticate => Some(Command::Authenticate),
                 Intent::VoiceSearch => Some(Command::VoiceSearch),

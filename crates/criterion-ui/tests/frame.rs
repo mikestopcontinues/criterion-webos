@@ -11,7 +11,7 @@ fn grid(ui: &mut AppUi) {
 fn cpu_frame_uses_observed_four_landscape_columns_and_visible_budget() {
     let mut ui = AppUi::new();
     grid(&mut ui);
-    let id = criterion_provider::MediaId::new("qvwT6mJ4").unwrap();
+    let id = criterion_ui::Target::Media(criterion_provider::MediaId::new("qvwT6mJ4").unwrap());
     let cards = vec![
         Card {
             key: &id,

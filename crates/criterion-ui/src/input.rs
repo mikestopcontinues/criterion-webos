@@ -4,7 +4,7 @@ use egui::{Event, Pos2, Rect, Vec2};
 pub(crate) struct PointerTarget {
     page: Page,
     focus: Focus,
-    media: Option<criterion_provider::MediaId>,
+    identity: Option<crate::Target>,
 }
 fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
     Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, h))
@@ -150,7 +150,7 @@ impl AppUi {
             Some(PointerTarget {
                 page: self.page(),
                 focus,
-                media: match focus {
+                identity: match focus {
                     Focus::Hero => data.hero.as_ref().map(|hero| hero.card.key.clone()),
                     Focus::DetailAction(_)
                     | Focus::InformationPrimary
@@ -275,7 +275,7 @@ impl AppUi {
         if self.page() == Page::AllFilms && rect(410.0, 112.0, 330.0, 82.0).contains(pos) {
             return target(Focus::FilterButton);
         }
-        if matches!(self.page(), Page::Home | Page::New)
+        if matches!(self.page(), Page::Home | Page::New | Page::Discovery)
             && data.hero.is_some()
             && rect(150.0, 740.0 - self.scroll_y(), 214.0, 80.0).contains(pos)
         {
@@ -314,7 +314,7 @@ impl AppUi {
         if self.page() == Page::Search && (pos.y < 348.0 || self.query().trim().is_empty()) {
             return None;
         }
-        if self.page() == Page::AllFilms && pos.y < 228.0 {
+        if matches!(self.page(), Page::AllFilms | Page::MyList) && pos.y < 228.0 {
             return None;
         }
         cards
@@ -329,7 +329,7 @@ impl AppUi {
                     row: card.row,
                     column: card.column,
                 },
-                media: Some(card.key.clone()),
+                identity: Some(card.key.clone()),
             })
     }
 }

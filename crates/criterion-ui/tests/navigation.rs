@@ -63,9 +63,9 @@ fn opening_film_then_back_restores_exact_grid_focus_and_scroll() {
     let commands = nav(&mut ui, Action::Select, &[4, 4, 4]);
     assert_eq!(
         commands,
-        vec![criterion_ui::Command::OpenMedia(
+        vec![criterion_ui::Command::Open(criterion_ui::Target::Media(
             criterion_provider::MediaId::new("qvwT6mJ4").unwrap()
-        )]
+        ))]
     );
     assert_eq!(ui.page(), criterion_ui::Page::Detail);
     nav(&mut ui, Action::Back, &[]);
@@ -193,7 +193,7 @@ fn film_information_back_preserves_action_then_supplements_open() {
 }
 
 fn nav(ui: &mut AppUi, action: Action, rows: &[usize]) -> Vec<criterion_ui::Command> {
-    let id = criterion_provider::MediaId::new("qvwT6mJ4").unwrap();
+    let id = criterion_ui::Target::Media(criterion_provider::MediaId::new("qvwT6mJ4").unwrap());
     let card = criterion_ui::Card {
         key: &id,
         artwork_key: None,

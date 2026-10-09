@@ -23,6 +23,8 @@ pub enum Page {
     Search,
     Detail,
     Login,
+    Discovery,
+    MyList,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Focus {
@@ -116,6 +118,15 @@ impl AppUi {
     }
     pub fn focus(&self) -> Focus {
         self.focus
+    }
+    pub(crate) fn activate_target(&mut self, target: &crate::Target) {
+        self.page = target.page();
+        self.focus = match self.page {
+            Page::Detail => Focus::DetailAction(0),
+            Page::Home | Page::New | Page::Discovery => Focus::Hero,
+            _ => Focus::Card { row: 0, column: 0 },
+        };
+        self.scroll_y = 0.0;
     }
     pub(crate) fn layout_focus(&self) -> Focus {
         self.pointer_layout_focus.unwrap_or(self.focus)
@@ -230,7 +241,9 @@ impl AppUi {
             self.focus = Focus::Card { row: 0, column: 0 };
             self.scroll_y = 632.0;
         } else if action == Action::Up && matches!(self.focus, Focus::Card { row: 0, .. }) {
-            self.focus = if self.page == Page::AllFilms {
+            self.focus = if self.page == Page::MyList {
+                self.focus
+            } else if self.page == Page::AllFilms {
                 Focus::FilterButton
             } else {
                 Focus::Hero
@@ -254,7 +267,7 @@ impl AppUi {
                 self.focus = Focus::Card { row, column };
                 self.scroll_y = if self.page == Page::Search {
                     (row as f32 * 321.0 - 415.0).max(0.0)
-                } else if self.page == Page::AllFilms {
+                } else if matches!(self.page, Page::AllFilms | Page::MyList) {
                     (row as f32 * 321.0 - 172.0).max(0.0)
                 } else {
                     632.0 + row as f32 * 397.0

@@ -22,3 +22,6 @@ mod search;
 pub use search::SearchGroup;
 
 mod input;
+
+mod target;
+pub use target::Target;

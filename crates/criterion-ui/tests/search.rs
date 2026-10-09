@@ -29,7 +29,7 @@ fn search_keyboard_emits_live_lowercase_queries_without_submission() {
 }
 #[test]
 fn search_frame_places_three_results_beside_the_keyboard() {
-    let id = criterion_provider::MediaId::new("qvwT6mJ4").unwrap();
+    let id = criterion_ui::Target::Media(criterion_provider::MediaId::new("qvwT6mJ4").unwrap());
     let cards = vec![
         criterion_ui::Card {
             key: &id,
@@ -75,7 +75,7 @@ fn search_frame_places_three_results_beside_the_keyboard() {
 }
 #[test]
 fn search_detail_back_restores_query_group_card_then_home_focus() {
-    let id = criterion_provider::MediaId::new("qvwT6mJ4").unwrap();
+    let id = criterion_ui::Target::Media(criterion_provider::MediaId::new("qvwT6mJ4").unwrap());
     let cards = [criterion_ui::Card {
         key: &id,
         artwork_key: None,

@@ -10,7 +10,7 @@ pub(crate) const MUTED: Color32 = Color32::from_rgb(151, 151, 151);
 /// Provider-admitted metadata. Media identity and optional public artwork identity are distinct.
 #[derive(Clone, Copy)]
 pub struct Card<'a> {
-    pub key: &'a criterion_provider::MediaId,
+    pub key: &'a crate::Target,
     pub artwork_key: Option<&'a str>,
     pub title: &'a str,
     pub year: &'a str,
@@ -22,7 +22,7 @@ pub struct Rail<'a> {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeroAction {
-    OpenMedia,
+    Open,
     Play,
 }
 pub struct Hero<'a> {
@@ -88,7 +88,7 @@ impl Default for ViewData<'_> {
 pub struct CardLayout {
     pub row: usize,
     pub column: usize,
-    pub key: criterion_provider::MediaId,
+    pub key: crate::Target,
     pub image: Rect,
 }
 pub struct UiFrame {
@@ -145,7 +145,7 @@ impl AppUi {
                         self.paint_detail(&p, detail, data.rails, &mut visible_cards);
                     }
                 }
-                Page::Home | Page::New => {
+                Page::Home | Page::New | Page::Discovery => {
                     if let Some(hero) = &data.hero
                         && self.scroll_y() < 1080.0
                     {
@@ -361,7 +361,10 @@ impl AppUi {
             }
         });
         for card in &visible_cards {
-            let source = if matches!(self.page(), Page::Home | Page::New | Page::Detail) {
+            let source = if matches!(
+                self.page(),
+                Page::Home | Page::New | Page::Discovery | Page::Detail
+            ) {
                 data.rails
                     .get(card.row)
                     .and_then(|rail| rail.cards.get(card.column))
@@ -395,7 +398,11 @@ impl AppUi {
                 self.pointer_press = None;
                 self.pointer_layout_focus = None;
             }
-            if self.page() != old_page {
+            if self.page() != old_page
+                || commands[command_start..]
+                    .iter()
+                    .any(|command| matches!(command, crate::Command::Open(_)))
+            {
                 break;
             }
         }
@@ -416,6 +423,8 @@ fn page_label(page: Page) -> &'static str {
         Page::Search => "Search",
         Page::Detail => "Film",
         Page::Login => "Log In",
+        Page::Discovery => "Explore",
+        Page::MyList => "My List",
     }
 }
 pub(crate) fn label(
@@ -524,6 +533,9 @@ pub(crate) fn paint_card(
         MUTED,
         28.0,
     );
+    if card.key.media_id().is_none() {
+        return;
+    }
     label(
         p,
         [rect.left(), rect.bottom() + 46.0],
