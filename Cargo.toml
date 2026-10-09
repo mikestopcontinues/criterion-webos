@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/criterion-platform", "crates/criterion-provider"]
+members = ["crates/criterion-platform", "crates/criterion-provider", "crates/criterion-ui"]
 resolver = "3"
 
 [profile.release]
