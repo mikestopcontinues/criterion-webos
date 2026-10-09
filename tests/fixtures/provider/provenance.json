@@ -11,9 +11,11 @@
     "media-film": "First 20 words of actual description_medium retained for parser coverage; all other editorial description fields removed.",
     "filters": "First three options of each filter group retained, plus actual director options González-juan-pablo and Hung-sammo for Unicode/case coverage.",
     "media-collection": "Only first three items of each nested playlist retained.",
-    "media-supplements": "Only first two items of each nested playlist retained."
+    "media-supplements": "Only first two items of each nested playlist retained.",
+    "discovery": "Preserve all supplied block/slide/nav order, first3 catalog items per row, one desktop/mobile thumb per map, and representative navigation thumbs. Remove editorial body prose, videos, sources/tracks and private/account payloads. No image bytes are included; filenames and destinations are metadata.",
+    "discovery-html": "A bounded, reencoded transport fixture using the captured import/React element envelopes, projected blocks and two concatenated type1 push statements; not an unchanged HTML capture."
   },
-  "observations": "Public unauthenticated HTTP200 JSON responses; unsupported service contracts. Totals and availability are transient.",
+  "observations": "Public unauthenticated HTTP200 JSON responses and ordinary HTML discovery responses; unsupported service contracts. Totals, editorial order and availability are transient.",
   "fixtures": [
     {
       "file": "all-films.json",
@@ -110,6 +112,545 @@
       "raw_sha256": "6eea17fed1305d7d6eae886292c1937a9a1117e5b5e23dad6e32d0fcb0fa04bf",
       "fixture_sha256": "f7776e9bb69de052cddd2dbe1abfcf8bb7c32b08b68e1124418bb896dc792e67",
       "fixture_bytes": 5108
+    },
+    {
+      "file": "discovery-home.json",
+      "source_url": "https://www.criterionchannel.com/",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_content_type": "text/html; charset=utf-8",
+      "response_date": "Fri, 09 Oct 2026 12:58:48 GMT",
+      "captured_at_utc": "2026-10-09T13:20:34.976Z",
+      "raw_sha256": "67a7143ce645399219adbc17ab3be7ff404e142d0d4015af24de8c7ed7ca3a4c",
+      "raw_bytes": 1057633,
+      "fixture_sha256": "74f293822a3f69745d1f8f18836a19fd5b6d9823cadade24328bd7c6275e438d",
+      "fixture_bytes": 33396,
+      "raw_extracted_props_json_sha256": "62851aefbc9f76e652c16dd6da26e34c575390c414e3129848edfca6241b2efd",
+      "observed_flight_string_bytes": 193152,
+      "observed_type1_push_count": 14,
+      "observed_block_count": 28,
+      "observed_blocks": [
+        {
+          "id": 493,
+          "type": 28
+        },
+        {
+          "id": 537,
+          "type": 20,
+          "playlist_count": 10
+        },
+        {
+          "id": 817,
+          "type": 20,
+          "playlist_count": 11
+        },
+        {
+          "id": 704,
+          "type": 20,
+          "playlist_count": 16
+        },
+        {
+          "id": 702,
+          "type": 21
+        },
+        {
+          "id": 811,
+          "type": 20,
+          "playlist_count": 12
+        },
+        {
+          "id": 561,
+          "type": 20,
+          "playlist_count": 16
+        },
+        {
+          "id": 818,
+          "type": 20,
+          "playlist_count": 12
+        },
+        {
+          "id": 840,
+          "type": 22
+        },
+        {
+          "id": 551,
+          "type": 22
+        },
+        {
+          "id": 498,
+          "type": 20
+        },
+        {
+          "id": 497,
+          "type": 20
+        },
+        {
+          "id": 528,
+          "type": 20,
+          "playlist_count": 18
+        },
+        {
+          "id": 860,
+          "type": 20,
+          "playlist_count": 11
+        },
+        {
+          "id": 550,
+          "type": 20,
+          "playlist_count": 15
+        },
+        {
+          "id": 847,
+          "type": 22
+        },
+        {
+          "id": 705,
+          "type": 20,
+          "playlist_count": 83
+        },
+        {
+          "id": 820,
+          "type": 28
+        },
+        {
+          "id": 861,
+          "type": 20,
+          "playlist_count": 7
+        },
+        {
+          "id": 783,
+          "type": 20,
+          "playlist_count": 9
+        },
+        {
+          "id": 532,
+          "type": 21
+        },
+        {
+          "id": 724,
+          "type": 22
+        },
+        {
+          "id": 726,
+          "type": 20,
+          "playlist_count": 20
+        },
+        {
+          "id": 529,
+          "type": 20,
+          "playlist_count": 24
+        },
+        {
+          "id": 538,
+          "type": 20,
+          "playlist_count": 18
+        },
+        {
+          "id": 822,
+          "type": 20,
+          "playlist_count": 6
+        },
+        {
+          "id": 748,
+          "type": 20,
+          "playlist_count": 6
+        },
+        {
+          "id": 708,
+          "type": 22
+        }
+      ],
+      "extraction": "Only the component blocks props are projected; preserve all block/slide/navigation order and first3 media per static playlist. Keep one desktop/mobile thumb filename per map and thumbs only for the first nav item. Remove body prose, video/mobileVideo and unrelated presentation fields."
+    },
+    {
+      "file": "discovery-home.html",
+      "source_url": "https://www.criterionchannel.com/",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_content_type": "text/html; charset=utf-8",
+      "response_date": "Fri, 09 Oct 2026 12:58:48 GMT",
+      "captured_at_utc": "2026-10-09T13:20:34.976Z",
+      "raw_sha256": "67a7143ce645399219adbc17ab3be7ff404e142d0d4015af24de8c7ed7ca3a4c",
+      "raw_bytes": 1057633,
+      "fixture_sha256": "c559178cfa1e864226a276485bd72f4ca9a792ece1c98a98d8b655db981463d4",
+      "fixture_bytes": 26457,
+      "raw_extracted_props_json_sha256": "62851aefbc9f76e652c16dd6da26e34c575390c414e3129848edfca6241b2efd",
+      "observed_flight_string_bytes": 193152,
+      "observed_type1_push_count": 14,
+      "observed_block_count": 28,
+      "observed_blocks": [
+        {
+          "id": 493,
+          "type": 28
+        },
+        {
+          "id": 537,
+          "type": 20,
+          "playlist_count": 10
+        },
+        {
+          "id": 817,
+          "type": 20,
+          "playlist_count": 11
+        },
+        {
+          "id": 704,
+          "type": 20,
+          "playlist_count": 16
+        },
+        {
+          "id": 702,
+          "type": 21
+        },
+        {
+          "id": 811,
+          "type": 20,
+          "playlist_count": 12
+        },
+        {
+          "id": 561,
+          "type": 20,
+          "playlist_count": 16
+        },
+        {
+          "id": 818,
+          "type": 20,
+          "playlist_count": 12
+        },
+        {
+          "id": 840,
+          "type": 22
+        },
+        {
+          "id": 551,
+          "type": 22
+        },
+        {
+          "id": 498,
+          "type": 20
+        },
+        {
+          "id": 497,
+          "type": 20
+        },
+        {
+          "id": 528,
+          "type": 20,
+          "playlist_count": 18
+        },
+        {
+          "id": 860,
+          "type": 20,
+          "playlist_count": 11
+        },
+        {
+          "id": 550,
+          "type": 20,
+          "playlist_count": 15
+        },
+        {
+          "id": 847,
+          "type": 22
+        },
+        {
+          "id": 705,
+          "type": 20,
+          "playlist_count": 83
+        },
+        {
+          "id": 820,
+          "type": 28
+        },
+        {
+          "id": 861,
+          "type": 20,
+          "playlist_count": 7
+        },
+        {
+          "id": 783,
+          "type": 20,
+          "playlist_count": 9
+        },
+        {
+          "id": 532,
+          "type": 21
+        },
+        {
+          "id": 724,
+          "type": 22
+        },
+        {
+          "id": 726,
+          "type": 20,
+          "playlist_count": 20
+        },
+        {
+          "id": 529,
+          "type": 20,
+          "playlist_count": 24
+        },
+        {
+          "id": 538,
+          "type": 20,
+          "playlist_count": 18
+        },
+        {
+          "id": 822,
+          "type": 20,
+          "playlist_count": 6
+        },
+        {
+          "id": 748,
+          "type": 20,
+          "playlist_count": 6
+        },
+        {
+          "id": 708,
+          "type": 22
+        }
+      ],
+      "extraction": "The original React element/import references are retained; blocks are projected identically to the sibling JSON fixture. The projected record is JSON-reencoded into two observed-form type1 push statements, split within the record to exercise concatenation. This is an extracted transport fixture, not the unchanged raw page."
+    },
+    {
+      "file": "discovery-new.json",
+      "source_url": "https://www.criterionchannel.com/new",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_content_type": "text/html; charset=utf-8",
+      "response_date": "Fri, 09 Oct 2026 12:55:32 GMT",
+      "captured_at_utc": "2026-10-09T13:17:55.543Z",
+      "raw_sha256": "47f4bcb3ed85994269bf4010fe791cc1a13eb81e38056d02b80c106202ae64f1",
+      "raw_bytes": 294364,
+      "fixture_sha256": "983fb6a2c08a505f58e5ce212f15d7368c66055a245d85f3e60eda01d2b3f2a3",
+      "fixture_bytes": 20181,
+      "raw_extracted_props_json_sha256": "ded4ac41d4960948c23f4c949561c13d7249d7e44ee57b1502494c53a25ae8ae",
+      "observed_flight_string_bytes": 75263,
+      "observed_type1_push_count": 14,
+      "observed_block_count": 17,
+      "observed_blocks": [
+        {
+          "id": 823,
+          "type": 28
+        },
+        {
+          "id": 824,
+          "type": 20,
+          "playlist_count": 8
+        },
+        {
+          "id": 825,
+          "type": 20,
+          "playlist_count": 12
+        },
+        {
+          "id": 789,
+          "type": 22
+        },
+        {
+          "id": 833,
+          "type": 22
+        },
+        {
+          "id": 830,
+          "type": 20,
+          "playlist_count": 6
+        },
+        {
+          "id": 862,
+          "type": 20,
+          "playlist_count": 7
+        },
+        {
+          "id": 829,
+          "type": 20,
+          "playlist_count": 3
+        },
+        {
+          "id": 856,
+          "type": 20,
+          "playlist_count": 2
+        },
+        {
+          "id": 828,
+          "type": 22
+        },
+        {
+          "id": 835,
+          "type": 20,
+          "playlist_count": 5
+        },
+        {
+          "id": 836,
+          "type": 20,
+          "playlist_count": 2
+        },
+        {
+          "id": 839,
+          "type": 22
+        },
+        {
+          "id": 838,
+          "type": 20,
+          "playlist_count": 4
+        },
+        {
+          "id": 858,
+          "type": 20,
+          "playlist_count": 4
+        },
+        {
+          "id": 719,
+          "type": 21
+        },
+        {
+          "id": 720,
+          "type": 21
+        }
+      ],
+      "extraction": "Only the component blocks props are projected; preserve all block/slide/navigation order and first3 media per static playlist. Keep one desktop/mobile thumb filename per map and thumbs only for the first nav item. Remove body prose, video/mobileVideo and unrelated presentation fields."
+    },
+    {
+      "file": "discovery-new.html",
+      "source_url": "https://www.criterionchannel.com/new",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_content_type": "text/html; charset=utf-8",
+      "response_date": "Fri, 09 Oct 2026 12:55:32 GMT",
+      "captured_at_utc": "2026-10-09T13:17:55.543Z",
+      "raw_sha256": "47f4bcb3ed85994269bf4010fe791cc1a13eb81e38056d02b80c106202ae64f1",
+      "raw_bytes": 294364,
+      "fixture_sha256": "ecae1b4d88ad03be7cf27cd4e8d86fc4dff4ad48427dbe71ebfc157509c48ffd",
+      "fixture_bytes": 16404,
+      "raw_extracted_props_json_sha256": "ded4ac41d4960948c23f4c949561c13d7249d7e44ee57b1502494c53a25ae8ae",
+      "observed_flight_string_bytes": 75263,
+      "observed_type1_push_count": 14,
+      "observed_block_count": 17,
+      "observed_blocks": [
+        {
+          "id": 823,
+          "type": 28
+        },
+        {
+          "id": 824,
+          "type": 20,
+          "playlist_count": 8
+        },
+        {
+          "id": 825,
+          "type": 20,
+          "playlist_count": 12
+        },
+        {
+          "id": 789,
+          "type": 22
+        },
+        {
+          "id": 833,
+          "type": 22
+        },
+        {
+          "id": 830,
+          "type": 20,
+          "playlist_count": 6
+        },
+        {
+          "id": 862,
+          "type": 20,
+          "playlist_count": 7
+        },
+        {
+          "id": 829,
+          "type": 20,
+          "playlist_count": 3
+        },
+        {
+          "id": 856,
+          "type": 20,
+          "playlist_count": 2
+        },
+        {
+          "id": 828,
+          "type": 22
+        },
+        {
+          "id": 835,
+          "type": 20,
+          "playlist_count": 5
+        },
+        {
+          "id": 836,
+          "type": 20,
+          "playlist_count": 2
+        },
+        {
+          "id": 839,
+          "type": 22
+        },
+        {
+          "id": 838,
+          "type": 20,
+          "playlist_count": 4
+        },
+        {
+          "id": 858,
+          "type": 20,
+          "playlist_count": 4
+        },
+        {
+          "id": 719,
+          "type": 21
+        },
+        {
+          "id": 720,
+          "type": 21
+        }
+      ],
+      "extraction": "The original React element/import references are retained; blocks are projected identically to the sibling JSON fixture. The projected record is JSON-reencoded into two observed-form type1 push statements, split within the record to exercise concatenation. This is an extracted transport fixture, not the unchanged raw page."
+    },
+    {
+      "file": "discovery-newly-added.json",
+      "source_url": "https://www.criterionchannel.com/discover/newly-added",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_content_type": "text/html; charset=utf-8",
+      "response_date": "Fri, 09 Oct 2026 13:21:34 GMT",
+      "captured_at_utc": "2026-10-09T13:22:42.601Z",
+      "raw_sha256": "f1b2e25b8ab093a1c3abb1f0ecd1083f1549794ac2104e4fcdd51c4d2bef81f4",
+      "raw_bytes": 263999,
+      "fixture_sha256": "194a267171c5c507d4ca1050af702c6514a85f7fd758cde0065b50d2e19d2110",
+      "fixture_bytes": 1149,
+      "raw_extracted_props_json_sha256": "6fbd97b832c8523f275a5d8eb601c774befd85b9f52e7edc1f6d3ee653fd7986",
+      "observed_flight_string_bytes": 61455,
+      "observed_type1_push_count": 14,
+      "observed_block_count": 1,
+      "observed_blocks": [
+        {
+          "id": 834,
+          "type": 20,
+          "playlist_count": 69
+        }
+      ],
+      "extraction": "Only the component blocks props are projected; preserve all block/slide/navigation order and first3 media per static playlist. Keep one desktop/mobile thumb filename per map and thumbs only for the first nav item. Remove body prose, video/mobileVideo and unrelated presentation fields."
+    },
+    {
+      "file": "media-popular-category.json",
+      "source_url": "https://www.criterionchannel.com/api/media/QGtQj94z",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_content_type": "application/json",
+      "response_date": "Fri, 09 Oct 2026 13:22:42 GMT",
+      "captured_at_utc": "2026-10-09T13:22:42.549Z",
+      "raw_sha256": "c2754178b85a261597bcc855e2ab3a22b476c406e48a9e8bdf3377f74bc9ff60",
+      "raw_bytes": 12108,
+      "fixture_sha256": "7440b83bba389a12f72d04ba566a6f922fea26ba95e6dbd462278e6a1b6ee96d",
+      "fixture_bytes": 1231,
+      "extraction": "Only public category identity and first3 primary playlist items; remove descriptions, sources, tracks and legacy IDs."
     }
   ],
   "static_sources": [
@@ -203,6 +744,13 @@
       "sha256": "8c9c42b6c2046f3f5aee5f1ae361328148db7ea44fd8471766f93b96829a5544",
       "bytes": 5713,
       "scope": "Public static source inspected as data; never executed."
+    },
+    {
+      "source_url": "https://www.criterionchannel.com/_next/static/chunks/1efi2w06g0no5.js?dpl=dpl_7eMB71KaeoNK76mTh4VDTvjFHD6S",
+      "captured_at_utc": "2026-10-09T13:18:28.697Z",
+      "sha256": "2130160837212fe18f0e1d42ca06e69d285feb5d32f782bc191a42933a994522",
+      "bytes": 167462,
+      "scope": "Public discovery block/slideshow source inspected as data; never executed."
     }
   ],
   "image_checks": [
@@ -225,6 +773,32 @@
       "verified_head_content_length": 82236,
       "verified_head_headers_sha256": "8d43a589b61b454be52d7ad93321b0edebec7ec2694f2a873af0e4dc10d3a7f9",
       "limits": "No fallback requested in verified HEAD. Image pixels and dimensions were not downloaded or inspected. This is asset-family availability, not universal availability or official TV label selection."
+    }
+  ],
+  "discovery_image_checks": [
+    {
+      "source_url": "https://cc.criterion.com/uploads/storyBlocks/493/thumbnails/POSSESSIONS_collection_hero_wide_1920x0.webp",
+      "method": "HEAD",
+      "authenticated": false,
+      "status": 200,
+      "response_date": "Fri, 09 Oct 2026 13:24:44 GMT",
+      "captured_at_utc": "2026-10-09T13:24:44.883Z",
+      "content_type": "image/webp",
+      "content_length": 258264,
+      "headers_sha256": "e3d8e52d6710e72da4fd76bba0be40e7a5e27934c3f99c094b8796e46d45200b",
+      "limits": "Public availability only. No image bytes/dimensions, TV label selection or distribution ownership established."
+    },
+    {
+      "source_url": "https://cc.criterion.com/uploads/storyBlocks/493/thumbnails/POSSESSIONS_collection_logo_default_760x0.webp",
+      "method": "HEAD",
+      "authenticated": false,
+      "status": 200,
+      "response_date": "Fri, 09 Oct 2026 13:24:45 GMT",
+      "captured_at_utc": "2026-10-09T13:24:45.071Z",
+      "content_type": "image/webp",
+      "content_length": 9834,
+      "headers_sha256": "d4fe3d7460523d2fad8428d50415c2afc565bc43ff793dd8986a3036f5d5fd17",
+      "limits": "Public availability only. No image bytes/dimensions, TV label selection or distribution ownership established."
     }
   ]
 }

@@ -1,0 +1,42 @@
+{
+  "mediaid": "QGtQj94z",
+  "title": "Popular Now",
+  "contentType": "category",
+  "duration": 0,
+  "deeplink": "https://www.criterionchannel.com/categories/QGtQj94z/popular-now",
+  "is_first_tab_sortable": true,
+  "playlists": [
+    {
+      "key": "playlist_primary",
+      "title": "Films",
+      "type": "GENERIC_PLAYLIST",
+      "playlistId": "NFOGaZEL",
+      "playlist": [
+        {
+          "mediaid": "qvwT6mJ4",
+          "title": "The Hitcher",
+          "duration": 5851,
+          "contentType": "film",
+          "release_date": "1986-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/qvwT6mJ4/the-hitcher"
+        },
+        {
+          "mediaid": "sqbF7lmY",
+          "title": "Jennifer’s Body",
+          "duration": 6145,
+          "contentType": "film",
+          "release_date": "2009-09-18",
+          "deeplink": "https://www.criterionchannel.com/films/sqbF7lmY/jennifer-s-body"
+        },
+        {
+          "mediaid": "KwgkF9Lq",
+          "title": "Salem’s Lot",
+          "duration": 10984,
+          "contentType": "film",
+          "release_date": "1979-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/KwgkF9Lq/salem-s-lot"
+        }
+      ]
+    }
+  ]
+}

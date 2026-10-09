@@ -1,0 +1,42 @@
+{
+  "blocks": [
+    {
+      "type": 20,
+      "id": 834,
+      "layout": 0,
+      "playlistType": "playlist",
+      "playlistID": "s8nNJFN1",
+      "variant": 0,
+      "imageAspectRatio": 56.25,
+      "imageJWLabel": "default_16x9",
+      "galleryPageNum": 4,
+      "galleryWrap": 1,
+      "playlist": [
+        {
+          "mediaid": "aAUEybAm",
+          "title": "Barry Lyndon",
+          "duration": 11118,
+          "contentType": "film",
+          "release_date": "1975-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/aAUEybAm/barry-lyndon"
+        },
+        {
+          "mediaid": "sqbF7lmY",
+          "title": "Jennifer’s Body",
+          "duration": 6145,
+          "contentType": "film",
+          "release_date": "2009-09-18",
+          "deeplink": "https://www.criterionchannel.com/films/sqbF7lmY/jennifer-s-body"
+        },
+        {
+          "mediaid": "oSjohtYk",
+          "title": "The Gift",
+          "duration": 6487,
+          "contentType": "film",
+          "release_date": "2015-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/oSjohtYk/the-gift"
+        }
+      ]
+    }
+  ]
+}

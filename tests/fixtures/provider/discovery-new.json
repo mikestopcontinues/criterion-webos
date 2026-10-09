@@ -1,0 +1,681 @@
+{
+  "blocks": [
+    {
+      "type": 28,
+      "id": 823,
+      "layout": 0,
+      "slideImagePath": "https://cc.criterion.com/uploads/storyBlocks/823/thumbnails/",
+      "slides": [
+        {
+          "id": 1607,
+          "header2": "Dead Ringers",
+          "cta": "Watch now",
+          "ctaStyle": "button-large-primary",
+          "link": "/films/P08XTUgZ/dead-ringers",
+          "linkTarget": 0,
+          "thumbs": {
+            "1920": "541_DEAD_RINGERS_662f69b9-994d-4b06-9921-a219478bc331_hero_wide_1920x0.webp"
+          },
+          "thumbsMobile": {
+            "1200": "541_DEAD_RINGERS_662f69b9-994d-4b06-9921-a219478bc331_hero_wide_0_1200x0.webp"
+          }
+        },
+        {
+          "id": 1603,
+          "header2": "Don’t Look Now",
+          "cta": "Watch now",
+          "ctaStyle": "button-large-primary",
+          "link": "/films/ucd0eJXw/don-t-look-now",
+          "linkTarget": 0,
+          "thumbs": {
+            "1920": "27928_DONTLOOKNOW_ae70c110-61b7-4e56-9a31-b8495e1dfc28_hero_wide_1920x0.webp"
+          },
+          "thumbsMobile": {
+            "1200": "27928_DONTLOOKNOW_ae70c110-61b7-4e56-9a31-b8495e1dfc28_hero_wide_0_1200x0.webp"
+          }
+        },
+        {
+          "id": 1602,
+          "header2": "The Gift",
+          "cta": "Watch now",
+          "ctaStyle": "button-large-primary",
+          "link": "/films/oSjohtYk/the-gift",
+          "linkTarget": 0,
+          "thumbs": {
+            "1920": "36015_THE_GIFT_ef80556c-63e7-4e3f-b484-e014428076e0_hero_wide_1920x0.webp"
+          },
+          "thumbsMobile": {
+            "1200": "36015_THE_GIFT_ef80556c-63e7-4e3f-b484-e014428076e0_hero_wide_0_1200x0.webp"
+          }
+        },
+        {
+          "id": 1604,
+          "header2": "Jennifer’s Body",
+          "cta": "Watch now",
+          "ctaStyle": "button-large-primary",
+          "link": "/films/sqbF7lmY/jennifer-s-body",
+          "linkTarget": 0,
+          "thumbs": {
+            "1920": "31955_JENNIFERS_BODY_film_hero_wide_1920x0.webp"
+          },
+          "thumbsMobile": {
+            "1200": "31955_JENNIFERS_BODY_film_hero_wide_0_1200x0.webp"
+          }
+        }
+      ]
+    },
+    {
+      "type": 20,
+      "id": 824,
+      "layout": 0,
+      "header": "October Collections",
+      "headerStyle": "header-medium",
+      "playlistType": "playlist",
+      "playlistID": "zWkIOxah",
+      "variant": 0,
+      "imageAspectRatio": 56.25,
+      "imageJWLabel": "default_16x9",
+      "galleryPageNum": 3,
+      "galleryWrap": 0,
+      "playlist": [
+        {
+          "mediaid": "cXwl9wBV",
+          "title": "Unwelcome Guests",
+          "duration": 0,
+          "contentType": "collection",
+          "logo": true,
+          "collection_count": 11,
+          "deeplink": "https://www.criterionchannel.com/collections/cXwl9wBV/unwelcome-guests"
+        },
+        {
+          "mediaid": "p753ts71",
+          "title": "Made-for-TV Terror",
+          "duration": 0,
+          "contentType": "collection",
+          "logo": true,
+          "collection_count": 4,
+          "deeplink": "https://www.criterionchannel.com/collections/p753ts71/made-for-tv-terror"
+        },
+        {
+          "mediaid": "9jyYntIx",
+          "title": "Directed by Dario Argento",
+          "duration": 0,
+          "contentType": "collection",
+          "logo": true,
+          "collection_count": 5,
+          "deeplink": "https://www.criterionchannel.com/collections/9jyYntIx/directed-by-dario-argento"
+        }
+      ]
+    },
+    {
+      "type": 20,
+      "id": 825,
+      "layout": 0,
+      "header": "Newly Added Films",
+      "headerStyle": "header-small",
+      "cta": "See all",
+      "link": "/discover/newly-added",
+      "linkTarget": 0,
+      "playlistType": "playlist",
+      "playlistID": "vhkO1Ma8",
+      "variant": 1,
+      "imageAspectRatio": 56.25,
+      "imageJWLabel": "regalia_16x9",
+      "galleryPageNum": 4,
+      "galleryWrap": 0,
+      "playlist": [
+        {
+          "mediaid": "aAUEybAm",
+          "title": "Barry Lyndon",
+          "duration": 11118,
+          "contentType": "film",
+          "release_date": "1975-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/aAUEybAm/barry-lyndon"
+        },
+        {
+          "mediaid": "qvwT6mJ4",
+          "title": "The Hitcher",
+          "duration": 5851,
+          "contentType": "film",
+          "release_date": "1986-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/qvwT6mJ4/the-hitcher"
+        },
+        {
+          "mediaid": "KwgkF9Lq",
+          "title": "Salem’s Lot",
+          "duration": 10984,
+          "contentType": "film",
+          "release_date": "1979-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/KwgkF9Lq/salem-s-lot"
+        }
+      ]
+    },
+    {
+      "type": 22,
+      "id": 789,
+      "layout": 0,
+      "link": "/subscribe",
+      "linkTarget": 0,
+      "subscriptionPromo": 1,
+      "imagePath": "https://cc.criterion.com/uploads/storyBlocks/thumbnails/",
+      "imageAlt": "Subscribe Now",
+      "thumbs": {
+        "1920": "Subscribe_banner_wide_0_1920x0.webp"
+      },
+      "thumbsMobile": {
+        "1200": "Subscribe_banner_tall_0_1200x0.webp"
+      }
+    },
+    {
+      "type": 22,
+      "id": 833,
+      "layout": 0,
+      "link": "/films/5QNJlXjP/the-texas-chain-saw-massacre",
+      "linkTarget": 0,
+      "subscriptionPromo": 0,
+      "imagePath": "https://cc.criterion.com/uploads/storyBlocks/thumbnails/",
+      "imageAlt": "The Texas Chain Saw Massacre",
+      "thumbs": {
+        "1920": "TexasChainsaw_Banner_Wide_1920x0.webp"
+      },
+      "thumbsMobile": {
+        "1200": "TexasChainsaw_Banner_Tall_1200x0.webp"
+      }
+    },
+    {
+      "type": 20,
+      "id": 830,
+      "layout": 0,
+      "header": "Highway Horror",
+      "headerStyle": "header-small",
+      "cta": "See more",
+      "link": "/collections/rqsQ0P3H/highway-horror",
+      "linkTarget": 0,
+      "playlistType": "playlist",
+      "playlistID": "Usnwwr6d",
+      "variant": 1,
+      "imageAspectRatio": 56.25,
+      "imageJWLabel": "regalia_16x9",
+      "galleryPageNum": 4,
+      "galleryWrap": 0,
+      "playlist": [
+        {
+          "mediaid": "zN8uM7IR",
+          "title": "The Appointment",
+          "duration": 5366,
+          "contentType": "film",
+          "release_date": "1981-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/zN8uM7IR/the-appointment"
+        },
+        {
+          "mediaid": "zKtXB8co",
+          "title": "Duel",
+          "duration": 5356,
+          "contentType": "film",
+          "release_date": "1971-11-10",
+          "deeplink": "https://www.criterionchannel.com/films/zKtXB8co/duel"
+        },
+        {
+          "mediaid": "qvwT6mJ4",
+          "title": "The Hitcher",
+          "duration": 5851,
+          "contentType": "film",
+          "release_date": "1986-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/qvwT6mJ4/the-hitcher"
+        }
+      ]
+    },
+    {
+      "type": 20,
+      "id": 862,
+      "layout": 0,
+      "header": "Possessions",
+      "headerStyle": "header-small",
+      "cta": "See more",
+      "link": "/collections/fhQRpxw4/possessions",
+      "linkTarget": 0,
+      "playlistType": "playlist",
+      "playlistID": "jYgjBFAz",
+      "variant": 1,
+      "imageAspectRatio": 56.25,
+      "imageJWLabel": "regalia_16x9",
+      "galleryPageNum": 4,
+      "galleryWrap": 0,
+      "playlist": [
+        {
+          "mediaid": "EqbjaU7n",
+          "title": "The Faculty",
+          "duration": 6276,
+          "contentType": "film",
+          "release_date": "1998-12-25",
+          "deeplink": "https://www.criterionchannel.com/films/EqbjaU7n/the-faculty"
+        },
+        {
+          "mediaid": "98s4hBQF",
+          "title": "Itim",
+          "duration": 6446,
+          "contentType": "film",
+          "release_date": "1976-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/98s4hBQF/itim"
+        },
+        {
+          "mediaid": "GIH45KGI",
+          "title": "The Entity",
+          "duration": 7510,
+          "contentType": "film",
+          "release_date": "1982-09-30",
+          "deeplink": "https://www.criterionchannel.com/films/GIH45KGI/the-entity"
+        }
+      ]
+    },
+    {
+      "type": 20,
+      "id": 829,
+      "layout": 0,
+      "header": "Selections from the Complete Kubrick",
+      "headerStyle": "header-medium",
+      "playlistType": "playlist",
+      "playlistID": "vuvuPl93",
+      "variant": 1,
+      "imageAspectRatio": 56.25,
+      "imageJWLabel": "regalia_16x9",
+      "galleryPageNum": 3,
+      "galleryWrap": 0,
+      "playlist": [
+        {
+          "mediaid": "aAUEybAm",
+          "title": "Barry Lyndon",
+          "duration": 11118,
+          "contentType": "film",
+          "release_date": "1975-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/aAUEybAm/barry-lyndon"
+        },
+        {
+          "mediaid": "boplNebf",
+          "title": "Eyes Wide Shut",
+          "duration": 9556,
+          "contentType": "film",
+          "release_date": "1999-07-16",
+          "deeplink": "https://www.criterionchannel.com/films/boplNebf/eyes-wide-shut"
+        },
+        {
+          "mediaid": "mqTObC4P",
+          "title": "Lolita",
+          "duration": 9226,
+          "contentType": "film",
+          "release_date": "1962-06-21",
+          "deeplink": "https://www.criterionchannel.com/films/mqTObC4P/lolita"
+        }
+      ]
+    },
+    {
+      "type": 20,
+      "id": 856,
+      "layout": 0,
+      "header": "The Plot Thickens: Stanley",
+      "headerStyle": "header-small",
+      "playlistType": "playlist",
+      "playlistID": "LpnWxODi",
+      "variant": 0,
+      "imageAspectRatio": 56.25,
+      "imageJWLabel": "default_16x9",
+      "galleryPageNum": 5,
+      "galleryWrap": 0,
+      "playlist": [
+        {
+          "mediaid": "kuUfAQTU",
+          "title": "STANLEY: The Bronx Kid",
+          "duration": 2846,
+          "contentType": "supplement",
+          "release_date": "2026-01-01",
+          "deeplink": "https://www.criterionchannel.com/supplements/kuUfAQTU/stanley-the-bronx-kid"
+        },
+        {
+          "mediaid": "pQdTGUkv",
+          "title": "STANLEY: The Opening Gambit",
+          "duration": 2595,
+          "contentType": "supplement",
+          "release_date": "2026-01-01",
+          "deeplink": "https://www.criterionchannel.com/supplements/pQdTGUkv/stanley-the-opening-gambit"
+        }
+      ]
+    },
+    {
+      "type": 22,
+      "id": 828,
+      "layout": 0,
+      "link": "/films/ie7lqmcm/last-one-for-the-road",
+      "linkTarget": 0,
+      "subscriptionPromo": 0,
+      "imagePath": "https://cc.criterion.com/uploads/storyBlocks/thumbnails/",
+      "imageAlt": "The Last One for the Road",
+      "thumbs": {
+        "1920": "LastOne_ExclusivePremiere_banner_wide_1920x0.webp"
+      },
+      "thumbsMobile": {
+        "1200": "LastOneRoad_Exclusive_Banner_Tall_1200x0.webp"
+      }
+    },
+    {
+      "type": 20,
+      "id": 835,
+      "layout": 0,
+      "header": "Newly Added Criterion Collection Editions",
+      "headerStyle": "header-small",
+      "cta": "See more",
+      "link": "/discover/from-the-criterion-collection",
+      "linkTarget": 0,
+      "playlistType": "playlist",
+      "playlistID": "4Qh52esX",
+      "variant": 0,
+      "imageAspectRatio": 124.23,
+      "imageJWLabel": "default_bluray",
+      "galleryPageNum": 5,
+      "galleryWrap": 0,
+      "playlist": [
+        {
+          "mediaid": "jOyUBi4S",
+          "title": "Altered States",
+          "duration": 6180,
+          "contentType": "film",
+          "release_date": "1980-12-25",
+          "deeplink": "https://www.criterionchannel.com/films/jOyUBi4S/altered-states"
+        },
+        {
+          "mediaid": "P08XTUgZ",
+          "title": "Dead Ringers",
+          "duration": 6933,
+          "contentType": "film",
+          "release_date": "1988-09-23",
+          "deeplink": "https://www.criterionchannel.com/films/P08XTUgZ/dead-ringers"
+        },
+        {
+          "mediaid": "ucd0eJXw",
+          "title": "Don’t Look Now",
+          "duration": 6644,
+          "contentType": "film",
+          "release_date": "1973-12-13",
+          "deeplink": "https://www.criterionchannel.com/films/ucd0eJXw/don-t-look-now"
+        }
+      ]
+    },
+    {
+      "type": 20,
+      "id": 836,
+      "layout": 0,
+      "header": "Music Films",
+      "headerStyle": "header-small",
+      "cta": "See more",
+      "link": "/categories/ToIwjfGZ/music-films",
+      "linkTarget": 0,
+      "playlistType": "playlist",
+      "playlistID": "NgTzZ1YF",
+      "variant": 1,
+      "imageAspectRatio": 56.25,
+      "imageJWLabel": "regalia_16x9",
+      "galleryPageNum": 2,
+      "galleryWrap": 0,
+      "playlist": [
+        {
+          "mediaid": "DAf3RbHT",
+          "title": "Hideous",
+          "duration": 1341,
+          "contentType": "film",
+          "release_date": "2022-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/DAf3RbHT/hideous"
+        },
+        {
+          "mediaid": "ImxraMxe",
+          "title": "Magazine",
+          "duration": 680,
+          "contentType": "film",
+          "release_date": "2026-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/ImxraMxe/magazine"
+        }
+      ]
+    },
+    {
+      "type": 22,
+      "id": 839,
+      "layout": 0,
+      "link": "/originals/k5BwTA40/marc-maron-s-adventures-in-moviegoing",
+      "linkTarget": 0,
+      "subscriptionPromo": 0,
+      "imagePath": "https://cc.criterion.com/uploads/storyBlocks/thumbnails/",
+      "imageAlt": "Marc Maron’s Adventures in Moviegoing",
+      "thumbs": {
+        "1920": "AMG_MARON_M_Banner_Wide_1920x0.webp"
+      },
+      "thumbsMobile": {
+        "1200": "AMG_MARON_M_Banner_Tall_1200x0.webp"
+      }
+    },
+    {
+      "type": 20,
+      "id": 838,
+      "layout": 0,
+      "header": "American Independents",
+      "headerStyle": "header-small",
+      "cta": "See more",
+      "link": "/categories/2w46a94x/american-independents",
+      "linkTarget": 0,
+      "playlistType": "playlist",
+      "playlistID": "V6wYM5wP",
+      "variant": 1,
+      "imageAspectRatio": 56.25,
+      "imageJWLabel": "regalia_16x9",
+      "galleryPageNum": 4,
+      "galleryWrap": 0,
+      "playlist": [
+        {
+          "mediaid": "VLMz6P60",
+          "title": "By Hook or by Crook",
+          "duration": 6028,
+          "contentType": "film",
+          "release_date": "2001-06-17",
+          "deeplink": "https://www.criterionchannel.com/films/VLMz6P60/by-hook-or-by-crook"
+        },
+        {
+          "mediaid": "HLp31ZJF",
+          "title": "Homebodies",
+          "duration": 5666,
+          "contentType": "film",
+          "release_date": "1974-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/HLp31ZJF/homebodies"
+        },
+        {
+          "mediaid": "RJl4PnZ1",
+          "title": "Party Girl",
+          "duration": 5680,
+          "contentType": "film",
+          "release_date": "1995-06-09",
+          "deeplink": "https://www.criterionchannel.com/films/RJl4PnZ1/party-girl"
+        }
+      ]
+    },
+    {
+      "type": 20,
+      "id": 858,
+      "layout": 0,
+      "header": "International Classics",
+      "headerStyle": "header-small",
+      "playlistType": "playlist",
+      "playlistID": "IVyAJlXt",
+      "variant": 1,
+      "imageAspectRatio": 56.25,
+      "imageJWLabel": "regalia_16x9",
+      "galleryPageNum": 4,
+      "galleryWrap": 0,
+      "playlist": [
+        {
+          "mediaid": "UaMOlGUT",
+          "title": "Inferno",
+          "duration": 6379,
+          "contentType": "film",
+          "release_date": "1980-02-07",
+          "deeplink": "https://www.criterionchannel.com/films/UaMOlGUT/inferno"
+        },
+        {
+          "mediaid": "wsjW2LtF",
+          "title": "Three",
+          "duration": 7705,
+          "contentType": "film",
+          "release_date": "2002-01-01",
+          "deeplink": "https://www.criterionchannel.com/films/wsjW2LtF/three"
+        },
+        {
+          "mediaid": "888haV3v",
+          "title": "The Bird with the Crystal Plumage",
+          "duration": 5799,
+          "contentType": "film",
+          "release_date": "1970-02-19",
+          "deeplink": "https://www.criterionchannel.com/films/888haV3v/the-bird-with-the-crystal-plumage"
+        }
+      ]
+    },
+    {
+      "type": 21,
+      "id": 719,
+      "layout": 0,
+      "header": "Keep Exploring",
+      "headerStyle": "header-small",
+      "imageAspectRatio": 56.25,
+      "galleryPageNum": 5,
+      "galleryWrap": 0,
+      "navImagePath": "https://cc.criterion.com/uploads/storyBlocks/719/thumbnails/",
+      "nav": [
+        {
+          "id": 1401,
+          "cta": "Classic Hollywood",
+          "link": "/categories/fol2GQre/classic-hollywood",
+          "linkTarget": 0,
+          "thumbs": {
+            "1920": "cc626d23-c01e-44b7-85a1-3cb33c10ce6b_default_16x9_1920x0.webp"
+          }
+        },
+        {
+          "id": 1402,
+          "cta": "Essential Art House",
+          "link": "/categories/Bkju7Cwb/essential-art-house",
+          "linkTarget": 0
+        },
+        {
+          "id": 1403,
+          "cta": "American Independents",
+          "link": "/categories/2w46a94x/american-independents",
+          "linkTarget": 0
+        },
+        {
+          "id": 1404,
+          "cta": "Fresh From Theaters",
+          "link": "/categories/07vELSur/fresh-from-theaters",
+          "linkTarget": 0
+        },
+        {
+          "id": 1405,
+          "cta": "Documentaries",
+          "link": "/categories/uAKGaHZK/documentaries",
+          "linkTarget": 0
+        },
+        {
+          "id": 1406,
+          "cta": "Noir",
+          "link": "/categories/lxO9aGlf/noir",
+          "linkTarget": 0
+        },
+        {
+          "id": 1407,
+          "cta": "Samurai",
+          "link": "/categories/CWt5r3iL/samurai",
+          "linkTarget": 0
+        },
+        {
+          "id": 1408,
+          "cta": "LGBTQ+",
+          "link": "/categories/21ctzmdm/lgbtq",
+          "linkTarget": 0
+        },
+        {
+          "id": 1409,
+          "cta": "Animation",
+          "link": "/categories/dCjOvPT4/animation",
+          "linkTarget": 0
+        },
+        {
+          "id": 1410,
+          "cta": "Music Films",
+          "link": "/categories/ToIwjfGZ/music-films",
+          "linkTarget": 0
+        },
+        {
+          "id": 1411,
+          "cta": "Black Lives",
+          "link": "/categories/d0sHra4b/black-lives",
+          "linkTarget": 0
+        },
+        {
+          "id": 1412,
+          "cta": "Melodrama",
+          "link": "/categories/496w3Put/melodrama",
+          "linkTarget": 0
+        },
+        {
+          "id": 1413,
+          "cta": "Twenty-First Century Cinema",
+          "link": "/categories/5nIo1fkj/twenty-first-century-cinema",
+          "linkTarget": 0
+        },
+        {
+          "id": 1414,
+          "cta": "Horror",
+          "link": "/categories/QqhpWMzf/horror",
+          "linkTarget": 0
+        }
+      ]
+    },
+    {
+      "type": 21,
+      "id": 720,
+      "layout": 0,
+      "imageAspectRatio": 100,
+      "galleryPageNum": 4,
+      "galleryWrap": 0,
+      "navImagePath": "https://cc.criterion.com/uploads/storyBlocks/720/thumbnails/",
+      "nav": [
+        {
+          "id": 1416,
+          "cta": "Leaving Soon",
+          "link": "/discover/leaving-soon",
+          "linkTarget": 0,
+          "thumbs": {
+            "1920": "LeavingSoon_r2Landers_square_1920x0.webp"
+          }
+        },
+        {
+          "id": 1419,
+          "cta": "Criterion Collection Editions",
+          "link": "/discover/from-the-criterion-collection",
+          "linkTarget": 0
+        },
+        {
+          "id": 1417,
+          "cta": "Criterion Originals",
+          "link": "/discover/made-for-the-criterion-channel",
+          "linkTarget": 0
+        },
+        {
+          "id": 1418,
+          "cta": "Short Films",
+          "link": "/discover/shorts",
+          "linkTarget": 0
+        },
+        {
+          "id": 1420,
+          "cta": "International Cinema",
+          "link": "/discover/international-cinema",
+          "linkTarget": 0
+        }
+      ]
+    }
+  ]
+}
