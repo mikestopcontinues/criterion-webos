@@ -16,6 +16,7 @@ These are bounded extracts from unauthenticated Criterion Channel JSON responses
 | `discovery-new.json` / `.html` | All New block/slide/navigation order and labels; first three media per static row, including supplements. Same bounded transport projection. |
 | `discovery-newly-added.json` | The actual See More destination's single supplied grid; first three items. |
 | `media-popular-category.json` | Home Popular Movies' See More category and first three primary playlist items. |
+| `auth-metadata.json` | Public Auth0 issuer/endpoints and advertised capabilities; no actual grant, client admission or credential response. |
 
 Editorial descriptions/bodies, promotional video URLs, media sources/tracks and legacy Vimeo identifiers are removed, except the first 20 words of the film's `description_medium` for text-field parser coverage. Remaining values are public factual catalog metadata. No account, session, signed playback/license or private-device data is present. The extraction limits are test bounds, not provider behavior or complete catalog snapshots. Totals and availability are transient; tests must not treat captured cardinalities or windows as current service promises. Fixtures establish parser/behavior cases and never prove subscriber synchronization, licensed playback or TV operation.
 

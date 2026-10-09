@@ -13,7 +13,8 @@
     "media-collection": "Only first three items of each nested playlist retained.",
     "media-supplements": "Only first two items of each nested playlist retained.",
     "discovery": "Preserve all supplied block/slide/nav order, first3 catalog items per row, one desktop/mobile thumb per map, and representative navigation thumbs. Remove editorial body prose, videos, sources/tracks and private/account payloads. No image bytes are included; filenames and destinations are metadata.",
-    "discovery-html": "A bounded, reencoded transport fixture using the captured import/React element envelopes, projected blocks and two concatenated type1 push statements; not an unchanged HTML capture."
+    "discovery-html": "A bounded, reencoded transport fixture using the captured import/React element envelopes, projected blocks and two concatenated type1 push statements; not an unchanged HTML capture.",
+    "auth-metadata": "Public OIDC metadata projection; no client identifiers, device codes, state, nonce, cookies, account data or credential responses."
   },
   "observations": "Public unauthenticated HTTP200 JSON responses and ordinary HTML discovery responses; unsupported service contracts. Totals, editorial order and availability are transient.",
   "fixtures": [
@@ -651,6 +652,20 @@
       "fixture_sha256": "7440b83bba389a12f72d04ba566a6f922fea26ba95e6dbd462278e6a1b6ee96d",
       "fixture_bytes": 1231,
       "extraction": "Only public category identity and first3 primary playlist items; remove descriptions, sources, tracks and legacy IDs."
+    },
+    {
+      "file": "auth-metadata.json",
+      "source_url": "https://login.criterion.com/.well-known/openid-configuration",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "response_date": "Fri, 09 Oct 2026 13:42:03 GMT",
+      "captured_at_utc": "2026-10-09T13:42:03.550Z",
+      "raw_sha256": "49ae31c53594d289b57cddb3008c841940bf52dcaa3095ddea2d9ac0020b4a97",
+      "raw_bytes": 2657,
+      "fixture_sha256": "b365b15dacff1f8c3ca5191596cf3af6e73b6cab176b3e326a5371b97ab6fa25",
+      "fixture_bytes": 1361,
+      "extraction": "Public issuer/endpoints, grant/PKCE/auth-method/scopes lists only. Tenant capability metadata; no actual device transaction or independent client admission."
     }
   ],
   "static_sources": [
@@ -799,6 +814,82 @@
       "content_length": 9834,
       "headers_sha256": "d4fe3d7460523d2fad8428d50415c2afc565bc43ff793dd8986a3036f5d5fd17",
       "limits": "Public availability only. No image bytes/dimensions, TV label selection or distribution ownership established."
+    }
+  ],
+  "public_auth_navigation": [
+    {
+      "status": 307,
+      "location_origin": "https://login.criterion.com",
+      "location_path": "/authorize",
+      "query_keys": [
+        "scope",
+        "client_id",
+        "redirect_uri",
+        "response_type",
+        "code_challenge",
+        "code_challenge_method",
+        "state",
+        "nonce"
+      ],
+      "redirect_uri": "https://www.criterionchannel.com/auth/callback",
+      "response_type": "code",
+      "scope": "openid profile email offline_access",
+      "code_challenge_method": "S256",
+      "cookie_names": [
+        "__txn_<opaque>"
+      ],
+      "source_url": "https://www.criterionchannel.com/login?returnTo=/",
+      "method": "GET",
+      "authenticated": false,
+      "headers_sha256": "cc471c17713c14819ca176a9735024078da27d1d12d24c9d9c4022f1cab8965e",
+      "captured_at_utc": "2026-10-09T13:45:21.810Z",
+      "limits": "Unauthenticated login-start redirect only. No cookies/code/state/nonce/client identifiers/challenge values retained in this projection and no authentication redirect followed."
+    },
+    {
+      "source_url": "https://login.criterion.com/activate",
+      "method": "GET",
+      "authenticated": false,
+      "http_status": 200,
+      "raw_sha256": "ddd47c53e989e4921a513dc25d787081d7c4cd8423b1c2589e8f4d71d1f0ee80",
+      "raw_bytes": 26396,
+      "captured_at_utc": "2026-10-09T13:40:06.063Z",
+      "projection": {
+        "form_method": "POST",
+        "required_field_name": "code",
+        "hidden_field_name": "state",
+        "auth0_universal_login": true
+      },
+      "limits": "No form submission or credential/code/session values read or retained in public projection. Original anonymous transaction HTML/headers remain outside Git."
+    }
+  ],
+  "documentation_sources": [
+    {
+      "source_url": "https://webostv.developer.lge.com/develop/specifications/streaming-protocol-drm",
+      "sha256": "9666a0e165ab1e6a47f9ea7a4c6eb8045542ed78db18c781308de5c87dfd616b",
+      "bytes": 131587,
+      "captured_at_utc": "2026-10-09T13:50:11.841Z",
+      "scope": "Official public documentation read as data; never executed. Platform capabilities are distinct from Criterion policy and actual TV behavior."
+    },
+    {
+      "source_url": "https://webostv.developer.lge.com/develop/specifications/web-api-and-web-engine",
+      "sha256": "3df5604eb2b252282800a71e5051a67502598a77323ebdedd55aa44bce684a06",
+      "bytes": 83388,
+      "captured_at_utc": "2026-10-09T13:50:11.775Z",
+      "scope": "Official public documentation read as data; never executed. Platform capabilities are distinct from Criterion policy and actual TV behavior."
+    },
+    {
+      "source_url": "https://docs.jwplayer.com/platform/docs/protection-studio-drm-overview.md",
+      "sha256": "e6eac6f92a082dfdcae9992af58ed1b9c09f2b7bd3c23e1fd88f1be6d9876913",
+      "bytes": 12594,
+      "captured_at_utc": "2026-10-09T13:50:11.097Z",
+      "scope": "Official public documentation read as data; never executed. Platform capabilities are distinct from Criterion policy and actual TV behavior."
+    },
+    {
+      "source_url": "https://docs.jwplayer.com/platform/docs/protection-studio-drm-with-jw-platform-policy-reference.md",
+      "sha256": "c4a11d0754ab7f60451c34c3eec16ed76806d7489c7211cdd2414619ec67c455",
+      "bytes": 23600,
+      "captured_at_utc": "2026-10-09T13:50:11.149Z",
+      "scope": "Official public documentation read as data; never executed. Platform capabilities are distinct from Criterion policy and actual TV behavior."
     }
   ]
 }
