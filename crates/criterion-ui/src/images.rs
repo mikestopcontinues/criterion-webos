@@ -43,7 +43,7 @@ impl AppUi {
             .ok_or(ImageError::InvalidDimensions)?;
         if image.size.contains(&0)
             || image.size.iter().any(|side| *side > 2048)
-            || pixels > 1024 * 1024
+            || pixels > 1920 * 1080
             || image.pixels.len() != pixels
         {
             return Err(ImageError::InvalidDimensions);

@@ -35,7 +35,7 @@ pub(crate) struct Authentication<T: Transport = HttpTransport, C: MonotonicClock
     next_poll: Duration,
     generation: u64,
     logout_requested: bool,
-    revocation_confirmed: Option<bool>,
+    revocation_unconfirmed: bool,
 }
 impl Authentication {
     pub(crate) fn new() -> Result<Self, Error> {
@@ -52,16 +52,21 @@ impl Authentication {
 }
 impl<T: Transport + 'static, C: MonotonicClock + Clone + 'static> Authentication<T, C> {
     pub(crate) fn with_session(session: Arc<Session<T, C>>, clock: C) -> Self {
+        let phase = if matches!(session.status(), Status::SignedIn { .. }) {
+            Phase::SignedIn
+        } else {
+            Phase::SignedOut
+        };
         Self {
             session,
             clock,
             jobs: Jobs::new(),
-            phase: Phase::SignedOut,
+            phase,
             link: None,
             next_poll: Duration::ZERO,
             generation: 0,
             logout_requested: false,
-            revocation_confirmed: None,
+            revocation_unconfirmed: false,
         }
     }
     pub(crate) fn begin(&mut self, runtime: &Handle) {
@@ -78,7 +83,6 @@ impl<T: Transport + 'static, C: MonotonicClock + Clone + 'static> Authentication
             return;
         };
         self.cancel();
-        self.revocation_confirmed = None;
         self.generation = generation;
         self.phase = Phase::Requesting;
         let session = self.session.clone();
@@ -108,23 +112,29 @@ impl<T: Transport + 'static, C: MonotonicClock + Clone + 'static> Authentication
                 // A finished, unpublished refresh failure can already have erased
                 // the credential. Explicit logout cannot confirm that lost revoke.
                 self.phase = Phase::Error;
-                self.revocation_confirmed = Some(false);
+                self.revocation_unconfirmed = true;
             }
             return;
         }
         self.link = None;
         self.phase = Phase::SigningOut;
         self.logout_requested = true;
-        self.revocation_confirmed = None;
         // An issued refresh may rotate the sole revocable credential. Let that
         // bounded request settle before asking the session to revoke its result.
         self.issue_logout(runtime);
     }
     pub(crate) fn signed_in(&self) -> bool {
-        matches!(
-            self.session.status(),
-            Status::SignedIn { .. } | Status::RefreshRequired
-        )
+        !matches!(self.phase, Phase::SigningOut)
+            && matches!(
+                self.session.status(),
+                Status::SignedIn { .. } | Status::RefreshRequired
+            )
+    }
+    pub(crate) fn session(&self) -> Arc<Session<T, C>> {
+        self.session.clone()
+    }
+    pub(crate) fn access_ready(&self) -> bool {
+        self.signed_in() && self.session.with_access_token(|_| ()).is_ok()
     }
     pub(crate) fn finish(&mut self, runtime: &Runtime) -> bool {
         while self.logout_requested && self.jobs.is_active() {
@@ -133,11 +143,11 @@ impl<T: Transport + 'static, C: MonotonicClock + Clone + 'static> Authentication
                 self.issue_logout(runtime.handle());
             } else {
                 self.logout_requested = false;
-                self.revocation_confirmed = Some(false);
+                self.revocation_unconfirmed = true;
                 self.phase = Phase::Error;
             }
         }
-        self.revocation_confirmed.unwrap_or(true)
+        !self.logout_requested && !self.revocation_unconfirmed
     }
     pub(crate) fn poll(&mut self, runtime: &Runtime, active: bool) {
         if let Some(result) = runtime.block_on(self.jobs.take_ready()) {
@@ -186,7 +196,7 @@ impl<T: Transport + 'static, C: MonotonicClock + Clone + 'static> Authentication
             // An uncertain rotation may have consumed the old credential. A
             // subsequent no-token logout cannot prove remote revocation.
             self.logout_requested = false;
-            self.revocation_confirmed = Some(false);
+            self.revocation_unconfirmed = true;
             self.link = None;
             self.phase = Phase::Error;
             return;
@@ -210,7 +220,6 @@ impl<T: Transport + 'static, C: MonotonicClock + Clone + 'static> Authentication
             }
             Ok(Ok(Completed::Logout)) => {
                 self.logout_requested = false;
-                self.revocation_confirmed = Some(true);
                 self.phase = Phase::SignedOut;
             }
             Ok(Err(Error::Expired)) => {
@@ -266,7 +275,7 @@ mod tests {
     use criterion_session::{Endpoint, Request, Response, SecretBody};
     use std::sync::{
         Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     };
 
     #[derive(Clone)]
@@ -281,7 +290,7 @@ mod tests {
         calls: Arc<Mutex<Vec<(Endpoint, String)>>>,
         refresh_entered: Arc<tokio::sync::Notify>,
         refresh_release: Arc<tokio::sync::Notify>,
-        revoke_fails: bool,
+        revoke_fails: Arc<AtomicBool>,
         refresh_fails: bool,
     }
     impl Fixture {
@@ -290,7 +299,7 @@ mod tests {
                 calls: Arc::new(Mutex::new(Vec::new())),
                 refresh_entered: Arc::new(tokio::sync::Notify::new()),
                 refresh_release: Arc::new(tokio::sync::Notify::new()),
-                revoke_fails: false,
+                revoke_fails: Arc::new(AtomicBool::new(false)),
                 refresh_fails: false,
             }
         }
@@ -324,7 +333,9 @@ mod tests {
                 Endpoint::Token => Ok(json(
                     r#"{"access_token":"test-access","refresh_token":"test-refresh","expires_in":3600}"#,
                 )),
-                Endpoint::Revoke if self.revoke_fails => Err(Error::Deadline),
+                Endpoint::Revoke if self.revoke_fails.load(Ordering::SeqCst) => {
+                    Err(Error::Deadline)
+                }
                 Endpoint::Revoke => Ok(json("")),
             }
         }
@@ -388,8 +399,8 @@ mod tests {
     #[test]
     fn failed_revoke_remains_unconfirmed_after_error_was_published() {
         let runtime = runtime();
-        let mut fixture = Fixture::new();
-        fixture.revoke_fails = true;
+        let fixture = Fixture::new();
+        fixture.revoke_fails.store(true, Ordering::SeqCst);
         let mut owner = linked(&runtime, fixture);
         owner.logout(runtime.handle());
         settle(&mut owner, &runtime);
@@ -397,6 +408,44 @@ mod tests {
         assert!(
             !owner.finish(&runtime),
             "publishing an error cannot confirm revocation"
+        );
+    }
+    #[test]
+    fn relinking_does_not_erase_an_unconfirmed_revocation() {
+        let runtime = runtime();
+        let fixture = Fixture::new();
+        fixture.revoke_fails.store(true, Ordering::SeqCst);
+        let mut owner = linked(&runtime, fixture.clone());
+        owner.logout(runtime.handle());
+        settle(&mut owner, &runtime);
+        assert!(!owner.finish(&runtime));
+        owner.begin(runtime.handle());
+        assert!(
+            !owner.finish(&runtime),
+            "a new activation cannot confirm the old revoke"
+        );
+        settle(&mut owner, &runtime);
+        assert!(matches!(owner.view(), LoginView::Awaiting { .. }));
+        owner.clock.0.store(10, Ordering::SeqCst);
+        owner.poll(&runtime, true);
+        settle(&mut owner, &runtime);
+        assert!(owner.signed_in());
+        fixture.revoke_fails.store(false, Ordering::SeqCst);
+        owner.logout(runtime.handle());
+        assert!(
+            !owner.finish(&runtime),
+            "the new credential's successful revoke cannot settle the prior unknown one"
+        );
+        assert!(matches!(owner.view(), LoginView::SignedOut));
+        assert_eq!(
+            fixture
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(endpoint, _)| *endpoint == Endpoint::Revoke)
+                .count(),
+            2
         );
     }
     #[test]

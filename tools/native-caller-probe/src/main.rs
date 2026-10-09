@@ -20,7 +20,7 @@ fn main() {
     unsafe extern "C" {
         fn getauxval(kind: std::ffi::c_ulong) -> std::ffi::c_ulong;
     }
-    // Warm the SDK's process-wide auxiliary cache before native libraries create threads.
+    // Warm criterion-platform's bounded one-time cache before native libraries create threads.
     let _ = unsafe { getauxval(6) };
     if !native::run() {
         std::process::exit(1);

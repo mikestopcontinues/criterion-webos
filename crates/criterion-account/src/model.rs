@@ -75,7 +75,7 @@ pub struct MediaSummary {
     pub id: MediaId,
     pub title: String,
     pub kind: MediaKind,
-    /// Native Float32 value; units are not yet independently admitted.
+    /// Native Float32 value; interpretation depends on the subtype. Admission preserves it.
     pub duration: Option<f32>,
     pub release_date: Option<time::Date>,
 }

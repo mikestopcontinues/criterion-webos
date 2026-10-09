@@ -51,7 +51,35 @@ jobs:
         run: ./dev native cargo test -p criterion-platform --target arm-unknown-linux-gnueabi -Z build-std=std,panic_abort,panic_unwind --features webos --no-run --locked
       - name: Cross-link the complete native application and packaged broker
         run: >-
-          ./dev native cargo build -p criterion-app -p criterion-broker-probe
-          --features criterion-app/webos --target arm-unknown-linux-gnueabi
+          ./dev native cargo build -p criterion-app -p criterion-broker-probe -p criterion-native-caller-probe
+          --features criterion-app/webos,criterion-native-caller-probe/webos --target arm-unknown-linux-gnueabi
           -Z build-std=std,panic_abort -Z build-std-features=compiler-builtins-mem
           --release --locked
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build pinned CPU broker environment
+        run: ./dev image
+      - name: Compile the real broker used by Node behavior tests
+        run: >-
+          mkdir -p .local/player-probe &&
+          ./dev run rustc --edition=2024 --deny warnings tools/player-probe/broker/src/main.rs
+          -o .local/player-probe/criterion-broker-probe
+      - name: Build pinned host packaging and TV Node environment
+        run: docker build -t criterion-player-probe-tools:20261009 tools/player-probe
+      - name: Prepare locked host tooling
+        run: >-
+          docker run --rm --init --mount type=bind,src="$PWD",dst=/workspace
+          --workdir /workspace/tools/player-probe criterion-player-probe-tools:20261009
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check real process ownership and package admission offline
+        run: >-
+          docker run --rm --init --network none --mount type=bind,src="$PWD",dst=/workspace
+          --workdir /workspace/tools/player-probe criterion-player-probe-tools:20261009
+          sh -c 'npm run compile && npm test &&
+          node node_modules/typescript/bin/tsc -p ../package-native/tsconfig.json &&
+          /opt/node16/bin/node ../../.local/native-package/compiled/tools/package-native/tests/run.js'

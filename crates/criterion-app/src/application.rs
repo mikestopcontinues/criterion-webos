@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Rendered application ownership, independent of the SDL/GLES main-thread lifetime.
 use crate::{
+    account::Accounts,
     artwork::Artwork,
     authentication::Authentication,
     controller::{Controller, Effect},
@@ -17,10 +18,16 @@ pub(crate) struct Application<
     P = HttpTransport,
     T: Transport = criterion_session::HttpTransport,
     C: MonotonicClock = SystemClock,
+    A: criterion_account::Transport = criterion_account::HttpTransport,
 > {
     ui: AppUi,
     controller: Controller<P>,
     authentication: Authentication<T, C>,
+    accounts: Accounts<A, T, C>,
+    account_epoch: Option<u64>,
+    account_signed_in: bool,
+    shelf_pending: bool,
+    shelf_generation: Option<u64>,
     artwork: Artwork,
     input: InputAdapter,
     output: Option<egui::FullOutput>,
@@ -28,7 +35,9 @@ pub(crate) struct Application<
     queued_input: bool,
     active: bool,
 }
-impl<P, T: Transport, C: MonotonicClock> Drop for Application<P, T, C> {
+impl<P, T: Transport, C: MonotonicClock, A: criterion_account::Transport> Drop
+    for Application<P, T, C, A>
+{
     fn drop(&mut self) {
         // Exiting/background disposal intentionally drops unpainted texture work.
         // The main-thread renderer is destroyed after this application owner.
@@ -40,10 +49,13 @@ impl<P, T: Transport, C: MonotonicClock> Drop for Application<P, T, C> {
 
 impl Application {
     pub(crate) fn new(surface: Surface, runtime: &Handle) -> Result<Self, &'static str> {
+        let authentication = Authentication::new().map_err(|_| "the subscriber session")?;
+        let accounts = Accounts::new(authentication.session()).map_err(|_| "the account client")?;
         Ok(Self::with_parts(
             surface,
             Controller::new(Catalog::new().map_err(|_| "the catalog")?, runtime),
-            Authentication::new().map_err(|_| "the subscriber session")?,
+            authentication,
+            accounts,
             Artwork::new().map_err(|_| "the artwork client")?,
         ))
     }
@@ -52,18 +64,25 @@ impl<
     P: RequestTransport + Send + Sync + 'static,
     T: Transport + 'static,
     C: MonotonicClock + Clone + 'static,
-> Application<P, T, C>
+    A: criterion_account::Transport + 'static,
+> Application<P, T, C, A>
 {
     fn with_parts(
         surface: Surface,
         controller: Controller<P>,
         authentication: Authentication<T, C>,
+        accounts: Accounts<A, T, C>,
         artwork: Artwork,
     ) -> Self {
         Self {
             ui: AppUi::new(),
             controller,
             authentication,
+            accounts,
+            account_epoch: Some(0),
+            account_signed_in: false,
+            shelf_pending: false,
+            shelf_generation: None,
             artwork,
             input: InputAdapter::new(surface),
             output: None,
@@ -98,8 +117,12 @@ impl<
     }
     pub(crate) fn consume(&mut self, runtime: &Runtime, now: Duration) {
         self.queued_input = false;
+        // A worker may finish between the main loop's poll and input rendering.
+        self.authentication.poll(runtime, false);
+        self.sync_account_session();
+        let frame_epoch = self.account_epoch;
         let batch = self.input.take_frame(now);
-        let frame = self
+        let mut frame = self
             .controller
             .view
             .with_view(self.authentication.view(), |data| {
@@ -134,6 +157,12 @@ impl<
             );
             self.artwork.poll(runtime, &mut self.ui);
         }
+        self.sync_account_session();
+        if frame_epoch != self.account_epoch {
+            // Preserve texture deltas for retirement, but never publish shapes
+            // painted before an activation/account scope was invalidated.
+            frame.output.shapes.clear();
+        }
         match &mut self.output {
             Some(output) => output.append(frame.output),
             None => self.output = Some(frame.output),
@@ -149,12 +178,35 @@ impl<
         });
         match self.controller.command(command, self.ui.page(), runtime) {
             Effect::None => (),
+            Effect::AccountShelf => {
+                if self.authentication.signed_in() {
+                    self.sync_account_session();
+                    if let Some(epoch) = self.account_epoch
+                        && self.controller.begin_shelf(epoch)
+                    {
+                        self.shelf_pending = true;
+                    }
+                } else {
+                    for command in self.ui.begin_authentication() {
+                        self.command(command, runtime);
+                    }
+                }
+            }
             Effect::Exit => self.exiting = true,
             Effect::Authenticate | Effect::RetryAuthentication => {
-                self.authentication.begin(runtime)
+                if !self.authentication.signed_in() {
+                    self.invalidate_account();
+                    self.authentication.begin(runtime);
+                }
             }
-            Effect::CancelAuthentication => self.authentication.cancel(),
-            Effect::Logout => self.authentication.logout(runtime),
+            Effect::CancelAuthentication => {
+                self.invalidate_account();
+                self.authentication.cancel();
+            }
+            Effect::Logout => {
+                self.invalidate_account();
+                self.authentication.logout(runtime);
+            }
             Effect::Play(_) | Effect::ToggleList(_) if !self.authentication.signed_in() => {
                 for command in self.ui.begin_authentication() {
                     self.command(command, runtime);
@@ -168,6 +220,12 @@ impl<
             }
             Effect::VoiceSearch => self.controller.view.set_status(LoadState::Error),
         }
+        if !self.controller.is_shelf() {
+            self.shelf_pending = false;
+            if self.shelf_generation.take().is_some() {
+                self.accounts.background();
+            }
+        }
         if let Some(search) = retained_search {
             // A fresh rail visit keeps the visible query/group. Only Navigate
             // pushes history; replay its typed request without another snapshot.
@@ -175,10 +233,81 @@ impl<
         }
     }
     pub(crate) fn poll(&mut self, runtime: &Runtime, active: bool) {
+        let active = active && self.active && !self.exiting;
         if active {
             self.controller.poll(runtime);
         }
         self.authentication.poll(runtime, active);
+        self.sync_account_session();
+        if active
+            && self.shelf_pending
+            && self.controller.is_shelf()
+            && self.authentication.access_ready()
+            && let Some(epoch) = self.account_epoch
+        {
+            self.shelf_pending = false;
+            match self.accounts.request_shelf(runtime.handle(), epoch) {
+                Ok(generation) => self.shelf_generation = Some(generation),
+                Err(_) => self.controller.view.set_status(LoadState::Error),
+            }
+        }
+        if let Some(result) =
+            self.accounts
+                .poll(runtime, active, self.account_epoch.unwrap_or(u64::MAX))
+        {
+            let generation = self.shelf_generation.take();
+            if active
+                && self.controller.is_shelf()
+                && self.authentication.signed_in()
+                && generation.is_some()
+                && matches!(
+                    result,
+                    Err(criterion_account::Error::Stale | criterion_account::Error::Session(_))
+                )
+            {
+                // Credential expiry/rotation retires a read. A fresh foreground
+                // intent waits for authentication; no issued mutation is replayed.
+                self.shelf_pending = true;
+            } else if active && self.controller.is_shelf() && self.authentication.access_ready() {
+                match result {
+                    Ok(loaded)
+                        if generation == Some(loaded.generation())
+                            && self.account_epoch == Some(loaded.session_generation()) =>
+                    {
+                        self.controller.publish_shelf(
+                            loaded.session_generation(),
+                            crate::presentation::Presentation::my_list(loaded.watch_list),
+                        );
+                    }
+                    Err(
+                        criterion_account::Error::Unavailable | criterion_account::Error::Deadline,
+                    ) => self.controller.view.set_status(LoadState::Offline),
+                    _ => self.controller.view.set_status(LoadState::Error),
+                }
+            }
+        }
+    }
+    fn sync_account_session(&mut self) {
+        let signed_in = self.authentication.signed_in();
+        if self.account_signed_in && !signed_in {
+            self.invalidate_account();
+        }
+        self.account_signed_in = signed_in;
+        self.controller
+            .set_account_session(if signed_in { self.account_epoch } else { None });
+    }
+    fn invalidate_account(&mut self) {
+        // Root intent, not credential bytes, scopes private publication. Exhaustion
+        // permanently refuses another private generation rather than wrapping.
+        self.account_epoch = self.account_epoch.and_then(|epoch| epoch.checked_add(1));
+        self.account_signed_in = false;
+        self.shelf_pending = false;
+        self.shelf_generation = None;
+        self.accounts.background();
+        self.controller.set_account_session(None);
+        if let Some(output) = &mut self.output {
+            output.shapes.clear();
+        }
     }
     pub(crate) fn foreground(&mut self, runtime: &Handle) {
         self.active = true;
@@ -188,8 +317,11 @@ impl<
         self.active = false;
         self.artwork.clear();
         self.controller.background();
+        self.shelf_pending |= self.shelf_generation.take().is_some();
+        self.accounts.background();
     }
     pub(crate) fn finish(&mut self, runtime: &Runtime) -> bool {
+        self.accounts.dispose(runtime);
         self.authentication.finish(runtime)
     }
     pub(crate) fn exiting(&self) -> bool {
@@ -208,6 +340,10 @@ impl<
         self.output.take()
     }
 }
+
+#[cfg(test)]
+#[path = "account_tests.rs"]
+mod account_tests;
 
 #[cfg(test)]
 mod tests {
@@ -277,18 +413,22 @@ mod tests {
     }
     fn app(runtime: &Runtime) -> Application<Offline, Offline> {
         let clock = SystemClock::default();
+        let session = Arc::new(criterion_session::Session::with_transport(
+            criterion_session::Configuration::production(),
+            Offline,
+            clock.clone(),
+        ));
         Application::with_parts(
             surface(),
             Controller::new(Catalog::with_transport(Offline), runtime.handle()),
-            Authentication::with_session(
-                Arc::new(criterion_session::Session::with_transport(
-                    criterion_session::Configuration::production(),
-                    Offline,
-                    clock.clone(),
+            Authentication::with_session(session.clone(), clock),
+            Accounts::from_parts(
+                Arc::new(criterion_account::AccountClient::with_transport(
+                    criterion_account::HttpTransport::new().unwrap(),
                 )),
-                clock,
+                session,
             ),
-            Artwork::new().unwrap(),
+            Artwork::offline(),
         )
     }
     fn action(app: &mut Application<Offline, Offline>, runtime: &Runtime, action: Action) {

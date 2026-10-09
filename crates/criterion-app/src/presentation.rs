@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Owned validated display data; the controller owns publication and request lifetimes.
+mod account;
 use criterion_artwork::ImageRole;
 use criterion_provider::{
     BrowseOptions, CatalogPage, DiscoveryArtwork, DiscoveryBlock, DiscoveryPage, DiscoverySlide,

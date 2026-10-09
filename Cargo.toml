@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/criterion-platform", "crates/criterion-provider", "crates/criterion-ui", "crates/criterion-app", "crates/criterion-session", "crates/criterion-artwork", "crates/criterion-account", "tools/player-probe/broker"]
+members = ["crates/criterion-platform", "crates/criterion-provider", "crates/criterion-ui", "crates/criterion-app", "crates/criterion-session", "crates/criterion-artwork", "crates/criterion-account", "tools/player-probe/broker", "tools/native-caller-probe"]
 exclude = ["crates/criterion-artwork/vendor/image-webp"]
 resolver = "3"
 

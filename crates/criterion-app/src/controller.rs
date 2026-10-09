@@ -34,11 +34,13 @@ struct Snapshot {
     view: Option<Presentation>,
     query: Option<Query>,
     browse: Option<Arc<BrowseRequest>>,
+    private_epoch: Option<u64>,
 }
 
 pub(crate) enum Effect {
     None,
     Authenticate,
+    AccountShelf,
     RetryAuthentication,
     CancelAuthentication,
     Logout,
@@ -58,6 +60,8 @@ pub(crate) struct Controller<T = HttpTransport> {
     suspended: bool,
     options: Option<Arc<BrowseOptions>>,
     browse: Option<Arc<BrowseRequest>>,
+    account_session: Option<u64>,
+    private_epoch: Option<u64>,
 }
 
 impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
@@ -72,6 +76,8 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
             suspended: false,
             options: None,
             browse: None,
+            account_session: None,
+            private_epoch: None,
         };
         owner.start(Query::Discovery(DiscoveryRoute::Home), runtime);
         owner
@@ -87,7 +93,7 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
                     self.remember();
                 }
                 self.page = destination;
-                self.navigate(destination, runtime);
+                return self.navigate(destination, runtime);
             }
             Command::Open(target) => {
                 self.remember();
@@ -103,11 +109,15 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
                         self.start(Query::Discovery(DiscoveryRoute::New), runtime)
                     }
                     Target::Content(ContentTarget::AllFilms) => {
-                        self.navigate(Page::AllFilms, runtime)
+                        return self.navigate(Page::AllFilms, runtime);
+                    }
+                    Target::Content(ContentTarget::MyList) if page == Page::MyList => {
+                        return self.navigate(Page::MyList, runtime);
                     }
                     Target::Content(ContentTarget::MyList | ContentTarget::Subscribe) => {
                         self.jobs.cancel();
                         self.query = None;
+                        self.private_epoch = None;
                         self.view = Presentation::loading(title(page));
                         return Effect::Authenticate;
                     }
@@ -122,20 +132,21 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
                     self.page = destination;
                     self.query = snapshot.query;
                     self.browse = snapshot.browse;
+                    self.private_epoch = snapshot.private_epoch;
                     if snapshot.page == destination {
                         if let Some(view) = snapshot.view {
                             self.view = view;
                         } else if let Some(query) = self.query.clone() {
                             self.start(query, runtime);
                         } else {
-                            self.navigate(destination, runtime);
+                            return self.navigate(destination, runtime);
                         }
                     } else {
-                        self.navigate(destination, runtime);
+                        return self.navigate(destination, runtime);
                     }
                 } else {
                     self.page = destination;
-                    self.navigate(destination, runtime);
+                    return self.navigate(destination, runtime);
                 }
             }
             Command::Search { query, group } => {
@@ -173,6 +184,7 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
                 self.jobs.cancel();
                 self.page = Page::Login;
                 self.query = None;
+                self.private_epoch = None;
                 self.view = Presentation::loading("Sign in");
                 return Effect::Authenticate;
             }
@@ -209,6 +221,45 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
         }
     }
 
+    pub(crate) fn set_account_session(&mut self, epoch: Option<u64>) {
+        if self.account_session == epoch {
+            return;
+        }
+        for snapshot in &mut self.history {
+            if snapshot.private_epoch.take().is_some() {
+                snapshot.view = None;
+            }
+        }
+        if self.private_epoch.take().is_some() {
+            self.view = Presentation::loading("My List");
+            self.view.set_status(criterion_ui::LoadState::Empty);
+        }
+        self.account_session = epoch;
+    }
+    pub(crate) fn begin_shelf(&mut self, epoch: u64) -> bool {
+        if self.page != Page::MyList || self.account_session != Some(epoch) {
+            return false;
+        }
+        self.jobs.cancel();
+        self.query = None;
+        self.private_epoch = Some(epoch);
+        self.view = Presentation::loading("My List");
+        true
+    }
+    pub(crate) fn publish_shelf(&mut self, epoch: u64, view: Presentation) -> bool {
+        if self.page != Page::MyList
+            || self.account_session != Some(epoch)
+            || self.private_epoch != Some(epoch)
+        {
+            return false;
+        }
+        self.view = view;
+        true
+    }
+    pub(crate) fn is_shelf(&self) -> bool {
+        self.page == Page::MyList
+    }
+
     pub(crate) fn background(&mut self) {
         self.suspended |= self.jobs.is_active();
         self.jobs.cancel();
@@ -226,15 +277,20 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
             self.history.remove(0);
         }
         let view = std::mem::replace(&mut self.view, Presentation::loading(""));
+        let interrupted_shelf = self.private_epoch.is_some()
+            && view.with_view(criterion_ui::LoginView::SignedOut, |data| {
+                data.status == criterion_ui::LoadState::Loading
+            });
         self.history.push(Snapshot {
             page: self.page,
-            view: if self.jobs.is_active() {
+            view: if self.jobs.is_active() || interrupted_shelf {
                 None
             } else {
                 Some(view)
             },
             query: self.query.clone(),
             browse: self.browse.clone(),
+            private_epoch: self.private_epoch.take(),
         });
         self.trim_history();
     }
@@ -272,7 +328,8 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
         }
     }
 
-    fn navigate(&mut self, page: Page, runtime: &Handle) {
+    fn navigate(&mut self, page: Page, runtime: &Handle) -> Effect {
+        self.private_epoch = None;
         match page {
             Page::Home => self.start(Query::Discovery(DiscoveryRoute::Home), runtime),
             Page::New => self.start(Query::Discovery(DiscoveryRoute::New), runtime),
@@ -293,9 +350,15 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
                 self.view.set_status(criterion_ui::LoadState::Empty);
             }
         }
+        if page == Page::MyList {
+            Effect::AccountShelf
+        } else {
+            Effect::None
+        }
     }
 
     fn start(&mut self, mut query: Query, runtime: &Handle) {
+        self.private_epoch = None;
         if let Query::Browse { options, .. } = &mut query {
             *options = self.options.clone();
         }
@@ -501,6 +564,89 @@ mod tests {
             runtime.handle(),
         );
         assert_eq!(owner.view.title(), "Fixture detail");
+    }
+    fn private_list() -> Presentation {
+        Presentation::catalog(
+            "My List",
+            CatalogPage {
+                total: 1,
+                next_cursor: None,
+                items: vec![criterion_provider::MediaSummary {
+                    id: MediaId::new("fixtureA").unwrap(),
+                    title: "Synthetic private selection".into(),
+                    kind: criterion_provider::MediaKind::Film,
+                    duration_seconds: 0,
+                    release_date: None,
+                }],
+            },
+        )
+    }
+    #[test]
+    fn logout_erases_private_history_without_destroying_navigation() {
+        let runtime = runtime();
+        let mut owner = detail(&runtime);
+        owner.set_account_session(Some(1));
+        owner.command(
+            Command::Navigate(Page::MyList),
+            Page::MyList,
+            runtime.handle(),
+        );
+        assert!(owner.begin_shelf(1));
+        assert!(owner.publish_shelf(1, private_list()));
+        owner.command(
+            Command::Navigate(Page::Login),
+            Page::Login,
+            runtime.handle(),
+        );
+        assert_eq!(owner.history.len(), 1);
+        owner.set_account_session(None);
+        assert!(
+            owner.history[0].view.is_none(),
+            "logout must erase the private snapshot before another frame"
+        );
+        let effect = owner.command(
+            Command::Restore(Page::MyList),
+            Page::MyList,
+            runtime.handle(),
+        );
+        assert!(matches!(effect, Effect::AccountShelf));
+        owner
+            .view
+            .with_view(criterion_ui::LoginView::SignedOut, |view| {
+                assert!(view.cards.is_empty())
+            });
+    }
+    #[test]
+    fn reauthentication_rejects_old_shelf_and_departed_navigation_publication() {
+        let runtime = runtime();
+        let mut owner = detail(&runtime);
+        owner.set_account_session(Some(1));
+        owner.command(
+            Command::Navigate(Page::MyList),
+            Page::MyList,
+            runtime.handle(),
+        );
+        assert!(owner.begin_shelf(1));
+        assert!(owner.publish_shelf(1, private_list()));
+        owner.set_account_session(Some(2));
+        owner
+            .view
+            .with_view(criterion_ui::LoginView::SignedIn, |view| {
+                assert!(
+                    view.cards.is_empty(),
+                    "a new subscriber intent cannot retain the prior selection"
+                )
+            });
+        assert!(owner.begin_shelf(2));
+        assert!(!owner.publish_shelf(1, private_list()));
+        owner.command(
+            Command::Navigate(Page::Search),
+            Page::Search,
+            runtime.handle(),
+        );
+        assert!(!owner.publish_shelf(2, private_list()));
+        owner.set_account_session(None);
+        assert!(owner.history[0].view.is_none());
     }
     #[test]
     fn all_films_reentry_keeps_exact_applied_request_and_options() {

@@ -1,5 +1,27 @@
 use criterion_ui::AppUi;
 #[test]
+fn full_hd_backdrops_fit_the_shared_cache_and_still_enforce_pixel_limits() {
+    let mut ui = AppUi::new();
+    for key in ["backdrop-a", "backdrop-b", "backdrop-c", "backdrop-d"] {
+        ui.admit_image(
+            key,
+            egui::ColorImage::filled([1920, 1080], egui::Color32::WHITE),
+        )
+        .unwrap();
+    }
+    assert_eq!(ui.image_cache_len(), 3);
+    assert!(!ui.has_image("backdrop-a"));
+    assert_eq!(ui.image_cache_bytes(), 3 * 1920 * 1080 * 4);
+    assert!(ui.image_cache_bytes() <= 24 * 1024 * 1024);
+    assert_eq!(
+        ui.admit_image(
+            "too-many-pixels",
+            egui::ColorImage::filled([1920, 1081], egui::Color32::WHITE)
+        ),
+        Err(criterion_ui::ImageError::InvalidDimensions)
+    );
+}
+#[test]
 fn decoded_artwork_admission_rejects_oversized_images_and_bounds_cache() {
     let mut ui = AppUi::new();
     assert!(

@@ -4,7 +4,7 @@
 //! before poll. Aborted handles retain capacity until joined; final Drop aborts
 //! without blocking and the runtime owns settling detached blocking decodes.
 use crate::presentation::{ImageBinding, ImageSource};
-use criterion_artwork::{ArtworkError, ArtworkLoader, ArtworkSource, DecodedArtwork};
+use criterion_artwork::{ArtworkError, ArtworkLoader, ArtworkSource, DecodedArtwork, ImageRole};
 use criterion_ui::AppUi;
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::runtime::Runtime;
@@ -14,7 +14,8 @@ type ImageFuture = Pin<Box<dyn Future<Output = Result<DecodedArtwork, ArtworkErr
 type LoadImage = Arc<dyn Fn(ArtworkSource) -> ImageFuture + Send + Sync>;
 const MAX_VISIBLE: usize = 32;
 const MAX_TASKS: usize = 2;
-const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_CARD_BYTES: usize = 4 * 1024 * 1024;
+const MAX_BACKDROP_BYTES: usize = 8 * 1024 * 1024;
 const WORKING_BYTES: usize = 24 * 1024 * 1024;
 
 pub(crate) struct Artwork {
@@ -61,6 +62,12 @@ impl Artwork {
             jobs: Vec::new(),
         }
     }
+    #[cfg(test)]
+    pub(crate) fn offline() -> Self {
+        Self::with_loader(Arc::new(|_| {
+            Box::pin(async { Err(ArtworkError::Unavailable) })
+        }))
+    }
     pub(crate) fn update(&mut self, visible: &[String], bindings: &[ImageBinding]) {
         let mut previous = std::mem::take(&mut self.requests);
         for key in visible {
@@ -83,9 +90,10 @@ impl Artwork {
                         .any(|binding| binding.key == *key && binding.source != first.source)
                 })
                 .map(|binding| match &binding.source {
-                    ImageSource::Media { id, label } => ArtworkSource::Media {
+                    ImageSource::Media { id, label, role } => ArtworkSource::Media {
                         id: id.clone(),
                         label: *label,
+                        role: *role,
                     },
                     ImageSource::Editorial(image) => ArtworkSource::Editorial(image.clone()),
                 });
@@ -111,10 +119,21 @@ impl Artwork {
         self.select();
         self.retire();
     }
+    fn select_with_cache(&mut self, ui: &AppUi) {
+        for request in &mut self.requests {
+            request.bytes = ui.image_bytes(&request.key);
+        }
+        self.select();
+    }
     fn select(&mut self) {
         let mut charged = 0;
         for request in &mut self.requests {
-            let bytes = request.bytes.unwrap_or(MAX_IMAGE_BYTES);
+            let bytes = request.bytes.unwrap_or_else(|| {
+                match request.source.as_ref().map(ArtworkSource::role) {
+                    Some(ImageRole::Backdrop) => MAX_BACKDROP_BYTES,
+                    _ => MAX_CARD_BYTES,
+                }
+            });
             request.selected = request.source.is_some()
                 && request.attempt != Attempt::Failed
                 && bytes <= WORKING_BYTES - charged;
@@ -148,11 +167,8 @@ impl Artwork {
                 ui.discard_image(&request.key);
                 request.invalidate_cache = false;
             }
-            if let Some(bytes) = ui.image_bytes(&request.key) {
-                request.bytes = Some(bytes);
-            }
         }
-        self.select();
+        self.select_with_cache(ui);
         self.retire();
         let mut index = 0;
         while index < self.jobs.len() {
@@ -188,7 +204,7 @@ impl Artwork {
                 index += 1;
             }
         }
-        self.select();
+        self.select_with_cache(ui);
         self.retire();
         for request in &self.requests {
             if !request.selected {
@@ -263,11 +279,13 @@ mod tests {
             source: ImageSource::Media {
                 id: MediaId::new("qvwT6mJ4").unwrap(),
                 label: ImageLabel::Landscape,
+                role: criterion_artwork::ImageRole::Card,
             },
         }
     }
     fn pixels() -> Result<DecodedArtwork, ArtworkError> {
         decode_artwork(
+            ImageRole::Card,
             "image/png",
             include_bytes!("../../criterion-artwork/tests/fixtures/two-pixels.png"),
         )
@@ -479,6 +497,7 @@ mod tests {
         other.source = ImageSource::Media {
             id: MediaId::new("AbcD1234").unwrap(),
             label: ImageLabel::Landscape,
+            role: criterion_artwork::ImageRole::Card,
         };
         let bindings = vec![
             binding("one"),
@@ -522,7 +541,7 @@ mod tests {
         let mut artwork = Artwork::with_loader(Arc::new(move |_| {
             called.fetch_add(1, Ordering::SeqCst);
             let encoded = encoded.clone();
-            Box::pin(async move { decode_artwork("image/png", &encoded) })
+            Box::pin(async move { decode_artwork(ImageRole::Card, "image/png", &encoded) })
         }));
         let runtime = Runtime::new().unwrap();
         let visible: Vec<_> = (0..32).map(|index| format!("key{index}")).collect();
@@ -666,6 +685,7 @@ mod tests {
         changed.source = ImageSource::Media {
             id: MediaId::new("AbcD1234").unwrap(),
             label: ImageLabel::Portrait,
+            role: ImageRole::Card,
         };
         artwork.update(&["one".to_owned()], &[changed]);
         artwork.poll(&runtime, &mut ui);
@@ -694,6 +714,125 @@ mod tests {
         artwork.poll(&runtime, &mut ui);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert_eq!(ui.image_cache_len(), 0);
+    }
+    #[test]
+    fn evicted_backdrop_restores_unknown_reserve_before_reloading() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let runtime = Runtime::new().unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let called = calls.clone();
+        let mut artwork = Artwork::with_loader(Arc::new(move |_| {
+            called.fetch_add(1, Ordering::SeqCst);
+            Box::pin(std::future::pending())
+        }));
+        let mut ui = AppUi::new();
+        let backdrop = ImageBinding {
+            key: "backdrop".to_owned(),
+            source: ImageSource::Media {
+                id: MediaId::new("qvwT6mJ4").unwrap(),
+                label: ImageLabel::Landscape,
+                role: ImageRole::Backdrop,
+            },
+        };
+        ui.admit_image(
+            "backdrop",
+            egui::ColorImage::filled([2, 1], egui::Color32::WHITE),
+        )
+        .unwrap();
+        artwork.update(&["backdrop".to_owned()], std::slice::from_ref(&backdrop));
+        artwork.poll(&runtime, &mut ui);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(ui.discard_image("backdrop"));
+
+        let cards: Vec<_> = (0..5).map(|index| format!("card{index}")).collect();
+        for key in &cards {
+            ui.admit_image(
+                key,
+                egui::ColorImage::filled([1024, 1024], egui::Color32::WHITE),
+            )
+            .unwrap();
+        }
+        let mut visible = cards.clone();
+        visible.push("backdrop".to_owned());
+        let mut bindings: Vec<_> = cards.iter().map(|key| binding(key)).collect();
+        bindings.push(backdrop);
+        artwork.update(&visible, &bindings);
+        artwork.poll(&runtime, &mut ui);
+
+        assert_eq!(ui.image_cache_bytes(), 20 * 1024 * 1024);
+        assert!(cards.iter().all(|key| ui.has_image(key)));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(!ui.has_image("backdrop"));
+    }
+    #[test]
+    fn in_poll_eviction_restores_backdrop_reserve_before_starting_another_load() {
+        use image::ImageEncoder;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let mut encoded = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut encoded)
+            .write_image(
+                &vec![255; 1024 * 1024 * 4],
+                1024,
+                1024,
+                image::ExtendedColorType::Rgba8,
+            )
+            .unwrap();
+        let encoded = Arc::new(encoded);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let called = calls.clone();
+        let mut artwork = Artwork::with_loader(Arc::new(move |source| {
+            let index = called.fetch_add(1, Ordering::SeqCst);
+            let encoded = encoded.clone();
+            Box::pin(async move {
+                if index == 0 {
+                    decode_artwork(source.role(), "image/png", &encoded)
+                } else {
+                    std::future::pending().await
+                }
+            })
+        }));
+        let runtime = Runtime::new().unwrap();
+        let mut ui = AppUi::new();
+        let backdrop = ImageBinding {
+            key: "backdrop".to_owned(),
+            source: ImageSource::Media {
+                id: MediaId::new("qvwT6mJ4").unwrap(),
+                label: ImageLabel::Landscape,
+                role: ImageRole::Backdrop,
+            },
+        };
+        ui.admit_image(
+            "backdrop",
+            egui::ColorImage::filled([2, 1], egui::Color32::WHITE),
+        )
+        .unwrap();
+        artwork.update(&["backdrop".to_owned()], std::slice::from_ref(&backdrop));
+        artwork.poll(&runtime, &mut ui);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        let cards: Vec<_> = (0..4).map(|index| format!("card{index}")).collect();
+        for key in std::iter::once(&"filler".to_owned()).chain(cards.iter()) {
+            ui.admit_image(
+                key,
+                egui::ColorImage::filled([1024, 1024], egui::Color32::WHITE),
+            )
+            .unwrap();
+        }
+        let mut visible = cards.clone();
+        visible.extend(["new-card".to_owned(), "backdrop".to_owned()]);
+        let mut bindings: Vec<_> = cards.iter().map(|key| binding(key)).collect();
+        bindings.extend([binding("new-card"), backdrop]);
+        artwork.update(&visible, &bindings);
+        artwork.poll(&runtime, &mut ui);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        wait_for_job(&artwork, "new-card");
+        artwork.poll(&runtime, &mut ui);
+
+        assert!(!ui.has_image("backdrop"));
+        assert!(cards.iter().all(|key| ui.has_image(key)));
+        assert!(ui.has_image("new-card"));
+        assert_eq!(ui.image_cache_bytes(), 24 * 1024 * 1024);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
     #[test]
     fn a_successful_evicted_key_can_reload_within_the_current_budget() {

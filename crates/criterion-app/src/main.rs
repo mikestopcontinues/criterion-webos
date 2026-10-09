@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Native entry: main-thread SDL/GLES, cancellable async catalog, ordered input batches.
+mod account;
 mod artwork;
 mod authentication;
 mod controller;
@@ -39,8 +40,8 @@ fn prepare_process() {
         unsafe extern "C" {
             fn getauxval(kind: std::os::raw::c_ulong) -> std::os::raw::c_ulong;
         }
-        // SAFETY: the pinned SDK supplies this ABI. Its first call initializes an
-        // unsynchronized auxiliary-vector cache; warm it before any library threads.
+        // SAFETY: criterion-platform supplies the ARM32 unsigned ABI and bounded
+        // one-time cache. Warm it before SDL or worker libraries initialize.
         let _ = unsafe { getauxval(6) };
     }
 }

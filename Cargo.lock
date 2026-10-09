@@ -293,6 +293,7 @@ name = "criterion-app"
 version = "0.1.0"
 dependencies = [
  "aws-lc-rs",
+ "criterion-account",
  "criterion-artwork",
  "criterion-platform",
  "criterion-provider",
@@ -301,6 +302,7 @@ dependencies = [
  "egui",
  "glow",
  "image",
+ "time",
  "tokio",
 ]
 
@@ -321,6 +323,16 @@ dependencies = [
 [[package]]
 name = "criterion-broker-probe"
 version = "0.1.0"
+
+[[package]]
+name = "criterion-native-caller-probe"
+version = "0.1.0"
+dependencies = [
+ "criterion-platform",
+ "glow",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "criterion-platform"
