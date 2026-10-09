@@ -30,6 +30,10 @@ pub enum Focus {
     Card { row: usize, column: usize },
     Rail(RailItem),
     FilterButton,
+    SearchKey(usize),
+    SearchField,
+    SearchVoice,
+    SearchGroup(usize),
     DetailAction(usize),
     DetailDescription,
     DetailTab(usize),
@@ -55,6 +59,11 @@ pub(crate) enum Intent {
     ToggleList,
     SelectPlaylist(usize),
     Authenticate,
+    VoiceSearch,
+    Search {
+        query: String,
+        group: crate::SearchGroup,
+    },
     Exit,
     ApplyFilters(crate::FilterSelection),
 }
@@ -74,8 +83,11 @@ pub struct AppUi {
     pub(crate) images: crate::images::ImageCache,
     pub(crate) focus: Focus,
     pub(crate) scroll_y: f32,
-    return_focus: Focus,
+    pub(crate) return_focus: Focus,
     page: Page,
+    pub(crate) search: crate::search::SearchState,
+    pub(crate) pointer_press: Option<crate::input::PointerTarget>,
+    pub(crate) pointer_layout_focus: Option<Focus>,
 }
 impl Default for AppUi {
     fn default() -> Self {
@@ -94,6 +106,9 @@ impl AppUi {
             scroll_y: 0.0,
             return_focus: Focus::Hero,
             page: Page::Home,
+            search: crate::search::SearchState::default(),
+            pointer_press: None,
+            pointer_layout_focus: None,
         }
     }
     pub fn page(&self) -> Page {
@@ -102,11 +117,17 @@ impl AppUi {
     pub fn focus(&self) -> Focus {
         self.focus
     }
+    pub(crate) fn layout_focus(&self) -> Focus {
+        self.pointer_layout_focus.unwrap_or(self.focus)
+    }
     pub(crate) fn handle_navigation(&mut self, action: Action, rows: &[usize]) -> Vec<Intent> {
         if let Some(commands) = self.handle_filter(action) {
             return commands;
         }
         if let Some(commands) = self.handle_detail(action, rows) {
+            return commands;
+        }
+        if let Some(commands) = self.handle_search(action, rows) {
             return commands;
         }
         if action == Action::Back
@@ -169,6 +190,11 @@ impl AppUi {
                 Action::Down if index < 4 => self.focus = Focus::Rail(ITEMS[index + 1]),
                 Action::Up if index > 0 => self.focus = Focus::Rail(ITEMS[index - 1]),
                 Action::Select => {
+                    if (item == RailItem::Search && self.page != Page::Search)
+                        || (item != RailItem::Search && self.page == Page::Search)
+                    {
+                        self.push_history();
+                    }
                     self.page = match item {
                         RailItem::Search => Page::Search,
                         RailItem::Home => Page::Home,
@@ -176,7 +202,9 @@ impl AppUi {
                         RailItem::AllFilms => Page::AllFilms,
                         RailItem::Login => Page::Login,
                     };
-                    self.focus = if matches!(self.page, Page::Home | Page::New) {
+                    self.focus = if self.page == Page::Search {
+                        Focus::SearchKey(0)
+                    } else if matches!(self.page, Page::Home | Page::New) {
                         Focus::Hero
                     } else {
                         Focus::Card { row: 0, column: 0 }
@@ -224,7 +252,9 @@ impl AppUi {
             };
             if let Some((row, column)) = next {
                 self.focus = Focus::Card { row, column };
-                self.scroll_y = if self.page == Page::AllFilms {
+                self.scroll_y = if self.page == Page::Search {
+                    (row as f32 * 321.0 - 415.0).max(0.0)
+                } else if self.page == Page::AllFilms {
                     (row as f32 * 321.0 - 172.0).max(0.0)
                 } else {
                     632.0 + row as f32 * 397.0
@@ -245,7 +275,11 @@ impl AppUi {
         }
         self.history.push(Snapshot {
             page: self.page,
-            focus: self.focus,
+            focus: if matches!(self.focus, Focus::Rail(_)) {
+                self.return_focus
+            } else {
+                self.focus
+            },
             return_focus: self.return_focus,
             scroll_y: self.scroll_y,
         });

@@ -25,3 +25,28 @@ fn activated_card_emits_its_validated_media_identity() {
         vec![Command::OpenMedia(id)]
     );
 }
+#[test]
+fn hero_watch_action_emits_play_without_changing_the_discovery_page() {
+    let id = MediaId::new("qvwT6mJ4").unwrap();
+    let data = ViewData {
+        hero: Some(criterion_ui::Hero {
+            card: Card {
+                key: &id,
+                artwork_key: None,
+                title: "Fixture",
+                year: "1986",
+                duration_seconds: 5820,
+            },
+            description: "",
+            action: "WATCH NOW",
+            action_kind: criterion_ui::HeroAction::Play,
+            background_key: None,
+            title_logo_key: None,
+        }),
+        status: LoadState::Ready,
+        ..ViewData::default()
+    };
+    let mut ui = AppUi::new();
+    assert_eq!(ui.handle(Action::Select, &data), vec![Command::Play(id)]);
+    assert_eq!(ui.page(), criterion_ui::Page::Home);
+}

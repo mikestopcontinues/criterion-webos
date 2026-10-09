@@ -94,14 +94,20 @@ impl AppUi {
         }
     }
     pub(crate) fn image(&mut self, key: &str) -> Option<egui::TextureId> {
+        self.image_info(key).map(|(id, _)| id)
+    }
+    pub(crate) fn image_info(&mut self, key: &str) -> Option<(egui::TextureId, [usize; 2])> {
         let index = self
             .images
             .entries
             .iter()
             .position(|entry| entry.key == key)?;
         let entry = self.images.entries.remove(index)?;
-        let id = entry.texture.as_ref()?.id();
+        let id = entry
+            .texture
+            .as_ref()
+            .map(|texture| (texture.id(), texture.size()));
         self.images.entries.push_back(entry);
-        Some(id)
+        id
     }
 }

@@ -120,13 +120,15 @@ pub fn fit_canvas(size: [u32; 2]) -> Result<CanvasFit, RenderError> {
     if size.contains(&0) || size.iter().any(|side| *side > 8192) {
         return Err(RenderError::InvalidSurface);
     }
-    let scale =
-        (size[0] as f32 / crate::LOGICAL_SIZE[0]).min(size[1] as f32 / crate::LOGICAL_SIZE[1]);
+    let scale = (f64::from(size[0]) / f64::from(crate::LOGICAL_SIZE[0]))
+        .min(f64::from(size[1]) / f64::from(crate::LOGICAL_SIZE[1]));
+    let width = (f64::from(crate::LOGICAL_SIZE[0]) * scale).round() as u32;
+    let height = (f64::from(crate::LOGICAL_SIZE[1]) * scale).round() as u32;
     Ok(CanvasFit {
-        scale,
+        scale: scale as f32,
         offset: [
-            (size[0] as f32 - crate::LOGICAL_SIZE[0] * scale) / 2.0,
-            (size[1] as f32 - crate::LOGICAL_SIZE[1] * scale) / 2.0,
+            ((size[0] - width) / 2) as f32,
+            ((size[1] - height) / 2) as f32,
         ],
     })
 }

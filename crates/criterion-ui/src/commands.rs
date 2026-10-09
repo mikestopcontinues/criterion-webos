@@ -9,6 +9,11 @@ pub enum Command {
     ToggleList(MediaId),
     SelectPlaylist(usize),
     Authenticate,
+    VoiceSearch,
+    Search {
+        query: String,
+        group: crate::SearchGroup,
+    },
     Exit,
     ApplyFilters(FilterSelection),
 }
@@ -16,6 +21,8 @@ impl AppUi {
     /// Transform one remote action using the current admitted display model.
     /// The caller executes returned commands and owns asynchronous publication.
     pub fn handle(&mut self, action: Action, data: &ViewData<'_>) -> Vec<Command> {
+        self.pointer_press = None;
+        self.pointer_layout_focus = None;
         if let Some(detail) = &data.detail {
             self.set_detail_kind(detail.kind);
             self.set_information_content(detail.description);
@@ -23,8 +30,17 @@ impl AppUi {
         if action == Action::Select && self.focus() == Focus::Hero && data.hero.is_none() {
             return Vec::new();
         }
+        if action == Action::Select
+            && self.focus() == Focus::Hero
+            && let Some(hero) = &data.hero
+            && hero.action_kind == crate::HeroAction::Play
+        {
+            return vec![Command::Play(hero.card.key.clone())];
+        }
         let columns = if self.page() == Page::Search { 3 } else { 4 };
-        let rows: Vec<_> = if matches!(self.page(), Page::Home | Page::New | Page::Detail) {
+        let rows: Vec<_> = if self.page() == Page::Search && self.query().trim().is_empty() {
+            Vec::new()
+        } else if matches!(self.page(), Page::Home | Page::New | Page::Detail) {
             data.rails.iter().map(|rail| rail.cards.len()).collect()
         } else {
             data.cards.chunks(columns).map(<[_]>::len).collect()
@@ -58,6 +74,8 @@ impl AppUi {
                     .map(|detail| Command::ToggleList(detail.card.key.clone())),
                 Intent::SelectPlaylist(index) => Some(Command::SelectPlaylist(index)),
                 Intent::Authenticate => Some(Command::Authenticate),
+                Intent::VoiceSearch => Some(Command::VoiceSearch),
+                Intent::Search { query, group } => Some(Command::Search { query, group }),
                 Intent::Exit => Some(Command::Exit),
                 Intent::ApplyFilters(selection) => Some(Command::ApplyFilters(selection)),
             })

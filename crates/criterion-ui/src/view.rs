@@ -3,9 +3,9 @@ use egui::{Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 pub const LOGICAL_SIZE: [f32; 2] = [1920.0, 1080.0];
 pub const MAX_VISIBLE_CARDS: usize = 15;
-const GOLD: Color32 = Color32::from_rgb(181, 138, 22);
-const WHITE: Color32 = Color32::from_rgb(239, 239, 239);
-const MUTED: Color32 = Color32::from_rgb(151, 151, 151);
+pub(crate) const GOLD: Color32 = Color32::from_rgb(181, 138, 22);
+pub(crate) const WHITE: Color32 = Color32::from_rgb(239, 239, 239);
+pub(crate) const MUTED: Color32 = Color32::from_rgb(151, 151, 151);
 
 /// Provider-admitted metadata. Media identity and optional public artwork identity are distinct.
 #[derive(Clone, Copy)]
@@ -20,10 +20,16 @@ pub struct Rail<'a> {
     pub title: &'a str,
     pub cards: &'a [Card<'a>],
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeroAction {
+    OpenMedia,
+    Play,
+}
 pub struct Hero<'a> {
     pub card: Card<'a>,
     pub description: &'a str,
     pub action: &'a str,
+    pub action_kind: HeroAction,
     pub background_key: Option<&'a str>,
     pub title_logo_key: Option<&'a str>,
 }
@@ -61,6 +67,7 @@ pub struct ViewData<'a> {
     pub status: LoadState,
     pub filters: Option<FilterMenu<'a>>,
     pub detail: Option<Detail<'a>>,
+    pub search_counts: [u32; 4],
 }
 impl Default for ViewData<'_> {
     fn default() -> Self {
@@ -73,6 +80,7 @@ impl Default for ViewData<'_> {
             status: LoadState::Loading,
             filters: None,
             detail: None,
+            search_counts: [0; 4],
         }
     }
 }
@@ -87,6 +95,8 @@ pub struct UiFrame {
     pub output: egui::FullOutput,
     pub visible_cards: Vec<CardLayout>,
     pub visible_artwork: Vec<String>,
+    pub commands: Vec<crate::Command>,
+    pub wants_text_input: bool,
 }
 
 impl AppUi {
@@ -102,6 +112,15 @@ impl AppUi {
             self.set_detail_kind(detail.kind);
             self.set_information_content(detail.description);
         }
+        let events = if input.focused {
+            input.events.clone()
+        } else {
+            self.pointer_press = None;
+            self.pointer_layout_focus = None;
+            self.search.composition.clear();
+            Vec::new()
+        };
+        let mut commands = Vec::new();
         self.flush_images();
         input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1920.0, 1080.0)));
         let context = self.context.clone();
@@ -117,6 +136,7 @@ impl AppUi {
                 Color32::from_rgb(17, 17, 17),
             );
             match self.page() {
+                Page::Search => self.paint_search(&p, data, &mut visible_cards),
                 Page::Detail => {
                     if let Some(detail) = &data.detail {
                         if let Some(key) = detail.card.artwork_key {
@@ -155,12 +175,15 @@ impl AppUi {
                                 Color32::TRANSPARENT,
                             );
                         }
-                        if let Some(texture) = hero.title_logo_key.and_then(|key| self.image(key)) {
+                        if let Some((texture, size)) =
+                            hero.title_logo_key.and_then(|key| self.image_info(key))
+                        {
+                            let scale = (600.0 / size[0] as f32).min(240.0 / size[1] as f32);
                             p.image(
                                 texture,
                                 Rect::from_min_size(
                                     Pos2::new(150.0, y + 300.0),
-                                    Vec2::new(600.0, 240.0),
+                                    Vec2::new(size[0] as f32 * scale, size[1] as f32 * scale),
                                 ),
                                 Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
                                 WHITE,
@@ -193,7 +216,7 @@ impl AppUi {
                             continue;
                         }
                         label(&p, [150.0, y], rail.title, 34.0, WHITE, 1620.0);
-                        let selected = match self.focus() {
+                        let selected = match self.layout_focus() {
                             Focus::Card { row: r, column } if r == row => column,
                             _ => 0,
                         };
@@ -264,6 +287,10 @@ impl AppUi {
                         );
                     }
                     let columns = if self.page() == Page::Search { 3 } else { 4 };
+                    let content = p.with_clip_rect(Rect::from_min_max(
+                        Pos2::new(150.0, 228.0),
+                        Pos2::new(1920.0, 1080.0),
+                    ));
                     let first_row = (self.scroll_y() / 321.0).floor().max(0.0) as usize;
                     for (index, card) in data
                         .cards
@@ -286,7 +313,7 @@ impl AppUi {
                             Vec2::new(378.0, 213.0),
                         );
                         paint_card(
-                            &p,
+                            &content,
                             card,
                             rect,
                             self.focus() == Focus::Card { row, column },
@@ -301,10 +328,16 @@ impl AppUi {
                     }
                 }
             }
-            if data.status != LoadState::Ready {
+            if data.status != LoadState::Ready
+                && (self.page() != Page::Search || !self.query().is_empty())
+            {
                 label(
                     &p,
-                    [150.0, 620.0],
+                    if self.page() == Page::Search {
+                        [565.0, 360.0]
+                    } else {
+                        [150.0, 620.0]
+                    },
                     match data.status {
                         LoadState::Loading => "Loading…",
                         LoadState::Empty => "No films found",
@@ -342,7 +375,32 @@ impl AppUi {
                 visible_artwork.push(key.to_owned());
             }
         }
+        for event in &events {
+            let old_page = self.page();
+            let allow_results = !commands
+                .iter()
+                .any(|command| matches!(command, crate::Command::Search { .. }));
+            commands.extend(self.pointer_events(
+                std::slice::from_ref(event),
+                data,
+                &visible_cards,
+                allow_results,
+            ));
+            commands.extend(self.text_events(std::slice::from_ref(event)));
+            if commands
+                .iter()
+                .any(|command| matches!(command, crate::Command::Search { .. }))
+            {
+                self.pointer_press = None;
+                self.pointer_layout_focus = None;
+            }
+            if self.page() != old_page {
+                break;
+            }
+        }
         UiFrame {
+            commands,
+            wants_text_input: self.wants_text_input(),
             output,
             visible_cards,
             visible_artwork,
@@ -359,7 +417,14 @@ fn page_label(page: Page) -> &'static str {
         Page::Login => "Log In",
     }
 }
-fn label(p: &egui::Painter, pos: [f32; 2], text: &str, size: f32, color: Color32, width: f32) {
+pub(crate) fn label(
+    p: &egui::Painter,
+    pos: [f32; 2],
+    text: &str,
+    size: f32,
+    color: Color32,
+    width: f32,
+) {
     paragraph(p, pos, text, size, color, width, (1, 256));
 }
 fn paragraph(
@@ -385,7 +450,7 @@ fn paragraph(
     let galley = p.layout_job(job);
     p.galley(Pos2::new(pos[0], pos[1]), galley, color);
 }
-fn button(p: &egui::Painter, rect: Rect, text: &str, focused: bool) {
+pub(crate) fn button(p: &egui::Painter, rect: Rect, text: &str, focused: bool) {
     p.rect_filled(
         rect,
         40,
@@ -409,7 +474,7 @@ fn button(p: &egui::Painter, rect: Rect, text: &str, focused: bool) {
         WHITE,
     );
 }
-fn paint_card(
+pub(crate) fn paint_card(
     p: &egui::Painter,
     card: &Card<'_>,
     rect: Rect,
@@ -638,7 +703,7 @@ impl AppUi {
             label(&p, [210.0, y], &text, 34.0, color, 430.0);
             label(&p, [650.0, y], ">", 28.0, color, 32.0);
         }
-        let selected = match self.focus() {
+        let selected = match self.layout_focus() {
             Focus::FilterOption(index) => index,
             _ => 0,
         };
@@ -828,7 +893,7 @@ impl AppUi {
             _ => 0,
         };
         if let Some(rail) = rails.get(selected_row) {
-            let selected = match self.focus() {
+            let selected = match self.layout_focus() {
                 Focus::Card { column, .. } => column,
                 _ => 0,
             };
