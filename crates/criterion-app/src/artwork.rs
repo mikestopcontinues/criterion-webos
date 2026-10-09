@@ -272,12 +272,33 @@ mod tests {
             include_bytes!("../../criterion-artwork/tests/fixtures/two-pixels.png"),
         )
     }
-    fn settle(artwork: &mut Artwork, runtime: &Runtime, ui: &mut AppUi, count: usize) {
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while ui.image_cache_len() < count && Instant::now() < deadline {
-            artwork.poll(runtime, ui);
+    fn wait_until(mut ready: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !ready() {
+            assert!(Instant::now() < deadline, "artwork fixture did not settle");
             std::thread::yield_now();
         }
+    }
+    fn wait_for_job(artwork: &Artwork, key: &str) {
+        assert!(artwork.jobs.iter().any(|job| job.key == key));
+        wait_until(|| {
+            artwork
+                .jobs
+                .iter()
+                .any(|job| job.key == key && job.task.is_finished())
+        });
+    }
+    fn settle_jobs(artwork: &mut Artwork, runtime: &Runtime, ui: &mut AppUi) {
+        wait_until(|| {
+            artwork.poll(runtime, ui);
+            artwork.jobs.is_empty()
+        });
+    }
+    fn settle(artwork: &mut Artwork, runtime: &Runtime, ui: &mut AppUi, count: usize) {
+        wait_until(|| {
+            artwork.poll(runtime, ui);
+            ui.image_cache_len() >= count
+        });
         assert_eq!(ui.image_cache_len(), count);
     }
     #[test]
@@ -313,18 +334,22 @@ mod tests {
         let called = calls.clone();
         let mut artwork = Artwork::with_loader(Arc::new(move |_| {
             called.fetch_add(1, Ordering::SeqCst);
-            Box::pin(async { Err(ArtworkError::Unavailable) })
+            Box::pin(async {
+                // Rejection may finish after many caller yields, even without I/O.
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                Err(ArtworkError::Unavailable)
+            })
         }));
         let visible = vec!["one".to_owned(), "two".to_owned(), "three".to_owned()];
         let bindings: Vec<_> = visible.iter().map(|key| binding(key)).collect();
         let mut ui = AppUi::new();
-        for _ in 0..100 {
+        wait_until(|| {
             artwork.update(&visible, &bindings);
             artwork.poll(&runtime, &mut ui);
-            runtime.block_on(async {
-                tokio::task::yield_now().await;
-            });
-        }
+            artwork.jobs.is_empty()
+        });
+        artwork.update(&visible, &bindings);
+        settle_jobs(&mut artwork, &runtime, &mut ui);
         assert_eq!(calls.load(Ordering::SeqCst), 3);
         assert_eq!(ui.image_cache_len(), 0);
     }
@@ -335,15 +360,9 @@ mod tests {
         let mut ui = AppUi::new();
         artwork.update(&["old".to_owned()], &[binding("old")]);
         artwork.poll(&runtime, &mut ui);
-        runtime.block_on(async {
-            tokio::task::yield_now().await;
-        });
+        wait_for_job(&artwork, "old");
         artwork.update(&[], &[]);
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !artwork.jobs.is_empty() && Instant::now() < deadline {
-            artwork.poll(&runtime, &mut ui);
-            std::thread::yield_now();
-        }
+        settle_jobs(&mut artwork, &runtime, &mut ui);
         assert_eq!(ui.image_cache_len(), 0);
     }
     #[test]
@@ -442,10 +461,7 @@ mod tests {
         let mut ui = AppUi::new();
         artwork.update(&visible, &bindings);
         settle(&mut artwork, &runtime, &mut ui, 32);
-        for _ in 0..100 {
-            artwork.poll(&runtime, &mut ui);
-            std::thread::yield_now();
-        }
+        settle_jobs(&mut artwork, &runtime, &mut ui);
         assert_eq!(calls.load(Ordering::SeqCst), 32);
     }
     #[test]
@@ -514,12 +530,8 @@ mod tests {
         let mut ui = AppUi::new();
         artwork.update(&visible, &bindings);
         settle(&mut artwork, &runtime, &mut ui, 6);
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while Instant::now() < deadline {
-            artwork.update(&visible, &bindings);
-            artwork.poll(&runtime, &mut ui);
-            std::thread::yield_now();
-        }
+        artwork.update(&visible, &bindings);
+        settle_jobs(&mut artwork, &runtime, &mut ui);
         assert_eq!(calls.load(Ordering::SeqCst), 6);
         assert_eq!(ui.image_cache_bytes(), 24 * 1024 * 1024);
         assert!((0..6).all(|index| ui.has_image(&format!("key{index}"))));
@@ -608,10 +620,9 @@ mod tests {
         let bindings = vec![binding("one"), binding("two")];
         artwork.update(&visible, &bindings);
         artwork.poll(&runtime, &mut ui);
-        for _ in 0..100 {
-            artwork.poll(&runtime, &mut ui);
-            std::thread::yield_now();
-        }
+        wait_for_job(&artwork, "two");
+        artwork.poll(&runtime, &mut ui);
+        artwork.poll(&runtime, &mut ui);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         release.send(()).unwrap();
         settle(&mut artwork, &runtime, &mut ui, 2);
@@ -628,11 +639,13 @@ mod tests {
             Box::pin(async { Err(ArtworkError::Busy) })
         }));
         let mut ui = AppUi::new();
-        for _ in 0..1000 {
+        wait_until(|| {
             artwork.update(&["one".to_owned()], &[binding("one")]);
             artwork.poll(&runtime, &mut ui);
-            std::thread::yield_now();
-        }
+            artwork.jobs.is_empty()
+        });
+        artwork.update(&["one".to_owned()], &[binding("one")]);
+        settle_jobs(&mut artwork, &runtime, &mut ui);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert_eq!(ui.image_cache_len(), 0);
     }
@@ -675,15 +688,10 @@ mod tests {
         let mut ui = AppUi::new();
         artwork.update(&["one".to_owned()], &[binding("one")]);
         artwork.poll(&runtime, &mut ui);
-        runtime.block_on(async {
-            tokio::task::yield_now().await;
-        });
+        wait_for_job(&artwork, "one");
         artwork.update(&[], &[]);
         artwork.update(&["one".to_owned()], &[binding("one")]);
-        for _ in 0..100 {
-            artwork.poll(&runtime, &mut ui);
-            std::thread::yield_now();
-        }
+        artwork.poll(&runtime, &mut ui);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert_eq!(ui.image_cache_len(), 0);
     }
