@@ -3,13 +3,15 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { chmod, copyFile, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { admitBroker, ipkData } from "./src/package.js";
+import { admitBroker } from "./src/package.js";
+import { archiveToolVersions, normalizeIpk, TOOL_ENVIRONMENT, type PackageFiles } from "./src/normalize.js";
 import { PLAYER_ID, SERVICE_ID, UI_ID, VERSION } from "./src/protocol.js";
 
 const root = resolve(__dirname, "..");
 const output = resolve(root, "../../.local/player-probe");
 const staging = join(output, "staging");
 const packages = join(output, "ipks");
+const originalPackages = join(output, "raw-cli");
 const binary = join(output, "criterion-broker-probe-arm");
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 
@@ -40,7 +42,7 @@ async function audit(directory: string, expected: string[]): Promise<Record<stri
 }
 
 function command(executable: string, args: string[]): string {
-  const result = spawnSync(executable, args, { shell: false, cwd: root, encoding: "utf8", timeout: 60000, maxBuffer: 1024 * 1024 });
+  const result = spawnSync(executable, args, { shell: false, cwd: root, encoding: "utf8", timeout: 60000, maxBuffer: 1024 * 1024, env: { ...TOOL_ENVIRONMENT, HOME: join(output, "cli-home") } });
   if (result.error || result.status !== 0) throw new Error("packageCommandFailed");
   return result.stdout;
 }
@@ -52,6 +54,9 @@ async function main(): Promise<void> {
   await rm(staging, { recursive: true, force: true });
   await rm(packages, { recursive: true, force: true });
   await mkdir(packages, { recursive: true });
+  await rm(originalPackages, { recursive: true, force: true });
+  await mkdir(originalPackages, { recursive: true });
+  await mkdir(join(output, "cli-home"), { recursive: true });
   const seals: Record<string, unknown> = {};
   const expectedApp = ["appinfo.json", "index.html", "icon.png", "webOSTV.js", "LICENSE-webOSTV.txt", "app.js"];
   for (const role of ["ui", "player"] as const) {
@@ -81,41 +86,30 @@ async function main(): Promise<void> {
   seals.service = await audit(service, ["package.json", "services.json", "bridge.js", "bin/criterion-broker-probe"]);
   const cli = join(root, "node_modules/@webos-tools/cli/bin/ares-package.js");
   command(process.execPath, [join(root, "node_modules/@webos-tools/cli/bin/ares-config.js"), "--profile", "tv"]);
-  command(process.execPath, [cli, join(staging, "ui"), "--no-minify", "--outdir", packages]);
-  command(process.execPath, [cli, join(staging, "player"), service, "--no-minify", "--outdir", packages]);
-  const ipks = await audit(packages, [`${UI_ID}_${VERSION}_all.ipk`, `${PLAYER_ID}_${VERSION}_all.ipk`]);
-  // Compare every regular archived payload file against its sealed staging bytes.
+  command(process.execPath, [cli, join(staging, "ui"), "--no-minify", "--outdir", originalPackages]);
+  command(process.execPath, [cli, join(staging, "player"), service, "--no-minify", "--outdir", originalPackages]);
+  const originalIpks = await audit(originalPackages, [`${UI_ID}_${VERSION}_all.ipk`, `${PLAYER_ID}_${VERSION}_all.ipk`]);
   for (const role of ["ui", "player"] as const) {
     const id = role === "ui" ? UI_ID : PLAYER_ID;
-    const data = ipkData(await regular(join(packages, `${id}_${VERSION}_all.ipk`)));
-    const tar = (args: string[]) => {
-      const result = spawnSync("/usr/bin/tar", args, { shell: false, input: data, timeout: 5000, maxBuffer: 2 * 1024 * 1024 });
-      if (result.error || result.status !== 0) throw new Error("invalidIpkPayload");
-      return result.stdout;
-    };
-    const archived = tar(["-tzf", "-"]).toString().trim().split("\n");
-    const expected = new Map<string, Buffer>();
-    for (const name of expectedApp) expected.set(`usr/palm/applications/${id}/${name}`, await regular(join(staging, role, name)));
-    if (role === "player") for (const name of ["package.json", "services.json", "bridge.js", "bin/criterion-broker-probe"]) expected.set(`usr/palm/services/${SERVICE_ID}/${name}`, await regular(join(service, name)));
-    const packageInfo = `usr/palm/packages/${id}/packageinfo.json`;
-    const files = archived.filter((name) => !name.endsWith("/"));
-    if (JSON.stringify([...files].sort()) !== JSON.stringify([...expected.keys(), packageInfo].sort())) throw new Error("unexpectedIpkContent");
-    const types = tar(["-tvzf", "-"]).toString().trim().split("\n");
-    if (types.some((line) => !line.startsWith("d") && !line.startsWith("-"))) throw new Error("invalidIpkFileType");
-    for (const [name, bytes] of expected) {
-      if (!tar(["-xzOf", "-", name]).equals(bytes)) throw new Error("ipkContentChanged");
+    const files = new Map<string, { bytes: Buffer; mode: 0o644 | 0o755 }>();
+    for (const name of expectedApp) files.set(`usr/palm/applications/${id}/${name}`, { bytes: await regular(join(staging, role, name)), mode: 0o644 });
+    if (role === "player") for (const name of ["package.json", "services.json", "bridge.js", "bin/criterion-broker-probe"]) {
+      files.set(`usr/palm/services/${SERVICE_ID}/${name}`, { bytes: await regular(join(service, name)), mode: name === "bin/criterion-broker-probe" ? 0o755 : 0o644 });
     }
-    const metadata: unknown = JSON.parse(tar(["-xzOf", "-", packageInfo]).toString());
-    const expectedMetadata = { id, version: VERSION, app: id, ...(role === "player" ? { services: [SERVICE_ID] } : {}) };
-    if (JSON.stringify(metadata) !== JSON.stringify(expectedMetadata)) throw new Error("invalidIpkMetadata");
-    if (role === "player" && !types.some((line) => line.startsWith("-rwxr-xr-x") && line.endsWith(`usr/palm/services/${SERVICE_ID}/bin/criterion-broker-probe`))) throw new Error("invalidBrokerMode");
+    const metadata = { id, version: VERSION, app: id, ...(role === "player" ? { services: [SERVICE_ID] } : {}) };
+    files.set(`usr/palm/packages/${id}/packageinfo.json`, { bytes: Buffer.from(JSON.stringify(metadata, null, 2) + "\n"), mode: 0o644 });
+    const expected: PackageFiles = files;
+    const fileName = `${id}_${VERSION}_all.ipk`;
+    const normalized = await normalizeIpk(await regular(join(originalPackages, fileName)), expected, { id, version: VERSION, architecture: "all" }, join(output, "normalization", role));
+    await writeFile(join(packages, fileName), normalized, { mode: 0o644 });
   }
+  const ipks = await audit(packages, [`${UI_ID}_${VERSION}_all.ipk`, `${PLAYER_ID}_${VERSION}_all.ipk`]);
   const inputs: Record<string, string> = {};
   for (const directory of ["src", "broker/src", "packaging/ui", "packaging/player", "packaging/service", "vendor"]) {
     for (const name of await readdir(join(root, directory))) inputs[`${directory}/${name}`] = sha(await regular(join(root, directory, name)));
   }
-  for (const name of ["build.ts", "package-lock.json", "broker/Cargo.toml", "packaging/index.html", "packaging/icon.png"]) inputs[name] = sha(await regular(join(root, name)));
-  await writeFile(join(output, "package-seal.json"), JSON.stringify({ version: VERSION, inputs, binary: sha(executable), staging: seals, ipks }, null, 2) + "\n");
+  for (const name of ["build.ts", "Dockerfile", "package-lock.json", "broker/Cargo.toml", "packaging/index.html", "packaging/icon.png"]) inputs[name] = sha(await regular(join(root, name)));
+  await writeFile(join(output, "package-seal.json"), JSON.stringify({ version: VERSION, inputs, binary: sha(executable), staging: seals, originalIpks, tools: archiveToolVersions(), ipks }, null, 2) + "\n");
   process.stdout.write("Two sealed disposable IPKs built; no install or launch performed.\n");
 }
 void main().catch(() => { process.stderr.write("probePackageFailed\n"); process.exitCode = 1; });

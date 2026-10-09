@@ -1,0 +1,11 @@
+{
+  "id": "com.mikestopcontinues.criterion.unofficial",
+  "version": "0.1.0",
+  "type": "native",
+  "main": "criterion-unofficial",
+  "title": "Criterion Unofficial",
+  "appDescription": "Development build; TV behavior and playback are unverified.",
+  "icon": "icon.png",
+  "nativeLifeCycleInterfaceVersion": 2,
+  "handlesRelaunch": false
+}

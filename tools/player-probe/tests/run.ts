@@ -3,3 +3,4 @@ import "./controller.test.js";
 import "./supervision.test.js";
 import "./client.test.js";
 import "./package.test.js";
+import "./normalize.test.js";
