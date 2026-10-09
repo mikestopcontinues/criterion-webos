@@ -83,3 +83,10 @@ jobs:
           sh -c 'npm run compile && npm test &&
           node node_modules/typescript/bin/tsc -p ../package-native/tsconfig.json &&
           /opt/node16/bin/node ../../.local/native-package/compiled/tools/package-native/tests/run.js'
+      - name: Check corresponding-source fixtures offline
+        run: >-
+          docker run --rm --init --network none --mount type=bind,src="$PWD",dst=/workspace
+          --workdir /workspace criterion-player-probe-tools:20261009
+          sh -c 'node tools/player-probe/node_modules/typescript/bin/tsc
+          -p tools/source-distribution/tsconfig.json --outDir /tmp/source-distribution-checked &&
+          /opt/node16/bin/node /tmp/source-distribution-checked/tools/source-distribution/tests/run.js'
