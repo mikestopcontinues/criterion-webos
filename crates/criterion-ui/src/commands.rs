@@ -9,6 +9,9 @@ pub enum Command {
     ToggleList(MediaId),
     SelectPlaylist(usize),
     Authenticate,
+    RetryAuthentication,
+    CancelAuthentication,
+    Logout,
     VoiceSearch,
     Search {
         query: String,
@@ -23,6 +26,10 @@ impl AppUi {
     pub fn handle(&mut self, action: Action, data: &ViewData<'_>) -> Vec<Command> {
         self.pointer_press = None;
         self.pointer_layout_focus = None;
+        self.sync_login(data.login);
+        if let Some(commands) = self.handle_login(action, data.login) {
+            return commands;
+        }
         if let Some(detail) = &data.detail {
             self.set_detail_kind(detail.kind);
             self.set_information_content(detail.description);
@@ -53,7 +60,9 @@ impl AppUi {
         } else {
             data.cards.chunks(columns).map(<[_]>::len).collect()
         };
-        self.handle_navigation(action, &rows)
+        let previous_page = self.page();
+        let mut commands: Vec<_> = self
+            .handle_navigation(action, &rows)
             .into_iter()
             .filter_map(|intent| match intent {
                 Intent::Navigate(page) => Some(Command::Navigate(page)),
@@ -89,12 +98,35 @@ impl AppUi {
                     .and_then(|detail| detail.card.key.media_id())
                     .map(|id| Command::ToggleList(id.clone())),
                 Intent::SelectPlaylist(index) => Some(Command::SelectPlaylist(index)),
-                Intent::Authenticate => Some(Command::Authenticate),
+                Intent::Authenticate => Some(
+                    if matches!(
+                        data.login,
+                        crate::LoginView::SignedIn
+                            | crate::LoginView::SigningOut
+                            | crate::LoginView::Requesting
+                            | crate::LoginView::Awaiting { .. }
+                    ) {
+                        Command::Navigate(Page::Login)
+                    } else {
+                        Command::Authenticate
+                    },
+                ),
                 Intent::VoiceSearch => Some(Command::VoiceSearch),
                 Intent::Search { query, group } => Some(Command::Search { query, group }),
                 Intent::Exit => Some(Command::Exit),
                 Intent::ApplyFilters(selection) => Some(Command::ApplyFilters(selection)),
             })
-            .collect()
+            .collect();
+        if previous_page == Page::Login
+            && self.page() != Page::Login
+            && matches!(
+                data.login,
+                crate::LoginView::Requesting | crate::LoginView::Awaiting { .. }
+            )
+        {
+            commands.insert(0, Command::CancelAuthentication);
+        }
+        self.sync_login(data.login);
+        commands
     }
 }

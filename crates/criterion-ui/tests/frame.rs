@@ -32,6 +32,7 @@ fn cpu_frame_uses_observed_four_landscape_columns_and_visible_budget() {
         filters: None,
         detail: None,
         search_counts: [0; 4],
+        login: criterion_ui::LoginView::SignedOut,
     };
     let mut frame = ui.render(egui::RawInput::default(), &data);
     assert_eq!(frame.visible_cards.len(), 12);

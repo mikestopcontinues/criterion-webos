@@ -10,3 +10,4 @@ criterion-provider = { path = "../criterion-provider" }
 egui = { version = "=0.36.2", default-features = false, features = ["default_fonts"] }
 egui_glow = { version = "=0.36.2", path = "vendor/egui_glow", default-features = false }
 glow = "=0.17.0"
+qrcode = { version = "=0.14.1", default-features = false }

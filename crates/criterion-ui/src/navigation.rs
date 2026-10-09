@@ -32,6 +32,8 @@ pub enum Focus {
     Card { row: usize, column: usize },
     Rail(RailItem),
     FilterButton,
+    LoginPrimary,
+    LoginCancel,
     SearchKey(usize),
     SearchField,
     SearchVoice,
@@ -88,6 +90,7 @@ pub struct AppUi {
     pub(crate) return_focus: Focus,
     page: Page,
     pub(crate) search: crate::search::SearchState,
+    pub(crate) login: crate::login::LoginState,
     pub(crate) pointer_press: Option<crate::input::PointerTarget>,
     pub(crate) pointer_layout_focus: Option<Focus>,
 }
@@ -109,9 +112,30 @@ impl AppUi {
             return_focus: Focus::Hero,
             page: Page::Home,
             search: crate::search::SearchState::default(),
+            login: crate::login::LoginState::default(),
             pointer_press: None,
             pointer_layout_focus: None,
         }
+    }
+    /// Enter activation while retaining the exact current focus and scroll.
+    /// The runtime mirrors this display history and executes the returned command.
+    pub fn begin_authentication(&mut self) -> Vec<crate::Command> {
+        if self.page != Page::Login {
+            self.push_history();
+        }
+        self.page = Page::Login;
+        self.focus = Focus::LoginCancel;
+        self.scroll_y = 0.0;
+        self.login = crate::login::LoginState::default();
+        vec![crate::Command::Authenticate]
+    }
+    pub(crate) fn restore_previous(&mut self) -> Option<Page> {
+        let previous = self.history.pop()?;
+        self.page = previous.page;
+        self.focus = previous.focus;
+        self.return_focus = previous.return_focus;
+        self.scroll_y = previous.scroll_y;
+        Some(self.page)
     }
     pub fn page(&self) -> Page {
         self.page
@@ -203,6 +227,7 @@ impl AppUi {
                 Action::Select => {
                     if (item == RailItem::Search && self.page != Page::Search)
                         || (item != RailItem::Search && self.page == Page::Search)
+                        || (item == RailItem::Login && self.page != Page::Login)
                     {
                         self.push_history();
                     }
@@ -213,7 +238,9 @@ impl AppUi {
                         RailItem::AllFilms => Page::AllFilms,
                         RailItem::Login => Page::Login,
                     };
-                    self.focus = if self.page == Page::Search {
+                    self.focus = if self.page == Page::Login {
+                        Focus::LoginCancel
+                    } else if self.page == Page::Search {
                         Focus::SearchKey(0)
                     } else if matches!(self.page, Page::Home | Page::New) {
                         Focus::Hero

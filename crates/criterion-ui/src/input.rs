@@ -162,7 +162,7 @@ impl AppUi {
                 },
             })
         };
-        if self.filters.open {
+        if self.page() == Page::AllFilms && self.filters.open {
             for (focus, area) in [
                 (Focus::FilterClose, rect(1630.0, 139.0, 82.0, 82.0)),
                 (Focus::FilterReset, rect(210.0, 868.0, 82.0, 82.0)),
@@ -209,7 +209,7 @@ impl AppUi {
             }
             return None;
         }
-        if self.detail_state.information {
+        if self.page() == Page::Detail && self.detail_state.information {
             if rect(1490.0, 108.0, 82.0, 82.0).contains(pos) {
                 return target(Focus::InformationClose);
             }
@@ -241,6 +241,23 @@ impl AppUi {
             return None;
         }
         if matches!(self.focus, Focus::Rail(_)) {
+            return None;
+        }
+        if self.page() == Page::Login {
+            if crate::login::login_button().contains(pos) {
+                return target(
+                    if matches!(
+                        data.login,
+                        crate::LoginView::Requesting
+                            | crate::LoginView::Awaiting { .. }
+                            | crate::LoginView::SigningOut
+                    ) {
+                        Focus::LoginCancel
+                    } else {
+                        Focus::LoginPrimary
+                    },
+                );
+            }
             return None;
         }
         if self.page() == Page::Search {

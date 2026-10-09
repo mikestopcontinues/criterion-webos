@@ -68,6 +68,7 @@ pub struct ViewData<'a> {
     pub filters: Option<FilterMenu<'a>>,
     pub detail: Option<Detail<'a>>,
     pub search_counts: [u32; 4],
+    pub login: crate::LoginView<'a>,
 }
 impl Default for ViewData<'_> {
     fn default() -> Self {
@@ -81,6 +82,7 @@ impl Default for ViewData<'_> {
             filters: None,
             detail: None,
             search_counts: [0; 4],
+            login: crate::LoginView::SignedOut,
         }
     }
 }
@@ -101,6 +103,7 @@ pub struct UiFrame {
 
 impl AppUi {
     pub fn render(&mut self, mut input: egui::RawInput, data: &ViewData<'_>) -> UiFrame {
+        self.sync_login(data.login);
         if let Some(menu) = &data.filters {
             let mut counts = [0; 4];
             for (index, group) in menu.groups.iter().take(4).enumerate() {
@@ -136,6 +139,7 @@ impl AppUi {
                 Color32::from_rgb(17, 17, 17),
             );
             match self.page() {
+                Page::Login => self.paint_login(&p, data.login),
                 Page::Search => self.paint_search(&p, data, &mut visible_cards),
                 Page::Detail => {
                     if let Some(detail) = &data.detail {
@@ -328,7 +332,8 @@ impl AppUi {
                     }
                 }
             }
-            if data.status != LoadState::Ready
+            if self.page() != Page::Login
+                && data.status != LoadState::Ready
                 && (self.page() != Page::Search || !self.query().is_empty())
             {
                 label(
@@ -350,11 +355,20 @@ impl AppUi {
                     1400.0,
                 );
             }
-            paint_rail(&p, self.focus(), self.page());
-            if self.filters.open {
+            paint_rail(
+                &p,
+                self.focus(),
+                self.page(),
+                matches!(
+                    data.login,
+                    crate::LoginView::SignedIn | crate::LoginView::SigningOut
+                ),
+            );
+            if self.page() == Page::AllFilms && self.filters.open {
                 self.paint_filters(&p, data);
             }
-            if self.detail_state.information
+            if self.page() == Page::Detail
+                && self.detail_state.information
                 && let Some(detail) = &data.detail
             {
                 self.paint_information(&p, detail);
@@ -437,7 +451,7 @@ pub(crate) fn label(
 ) {
     paragraph(p, pos, text, size, color, width, (1, 256));
 }
-fn paragraph(
+pub(crate) fn paragraph(
     p: &egui::Painter,
     pos: [f32; 2],
     text: &str,
@@ -561,7 +575,7 @@ pub(crate) fn paint_card(
         MUTED,
     );
 }
-fn paint_rail(p: &egui::Painter, focus: Focus, page: Page) {
+fn paint_rail(p: &egui::Painter, focus: Focus, page: Page, signed_in: bool) {
     let expanded = matches!(focus, Focus::Rail(_));
     if expanded {
         p.rect_filled(
@@ -607,7 +621,13 @@ fn paint_rail(p: &egui::Painter, focus: Focus, page: Page) {
             504.0,
             page == Page::AllFilms,
         ),
-        (RailItem::Login, "LOG IN", "♙", 649.0, page == Page::Login),
+        (
+            RailItem::Login,
+            if signed_in { "ACCOUNT" } else { "LOG IN" },
+            "♙",
+            649.0,
+            page == Page::Login,
+        ),
     ] {
         let color = if focus == Focus::Rail(item) || (!expanded && active) {
             GOLD

@@ -18,6 +18,9 @@ impl AppUi {
         self.filters.counts = counts.map(|count| count.min(2048));
     }
     pub(crate) fn handle_filter(&mut self, action: Action) -> Option<Vec<Intent>> {
+        if self.page() != crate::Page::AllFilms {
+            return None;
+        }
         if !self.filters.open {
             if self.focus == Focus::FilterButton && action == Action::Select {
                 self.filters.open = true;
