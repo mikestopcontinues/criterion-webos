@@ -78,7 +78,16 @@ impl AppUi {
     /// Presence includes decoded images waiting for upload and uploaded textures.
     /// This check does not change cache recency.
     pub fn has_image(&self, key: &str) -> bool {
-        self.images.entries.iter().any(|entry| entry.key == key)
+        self.image_bytes(key).is_some()
+    }
+    /// Exact admitted RGBA byte charge for pending pixels or an uploaded texture.
+    /// This read does not change cache recency.
+    pub fn image_bytes(&self, key: &str) -> Option<usize> {
+        self.images
+            .entries
+            .iter()
+            .find(|entry| entry.key == key)
+            .map(|entry| entry.bytes)
     }
     /// Remove one admitted image; uploaded handles queue their texture release.
     pub fn discard_image(&mut self, key: &str) -> bool {

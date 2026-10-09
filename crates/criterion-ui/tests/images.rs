@@ -125,3 +125,23 @@ fn discard_artwork_removes_pending_pixels_and_releases_uploaded_texture() {
     frame.output.textures_delta.clear();
     assert!(freed);
 }
+
+#[test]
+fn cached_image_charge_is_exact_before_and_after_upload_and_absent_after_removal() {
+    let mut ui = AppUi::new();
+    assert_eq!(ui.image_bytes("fixture"), None);
+    ui.admit_image(
+        "fixture",
+        egui::ColorImage::new([3, 2], vec![egui::Color32::WHITE; 6]),
+    )
+    .unwrap();
+    assert_eq!(ui.image_bytes("fixture"), Some(24));
+    let mut frame = ui.render(
+        egui::RawInput::default(),
+        &criterion_ui::ViewData::default(),
+    );
+    frame.output.textures_delta.clear();
+    assert_eq!(ui.image_bytes("fixture"), Some(24));
+    ui.discard_image("fixture");
+    assert_eq!(ui.image_bytes("fixture"), None);
+}
