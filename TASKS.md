@@ -6,12 +6,11 @@ Deliver every acceptance criterion in [the product contract](docs/product.md). T
 
 ## Checkpoint
 
-Root owns integration, product/docs, subscriber/device access and publication. The signed current Android TV reference runs in an isolated Google TV emulator; anonymous remote-navigation comparison is active. Public catalog implementation, the Rust interface and Home/New contracts have isolated owners. The native window/input crate and reviewed landing page are integrated. Native Rust platform executables cross-link against the pinned SDK; C4 execution and licensed subscriber playback remain unverified.
+Root owns integration, product/docs, subscriber/device access and publication. The signed current Android TV reference and official website are linked to the captain's subscription; subscriber comparison and temporary-state restoration are active. Public catalog and native window/input crates are integrated. Home/New discovery, the Rust interface and application input adapter have isolated implementation owners. Platform executables and the TLS catalog library cross-compile against the pinned ARM32 SDK. The public GitHub repository exists; source publication, Pages deployment, application E2E, C4 execution and licensed playback remain unfinished.
 
 ## Unfinished work
 
-- [ ] Resolve subscriber-test access and native-player requirement from the captain's responses.
-- [ ] Obtain a running official Criterion reference app and record actual parity behavior.
+- [ ] Complete subscriber reference comparison and record actual parity behavior.
 - [ ] Establish current Criterion provider contracts and licensed TV playback feasibility.
 - [ ] Select the proven native architecture and secure session/storage/player interfaces.
 - [ ] Build reproducible tooling and the first working native TV slice; verify before extending it.

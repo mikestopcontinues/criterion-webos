@@ -1,0 +1,46 @@
+name: Verify Rust and native ABI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build pinned development environment
+        run: ./dev image
+      - name: Format
+        run: ./dev cargo fmt --all -- --check
+      - name: Behavior and ownership tests
+        run: ./dev cargo test --workspace --all-features --locked
+      - name: Host SDL startup behavior
+        run: ./dev cargo test -p criterion-platform --features sdl --locked
+      - name: Diagnostics
+        run: ./dev cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+  native:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build pinned ARM64-host webOS SDK environment
+        run: ./dev native-image
+      - name: Cross-link platform test executables
+        run: ./dev native cargo test -p criterion-platform --target arm-unknown-linux-gnueabi -Z build-std=std,panic_abort,panic_unwind --features webos --no-run --locked
+      - name: Cross-compile catalog and TLS library
+        run: ./dev native cargo build -p criterion-provider --lib --target arm-unknown-linux-gnueabi -Z build-std=std,panic_abort --release --locked

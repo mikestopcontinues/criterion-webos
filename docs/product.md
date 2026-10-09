@@ -21,4 +21,4 @@ Criterion's current public website integrates JW Player; generic Vimeo owner API
 
 Use GitHub Pages at the own repository for the landing page. Use GPL-3.0-or-later to permit suitable upstream native code reuse; preserve the exact upstream notices and separate branding restrictions if code is copied. The app's title is the requested plain name; do not copy upstream product branding.
 
-The captain has been asked about an available Criterion subscription, accessible official-app device, and acceptance of a Rust native interface with LG's licensed web/platform player if required. Those decisions remain unresolved; ordinary architecture, tooling and implementation choices are ours.
+The captain's active Criterion subscription is linked to the running Android TV reference and the official website. Root owns subscriber comparison and temporary-state restoration. The application must use a proven licensed playback path; ordinary architecture, tooling and implementation choices are ours.
