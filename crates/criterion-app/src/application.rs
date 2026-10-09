@@ -246,7 +246,11 @@ impl<
             && let Some(epoch) = self.account_epoch
         {
             self.shelf_pending = false;
-            match self.accounts.request_shelf(runtime.handle(), epoch) {
+            match self.accounts.request_shelf(
+                runtime.handle(),
+                epoch,
+                criterion_account::WatchListRequest::default(),
+            ) {
                 Ok(generation) => self.shelf_generation = Some(generation),
                 Err(_) => self.controller.view.set_status(LoadState::Error),
             }
