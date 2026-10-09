@@ -20,7 +20,7 @@ pub const MAX_TEXT_BYTES_PER_FRAME: usize = 4096;
 /// A complete input batch. Apply cancellation before actions; always deliver `raw` to
 /// egui, including CPU-only background frames, so releases reach its persistent state.
 /// Overflow discards all queued commands/text; only bounded cancellation effects remain.
-/// At most 128 actions and 136 egui events (including 8 cancellation effects) are returned.
+/// At most 128 actions and 137 egui events (including 9 cancellation effects) are returned.
 pub struct InputFrame {
     pub actions: Vec<Action>,
     pub raw: egui::RawInput,
@@ -46,7 +46,8 @@ pub struct InputAdapter {
     text_input: bool,
     composing: bool,
     modifier_mask: u8,
-    editing_held: [bool; 2],
+    editing_held: [bool; 3],
+    select_all_scancode: Option<u32>,
     pending_cancel: CancelEffects,
     published: PublishedInput,
     processed: usize,
@@ -70,7 +71,8 @@ impl InputAdapter {
             text_input: false,
             composing: false,
             modifier_mask: 0,
-            editing_held: [false; 2],
+            editing_held: [false; 3],
+            select_all_scancode: None,
             pending_cancel: CancelEffects::default(),
             published: PublishedInput::default(),
             processed: 0,
@@ -183,7 +185,23 @@ impl InputAdapter {
                     }
                 }
                 Event::Key(key) if self.text_input => {
-                    if let Some((slot, editing)) = editing_key(key.scancode) {
+                    // SDL keycode follows the active layout; scancode identifies the
+                    // admitted physical press so its release survives layout/modifier changes.
+                    let editing = if !key.pressed && self.select_all_scancode == Some(key.scancode)
+                    {
+                        self.select_all_scancode = None;
+                        Some((2, egui::Key::A))
+                    } else if key.pressed
+                        && key.keycode == 97
+                        && self.modifiers().ctrl
+                        && !self.composing
+                    {
+                        self.select_all_scancode = Some(key.scancode);
+                        Some((2, egui::Key::A))
+                    } else {
+                        editing_key(key.scancode)
+                    };
+                    if let Some((slot, editing)) = editing {
                         if key.pressed && self.composing {
                             return;
                         }
@@ -193,7 +211,7 @@ impl InputAdapter {
                         self.editing_held[slot] = key.pressed;
                         self.events.push(egui::Event::Key {
                             key: editing,
-                            physical_key: Some(editing),
+                            physical_key: (editing != egui::Key::A).then_some(editing),
                             pressed: key.pressed,
                             repeat: key.repeat,
                             modifiers: self.modifiers(),
@@ -247,7 +265,7 @@ impl InputAdapter {
                     egui::Event::Text(_)
                         | egui::Event::Ime(_)
                         | egui::Event::Key {
-                            key: egui::Key::Backspace | egui::Key::Delete,
+                            key: egui::Key::Backspace | egui::Key::Delete | egui::Key::A,
                             ..
                         }
                 )
@@ -255,7 +273,8 @@ impl InputAdapter {
             for (slot, pending) in self.pending_cancel.editing.iter_mut().enumerate() {
                 *pending |= self.editing_held[slot] || self.published.editing[slot];
             }
-            self.editing_held = [false; 2];
+            self.editing_held = [false; 3];
+            self.select_all_scancode = None;
             self.pending_cancel.composing |= self.composing || self.published.composing;
             self.composing = false;
         }
@@ -322,7 +341,8 @@ impl InputAdapter {
         self.pending_cancel.composing |= self.composing || self.published.composing;
         self.pending_cancel.pointer_down |= self.pointer_down || self.published.pointer_down;
         self.pending_cancel.pointer_gone |= self.pointer_visible || self.published.pointer_visible;
-        self.editing_held = [false; 2];
+        self.editing_held = [false; 3];
+        self.select_all_scancode = None;
         self.modifier_mask = 0;
         self.composing = false;
         self.text_input = false;
@@ -356,7 +376,7 @@ struct PublishedInput {
     pointer_down: bool,
     pointer_visible: bool,
     composing: bool,
-    editing: [bool; 2],
+    editing: [bool; 3],
     modifiers: bool,
 }
 impl PublishedInput {
@@ -375,6 +395,7 @@ impl PublishedInput {
             egui::Event::Key { key, pressed, .. } => match key {
                 egui::Key::Backspace => self.editing[0] = *pressed,
                 egui::Key::Delete => self.editing[1] = *pressed,
+                egui::Key::A => self.editing[2] = *pressed,
                 _ => {}
             },
             egui::Event::ModifiersChanged(modifiers) => {
@@ -396,21 +417,21 @@ struct CancelEffects {
     pointer_down: bool,
     pointer_gone: bool,
     composing: bool,
-    editing: [bool; 2],
+    editing: [bool; 3],
     modifiers: bool,
     focus: bool,
 }
 impl CancelEffects {
     fn append_to(self, events: &mut Vec<egui::Event>) {
-        for (held, key) in self
-            .editing
-            .into_iter()
-            .zip([egui::Key::Backspace, egui::Key::Delete])
+        for (held, key) in
+            self.editing
+                .into_iter()
+                .zip([egui::Key::Backspace, egui::Key::Delete, egui::Key::A])
         {
             if held {
                 events.push(egui::Event::Key {
                     key,
-                    physical_key: Some(key),
+                    physical_key: (key != egui::Key::A).then_some(key),
                     pressed: false,
                     repeat: false,
                     modifiers: egui::Modifiers::NONE,
@@ -1198,6 +1219,264 @@ mod tests {
                 text: String::new(),
                 active_range_chars: None
             }),]
+        );
+    }
+
+    #[test]
+    fn native_ctrl_a_then_committed_text_replaces_the_search_query() {
+        use criterion_ui::{AppUi, Command, Page, SearchGroup, ViewData};
+        let data = ViewData::default();
+        let mut ui = AppUi::new();
+        ui.handle(Action::Left, &data);
+        ui.handle(Action::Up, &data);
+        ui.handle(Action::Select, &data);
+        assert_eq!(ui.page(), Page::Search);
+        assert!(ui.wants_text_input());
+        let mut input = InputAdapter::new(surface());
+        input.set_text_input(ui.wants_text_input());
+        input.push(Event::Text("OLD".into()), surface(), Duration::ZERO);
+        let mut initial = ui.render(input.take_frame(Duration::ZERO).raw, &data);
+        initial.output.textures_delta.clear();
+        assert_eq!(ui.query(), "old");
+        input.push(
+            key(224, 1_073_742_048, true, false),
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(key(4, 97, true, false), surface(), Duration::ZERO);
+        input.push(key(4, 97, false, false), surface(), Duration::ZERO);
+        input.push(
+            key(224, 1_073_742_048, false, false),
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(Event::Text("NEW".into()), surface(), Duration::ZERO);
+        let frame = input.take_frame(Duration::ZERO);
+        assert!(frame.actions.is_empty());
+        let mut replaced = ui.render(frame.raw, &data);
+        replaced.output.textures_delta.clear();
+        assert_eq!(ui.query(), "new");
+        assert_eq!(
+            replaced.commands,
+            vec![Command::Search {
+                query: "new".into(),
+                group: SearchGroup::All
+            }]
+        );
+    }
+
+    #[test]
+    fn select_all_requires_control_and_ui_text_ownership() {
+        let mut input = InputAdapter::new(surface());
+        input.push(
+            key(224, 1_073_742_048, true, false),
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(key(4, 97, true, false), surface(), Duration::ZERO);
+        input.push(key(4, 97, false, false), surface(), Duration::ZERO);
+        let inactive = input.take_frame(Duration::ZERO);
+        assert!(inactive.actions.is_empty());
+        assert_eq!(
+            inactive.raw.events,
+            vec![egui::Event::ModifiersChanged(egui::Modifiers {
+                ctrl: true,
+                command: true,
+                ..Default::default()
+            })]
+        );
+        input.push(
+            key(224, 1_073_742_048, false, false),
+            surface(),
+            Duration::ZERO,
+        );
+        input.take_frame(Duration::ZERO);
+        input.set_text_input(true);
+        input.push(key(4, 97, true, false), surface(), Duration::ZERO);
+        input.push(key(4, 97, false, false), surface(), Duration::ZERO);
+        input.push(Event::Text("a".into()), surface(), Duration::ZERO);
+        let typed = input.take_frame(Duration::ZERO);
+        assert!(typed.actions.is_empty());
+        assert_eq!(typed.raw.events, vec![egui::Event::Text("a".into())]);
+    }
+
+    #[test]
+    fn select_all_release_survives_control_release_and_preedit() {
+        let mut input = InputAdapter::new(surface());
+        let context = egui::Context::default();
+        input.set_text_input(true);
+        input.push(
+            key(224, 1_073_742_048, true, false),
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(key(4, 97, true, false), surface(), Duration::ZERO);
+        let mut output = context.run_ui(input.take_frame(Duration::ZERO).raw, |_| {});
+        output.textures_delta.clear();
+        assert!(context.input(|state| state.key_down(egui::Key::A)));
+        input.push(
+            key(224, 1_073_742_048, false, false),
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(
+            Event::Composition {
+                text: "candidate".into(),
+                start: 0,
+                length: 0,
+            },
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(key(4, 97, false, false), surface(), Duration::ZERO);
+        let mut output = context.run_ui(input.take_frame(Duration::ZERO).raw, |_| {});
+        output.textures_delta.clear();
+        assert!(!context.input(|state| state.key_down(egui::Key::A)));
+        assert!(!context.input(|state| state.modifiers.ctrl));
+    }
+
+    #[test]
+    fn field_deactivation_preserves_a_queued_select_all_release() {
+        let mut input = InputAdapter::new(surface());
+        let context = egui::Context::default();
+        input.set_text_input(true);
+        input.push(
+            key(224, 1_073_742_048, true, false),
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(key(4, 97, true, false), surface(), Duration::ZERO);
+        let mut output = context.run_ui(input.take_frame(Duration::ZERO).raw, |_| {});
+        output.textures_delta.clear();
+        assert!(context.input(|state| state.key_down(egui::Key::A)));
+        input.push(key(4, 97, false, false), surface(), Duration::ZERO);
+        input.set_text_input(false);
+        let mut output = context.run_ui(input.take_frame(Duration::ZERO).raw, |_| {});
+        output.textures_delta.clear();
+        assert!(!context.input(|state| state.key_down(egui::Key::A)));
+    }
+
+    #[test]
+    fn background_releases_all_editing_keys_with_a_fixed_cancellation_batch() {
+        let mut input = InputAdapter::new(surface());
+        let context = egui::Context::default();
+        input.set_text_input(true);
+        input.push(
+            Event::PointerButton {
+                button: 1,
+                pressed: true,
+                x: 100,
+                y: 100,
+            },
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(
+            key(224, 1_073_742_048, true, false),
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(key(42, 8, true, false), surface(), Duration::ZERO);
+        input.push(key(76, 127, true, false), surface(), Duration::ZERO);
+        input.push(key(4, 97, true, false), surface(), Duration::ZERO);
+        input.push(
+            Event::Composition {
+                text: "candidate".into(),
+                start: 0,
+                length: 0,
+            },
+            surface(),
+            Duration::ZERO,
+        );
+        let mut output = context.run_ui(input.take_frame(Duration::ZERO).raw, |_| {});
+        output.textures_delta.clear();
+        for key in [egui::Key::Backspace, egui::Key::Delete, egui::Key::A] {
+            assert!(context.input(|state| state.key_down(key)));
+        }
+        input.push(
+            Event::Lifecycle(criterion_platform::Lifecycle::WillBackground),
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(
+            Event::Lifecycle(criterion_platform::Lifecycle::Background),
+            surface(),
+            Duration::ZERO,
+        );
+        let hidden = input.take_frame(Duration::ZERO);
+        assert!(hidden.cancel_interactions);
+        assert_eq!(hidden.raw.events.len(), 9);
+        let mut output = context.run_ui(hidden.raw, |_| {});
+        output.textures_delta.clear();
+        for key in [egui::Key::Backspace, egui::Key::Delete, egui::Key::A] {
+            assert!(!context.input(|state| state.key_down(key)));
+        }
+        assert!(!context.input(|state| state.pointer.primary_down()));
+        assert!(!context.input(|state| state.pointer.primary_clicked()));
+        assert!(!context.input(|state| state.modifiers.ctrl));
+    }
+
+    #[test]
+    fn select_all_uses_the_logical_letter_and_releases_only_its_physical_press() {
+        // SDL's physical Q location can produce logical A on AZERTY; the physical
+        // A location can produce logical Q. Shortcut meaning follows the logical key.
+        for (scancode, keycode, selects_all) in [(20, 97, true), (4, 113, false)] {
+            let mut input = InputAdapter::new(surface());
+            input.set_text_input(true);
+            input.push(
+                key(224, 1_073_742_048, true, false),
+                surface(),
+                Duration::ZERO,
+            );
+            input.push(
+                key(scancode, keycode, true, false),
+                surface(),
+                Duration::ZERO,
+            );
+            let frame = input.take_frame(Duration::ZERO);
+            assert!(frame.actions.is_empty());
+            assert_eq!(
+                frame.raw.events.iter().any(|event| matches!(
+                    event,
+                    egui::Event::Key {
+                        key: egui::Key::A,
+                        pressed: true,
+                        ..
+                    }
+                )),
+                selects_all
+            );
+        }
+        let mut input = InputAdapter::new(surface());
+        let context = egui::Context::default();
+        input.set_text_input(true);
+        input.push(
+            key(224, 1_073_742_048, true, false),
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(key(20, 97, true, false), surface(), Duration::ZERO);
+        let mut output = context.run_ui(input.take_frame(Duration::ZERO).raw, |_| {});
+        output.textures_delta.clear();
+        assert!(context.input(|state| state.key_down(egui::Key::A)));
+        input.push(key(4, 113, false, false), surface(), Duration::ZERO);
+        let mut output = context.run_ui(input.take_frame(Duration::ZERO).raw, |_| {});
+        output.textures_delta.clear();
+        assert!(
+            context.input(|state| state.key_down(egui::Key::A)),
+            "an unrelated physical release cannot clear the shortcut"
+        );
+        input.push(
+            key(224, 1_073_742_048, false, false),
+            surface(),
+            Duration::ZERO,
+        );
+        input.push(key(20, 0, false, false), surface(), Duration::ZERO);
+        let mut output = context.run_ui(input.take_frame(Duration::ZERO).raw, |_| {});
+        output.textures_delta.clear();
+        assert!(
+            !context.input(|state| state.key_down(egui::Key::A)),
+            "the known physical release remains valid if logical layout/control state changes"
         );
     }
 }
