@@ -55,7 +55,7 @@ Do not redistribute or relink this excluded archive under an assumed LGPL or Sys
 
 ### GNU startup code and retained permissions
 
-The exact application map inspected with its matching ELF identifies the following incorporated SDK code. [GNU startup notices](../NOTICES.md#gnu-startup-and-nonshared-code) retain every named file's copyright/grant header and the complete GCC exception. These objects are separate from the stock shared libraries listed above.
+The matching maps and ELFs from the current combined app, caller and broker development build identify the following incorporated SDK code. All three contain the startup objects and `libc_nonshared.a` members `elf-init.oS` and `aeabi_read_tp.oS`; only the application additionally incorporates `stat64.oS` and `fstat64.oS`. [GNU startup notices](../NOTICES.md#gnu-startup-and-nonshared-code) retain every named file's copyright/grant header and the complete GCC exception. These objects are separate from the stock shared libraries listed above.
 
 | Incorporated object | Source and retained permission |
 | --- | --- |
@@ -66,7 +66,7 @@ The exact application map inspected with its matching ELF identifies the followi
 
 The glibc permissions remove restrictions arising from using those compiled files in a linked program; LGPL restrictions remain in other respects, including modification and distribution of the files separately. Some headers expressly allow modified versions to omit that permission. The GCC exception applies to files bearing its grant and preserves its stated conditions. Neither permission is a blanket SDK or System Library exemption. The known file permissions do not, by themselves, require a bit-for-bit rebuild of the SDK before conveying the linked program. They also do not discharge the project's GPL corresponding-source obligations or terms of other components.
 
-An archive's `LOAD` entry alone does not prove incorporation. In the exact application map, `libgcc.a` and `libpthread_nonshared.a` contribute no archive members; Rust/LLVM compiler builtins supply the inspected arithmetic/memory helpers. Scrt1's separately LGPL-only `csu/init.c` contributes `_IO_stdin_used` data that the map discards, and that symbol is absent from the matching ELF. Do not extend the startup permission to that file or count its discarded data as embedded code. The retained single-package caller/broker maps are comparative: their output hashes differ from the packaged three-artifact build. Exact matching maps for the final app, caller and broker still need their own reconciliation.
+An archive's `LOAD` entry alone does not prove incorporation. In all three exact maps, `libgcc.a` and `libpthread_nonshared.a` contribute no archive members; Rust/LLVM compiler builtins supply the inspected arithmetic/memory helpers. Scrt1's separately LGPL-only `csu/init.c` contributes `_IO_stdin_used` data that every map discards, and that symbol is absent from each matching ELF. Do not extend the startup permission to that file or count its discarded data as embedded code. Collecting the maps preserved all three binaries byte-for-byte against the same combined build without maps. This establishes the inspected development artifacts; the final release's own app, caller and broker still require exact map/source/notice reconciliation.
 
 ### SDK source provenance and its limits
 
