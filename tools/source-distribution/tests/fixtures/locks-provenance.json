@@ -1,0 +1,6 @@
+{
+  "projectRevision": "5fa46ae2d4b45eefbf9e833998671a57b8eefa2f",
+  "runtimeSourceUrl": "https://static.rust-lang.org/dist/2026-07-02/rust-src-nightly.tar.gz",
+  "runtimeSourceSha256": "13d9f9d169548c83cbd2c83d9806a2c5906c77d4e3effbc79d1456e6d637798c",
+  "inventoryExtractor": "Python standard-library tomllib; independent Cargo lock parser"
+}

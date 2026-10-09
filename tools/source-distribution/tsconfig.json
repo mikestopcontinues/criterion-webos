@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "target": "ES2018", "module": "Node16", "moduleResolution": "Node16", "lib": ["ES2018"],
+    "typeRoots": ["../player-probe/node_modules/@types"], "types": ["node"], "strict": true,
+    "noUncheckedIndexedAccess": true, "noUnusedLocals": true, "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true, "noEmitOnError": true, "rootDir": "../..",
+    "outDir": "../../.local/source-distribution/compiled"
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "prepare.ts", "requirements.ts", "build.ts"]
+}
