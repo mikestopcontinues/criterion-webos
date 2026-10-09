@@ -6,12 +6,15 @@ use criterion_provider::{
     DiscoveryRoute, Error, Filter, HttpTransport, MediaDetail, MediaId, RequestTransport,
     SearchResults, SortDirection,
 };
+use criterion_session::{MonotonicClock, SystemClock};
 use criterion_ui::{Command, FilterSelection, Page, SearchGroup, Target};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tokio::runtime::{Handle, Runtime};
 
 const MAX_HISTORY: usize = 16;
 const HISTORY_BYTES: usize = 8 * 1024 * 1024;
+const SEARCH_DELAY: Duration = Duration::from_millis(250);
+const MAX_SEARCH_BYTES: usize = 256;
 
 #[derive(Clone)]
 enum Query {
@@ -27,7 +30,7 @@ enum Loaded {
     Discovery(DiscoveryPage),
     Browse(CatalogPage, Arc<BrowseOptions>),
     Detail(Box<MediaDetail>),
-    Search(SearchResults, SearchGroup),
+    Search(SearchResults, String),
 }
 struct Snapshot {
     page: Page,
@@ -35,6 +38,7 @@ struct Snapshot {
     query: Option<Query>,
     browse: Option<Arc<BrowseRequest>>,
     private_epoch: Option<u64>,
+    search_loaded: bool,
 }
 
 pub(crate) enum Effect {
@@ -50,7 +54,10 @@ pub(crate) enum Effect {
     Exit,
 }
 
-pub(crate) struct Controller<T = HttpTransport> {
+pub(crate) struct Controller<T = HttpTransport, C: MonotonicClock = SystemClock> {
+    clock: C,
+    search_due: Option<Duration>,
+    search_loaded: bool,
     catalog: Arc<Catalog<T>>,
     jobs: Jobs<Result<Loaded, Error>>,
     pub(crate) view: Presentation,
@@ -66,7 +73,15 @@ pub(crate) struct Controller<T = HttpTransport> {
 
 impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
     pub(crate) fn new(catalog: Catalog<T>, runtime: &Handle) -> Self {
+        Self::with_clock(catalog, runtime, SystemClock::default())
+    }
+}
+impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<T, C> {
+    pub(crate) fn with_clock(catalog: Catalog<T>, runtime: &Handle, clock: C) -> Self {
         let mut owner = Self {
+            clock,
+            search_due: None,
+            search_loaded: false,
             catalog: Arc::new(catalog),
             jobs: Jobs::new(),
             view: Presentation::loading("Home"),
@@ -116,6 +131,8 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
                     }
                     Target::Content(ContentTarget::MyList | ContentTarget::Subscribe) => {
                         self.jobs.cancel();
+                        self.search_due = None;
+                        self.search_loaded = false;
                         self.query = None;
                         self.private_epoch = None;
                         self.view = Presentation::loading(title(page));
@@ -128,11 +145,14 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
             }
             Command::Restore(destination) => {
                 self.jobs.cancel();
+                self.search_due = None;
+                self.search_loaded = false;
                 if let Some(snapshot) = self.history.pop() {
                     self.page = destination;
                     self.query = snapshot.query;
                     self.browse = snapshot.browse;
                     self.private_epoch = snapshot.private_epoch;
+                    self.search_loaded = snapshot.search_loaded;
                     if snapshot.page == destination {
                         if let Some(view) = snapshot.view {
                             self.view = view;
@@ -150,13 +170,46 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
                 }
             }
             Command::Search { query, group } => {
-                if query.trim().is_empty() {
+                let query = query.trim();
+                if query.is_empty()
+                    || query.len() > MAX_SEARCH_BYTES
+                    || query.chars().any(char::is_control)
+                {
                     self.jobs.cancel();
+                    self.search_due = None;
+                    self.search_loaded = false;
                     self.query = None;
                     self.view = Presentation::loading("Search");
-                    self.view.set_status(criterion_ui::LoadState::Empty);
+                    self.view.set_status(if query.is_empty() {
+                        criterion_ui::LoadState::Empty
+                    } else {
+                        criterion_ui::LoadState::Error
+                    });
                 } else {
-                    self.start(Query::Search(query, group), runtime);
+                    if let Some(Query::Search(current, selected)) = &mut self.query
+                        && self.page == Page::Search
+                        && current == query
+                    {
+                        *selected = group;
+                        if self.search_loaded
+                            && self
+                                .view
+                                .with_view(criterion_ui::LoginView::SignedOut, |view| {
+                                    matches!(
+                                        view.status,
+                                        criterion_ui::LoadState::Ready
+                                            | criterion_ui::LoadState::Empty
+                                    )
+                                })
+                        {
+                            self.view.set_group(group);
+                            return Effect::None;
+                        }
+                        if self.search_due.is_some() || self.jobs.is_active() {
+                            return Effect::None;
+                        }
+                    }
+                    self.start(Query::Search(query.to_owned(), group), runtime);
                 }
             }
             Command::ApplyFilters(selection) => {
@@ -182,6 +235,8 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
                     self.remember();
                 }
                 self.jobs.cancel();
+                self.search_due = None;
+                self.search_loaded = false;
                 self.page = Page::Login;
                 self.query = None;
                 self.private_epoch = None;
@@ -200,6 +255,12 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
     }
 
     pub(crate) fn poll(&mut self, runtime: &Runtime) {
+        if self.search_due.is_some_and(|due| self.clock.now() >= due) {
+            self.search_due = None;
+            if let Some(query @ Query::Search(_, _)) = self.query.clone() {
+                self.issue(query, runtime.handle());
+            }
+        }
         if let Some(result) = runtime.block_on(self.jobs.take_ready()) {
             match result {
                 Ok(Ok(Loaded::Discovery(page))) => self.view = Presentation::discovery(page),
@@ -210,8 +271,14 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
                     self.trim_history();
                 }
                 Ok(Ok(Loaded::Detail(detail))) => self.view = Presentation::detail(*detail),
-                Ok(Ok(Loaded::Search(results, group))) => {
-                    self.view = Presentation::search(results, group)
+                Ok(Ok(Loaded::Search(results, loaded_query))) => {
+                    if let Some(Query::Search(current, group)) = &self.query
+                        && self.page == Page::Search
+                        && *current == loaded_query
+                    {
+                        self.view = Presentation::search(results, *group);
+                        self.search_loaded = true;
+                    }
                 }
                 Ok(Err(Error::Unavailable | Error::Deadline)) => {
                     self.view.set_status(criterion_ui::LoadState::Offline)
@@ -241,6 +308,8 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
             return false;
         }
         self.jobs.cancel();
+        self.search_due = None;
+        self.search_loaded = false;
         self.query = None;
         self.private_epoch = Some(epoch);
         self.view = Presentation::loading("My List");
@@ -261,7 +330,8 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
     }
 
     pub(crate) fn background(&mut self) {
-        self.suspended |= self.jobs.is_active();
+        self.suspended |= self.jobs.is_active() || self.search_due.is_some();
+        self.search_due = None;
         self.jobs.cancel();
     }
     pub(crate) fn foreground(&mut self, runtime: &Handle) {
@@ -281,9 +351,17 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
             && view.with_view(criterion_ui::LoginView::SignedOut, |data| {
                 data.status == criterion_ui::LoadState::Loading
             });
+        let interrupted_search = self.page == Page::Search
+            && view.with_view(criterion_ui::LoginView::SignedOut, |data| {
+                data.status == criterion_ui::LoadState::Loading
+            });
         self.history.push(Snapshot {
             page: self.page,
-            view: if self.jobs.is_active() || interrupted_shelf {
+            view: if self.jobs.is_active()
+                || self.search_due.is_some()
+                || interrupted_shelf
+                || interrupted_search
+            {
                 None
             } else {
                 Some(view)
@@ -291,6 +369,7 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
             query: self.query.clone(),
             browse: self.browse.clone(),
             private_epoch: self.private_epoch.take(),
+            search_loaded: self.search_loaded,
         });
         self.trim_history();
     }
@@ -329,6 +408,8 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
     }
 
     fn navigate(&mut self, page: Page, runtime: &Handle) -> Effect {
+        self.search_due = None;
+        self.search_loaded = false;
         self.private_epoch = None;
         match page {
             Page::Home => self.start(Query::Discovery(DiscoveryRoute::Home), runtime),
@@ -358,6 +439,8 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
     }
 
     fn start(&mut self, mut query: Query, runtime: &Handle) {
+        self.search_due = None;
+        self.search_loaded = false;
         self.private_epoch = None;
         if let Query::Browse { options, .. } = &mut query {
             *options = self.options.clone();
@@ -368,6 +451,17 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
             self.browse = Some(request.clone());
         }
         self.view = Presentation::loading(title(self.page));
+        if matches!(query, Query::Search(_, _)) {
+            self.jobs.cancel();
+            self.search_due = self.clock.now().checked_add(SEARCH_DELAY);
+            if self.search_due.is_none() {
+                self.view.set_status(criterion_ui::LoadState::Error);
+            }
+            return;
+        }
+        self.issue(query, runtime);
+    }
+    fn issue(&mut self, query: Query, runtime: &Handle) {
         let catalog = self.catalog.clone();
         self.jobs.replace(runtime, async move {
             match query {
@@ -376,10 +470,10 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
                     .detail(&id)
                     .await
                     .map(|detail| Loaded::Detail(Box::new(detail))),
-                Query::Search(query, group) => catalog
+                Query::Search(query, _) => catalog
                     .search(&query)
                     .await
-                    .map(|results| Loaded::Search(results, group)),
+                    .map(|results| Loaded::Search(results, query)),
                 Query::Browse { request, options } => {
                     let options = match options {
                         Some(options) => options,
@@ -392,6 +486,10 @@ impl<T: RequestTransport + Send + Sync + 'static> Controller<T> {
         });
     }
 }
+
+#[cfg(test)]
+#[path = "controller/search_tests.rs"]
+mod search_tests;
 
 // The validated options are admitted once per process and shared across snapshots.
 // Charge them once, including retained vector/string storage, inside the history
