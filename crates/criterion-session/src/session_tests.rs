@@ -616,3 +616,217 @@ async fn interrupted_revoke_settlement_is_explicitly_unconfirmed() {
     assert_eq!(logout.await, Err(Error::RevocationUnconfirmed));
     assert_eq!(session.status(), Status::Disposed);
 }
+
+#[tokio::test]
+async fn device_authorization_requires_an_object_response() {
+    let session = Session::with_transport(
+        Configuration::production(),
+        Sequence(Mutex::new(vec![json(
+            r#"["device-secret","ABCD-EFGH","https://login.criterion.com/activate?user_code=ABCD-EFGH",900,5]"#,
+        )])),
+        Clock(Arc::new(AtomicU64::new(0))),
+    );
+    assert!(matches!(
+        session.start_link().await,
+        Err(Error::InvalidResponse)
+    ));
+    assert_eq!(session.status(), Status::SignedOut);
+    assert_eq!(session.poll_once().await, Err(Error::NoSession));
+}
+
+#[tokio::test]
+async fn token_array_success_requires_a_new_sign_in_without_credential_admission() {
+    let now = Arc::new(AtomicU64::new(0));
+    let session = Session::with_transport(
+        Configuration::production(),
+        Sequence(Mutex::new(vec![
+            device(),
+            json(r#"["access-secret","refresh-secret",3600]"#),
+        ])),
+        Clock(now.clone()),
+    );
+    session.start_link().await.unwrap();
+    now.store(5, Ordering::SeqCst);
+    assert_eq!(
+        session.poll_once().await,
+        Err(Error::ReauthenticationRequired)
+    );
+    assert_eq!(session.status(), Status::ReauthenticationRequired);
+    assert_eq!(session.with_access_token(|_| ()), Err(Error::NoSession));
+    assert!(matches!(session.checkpoint(), Err(Error::NoSession)));
+}
+
+#[tokio::test]
+async fn refresh_array_success_erases_possibly_rotated_credentials() {
+    let now = Arc::new(AtomicU64::new(0));
+    let session = Session::with_transport(
+        Configuration::production(),
+        Sequence(Mutex::new(vec![
+            device(),
+            tokens(),
+            json(r#"["new-access","rotated-refresh",3600]"#),
+        ])),
+        Clock(now.clone()),
+    );
+    linked(&session, &now).await;
+    assert_eq!(
+        session.refresh().await,
+        Err(Error::ReauthenticationRequired)
+    );
+    assert_eq!(session.status(), Status::ReauthenticationRequired);
+    assert_eq!(session.with_access_token(|_| ()), Err(Error::NoSession));
+    assert!(matches!(session.checkpoint(), Err(Error::NoSession)));
+    assert_eq!(session.refresh().await, Err(Error::NoSession));
+}
+
+#[tokio::test]
+async fn issuer_error_array_cannot_extend_a_device_authorization_transaction() {
+    let now = Arc::new(AtomicU64::new(0));
+    let session = Session::with_transport(
+        Configuration::production(),
+        Sequence(Mutex::new(vec![
+            device(),
+            Response {
+                status: 400,
+                body: SecretBody::new(br#"["authorization_pending"]"#.to_vec()),
+            },
+        ])),
+        Clock(now.clone()),
+    );
+    session.start_link().await.unwrap();
+    now.store(5, Ordering::SeqCst);
+    assert_eq!(session.poll_once().await, Err(Error::InvalidResponse));
+    assert_eq!(session.status(), Status::Cancelled);
+    assert_eq!(session.poll_once().await, Err(Error::NoSession));
+}
+
+#[test]
+fn authenticated_checkpoint_plaintext_requires_an_object_record() {
+    let payload = format!(r#"[1,"{ISSUER}","{CLIENT_ID}","refresh-secret"]"#);
+    assert!(matches!(
+        StoredSession::decode(SecretBody::new(payload.into_bytes())),
+        Err(Error::InvalidResponse)
+    ));
+}
+
+#[tokio::test]
+async fn token_object_validation_rejects_wrong_fields_and_trailing_documents() {
+    for body in [
+        "null",
+        "true",
+        "42",
+        r#""synthetic-scalar""#,
+        r#"{"access_token":{"value":"access-secret"},"refresh_token":"refresh-secret","expires_in":3600}"#,
+        r#"{"access_token":["access-secret"],"refresh_token":"refresh-secret","expires_in":3600}"#,
+        r#"{"access_token":"access-secret","refresh_token":"refresh-secret","expires_in":{"value":3600}}"#,
+        r#"{"access_token":"access-secret","access_token":"other-secret","refresh_token":"refresh-secret","expires_in":3600}"#,
+        r#"{"access_token":"access-secret","refresh_token":"refresh-secret","expires_in":3600} {}"#,
+        r#"{"access_token":"access-secret","refresh_token":"refresh-secret","expires_in":3600} false"#,
+    ] {
+        let now = Arc::new(AtomicU64::new(0));
+        let session = Session::with_transport(
+            Configuration::production(),
+            Sequence(Mutex::new(vec![device(), json(body)])),
+            Clock(now.clone()),
+        );
+        session.start_link().await.unwrap();
+        now.store(5, Ordering::SeqCst);
+        assert_eq!(
+            session.poll_once().await,
+            Err(Error::ReauthenticationRequired)
+        );
+        assert_eq!(session.with_access_token(|_| ()), Err(Error::NoSession));
+        assert!(matches!(session.checkpoint(), Err(Error::NoSession)));
+    }
+}
+
+#[tokio::test]
+async fn object_response_extension_and_omitted_refresh_token_preserve_the_session() {
+    let now = Arc::new(AtomicU64::new(0));
+    let recorder = Recorder {
+        responses: Arc::new(Mutex::new(vec![
+            Ok(device()),
+            Ok(json(
+                r#" {"access_token":"access-secret","refresh_token":"refresh-secret","expires_in":3600,"issuer_extension":{"items":[{"enabled":true}]}}
+"#,
+            )),
+            Ok(json(
+                r#"{"access_token":"new-access","expires_in":3600,"issuer_extension":[{"enabled":true}]}"#,
+            )),
+            Ok(Response {
+                status: 200,
+                body: SecretBody::new(Vec::new()),
+            }),
+        ])),
+        forms: Arc::new(Mutex::new(Vec::new())),
+    };
+    let session = Session::with_transport(
+        Configuration::production(),
+        recorder.clone(),
+        Clock(now.clone()),
+    );
+    linked(&session, &now).await;
+    session.refresh().await.unwrap();
+    assert_eq!(
+        session.with_access_token(str::to_owned),
+        Ok("new-access".to_owned())
+    );
+    session.logout().await.unwrap();
+    let forms = recorder.forms.lock().unwrap();
+    let revoke: Vec<_> = url::form_urlencoded::parse(forms[3].as_bytes()).collect();
+    assert!(revoke.contains(&("token".into(), "refresh-secret".into())));
+    assert_eq!(session.status(), Status::SignedOut);
+}
+
+#[tokio::test]
+async fn duplicate_optional_refresh_field_cannot_confirm_rotation() {
+    let now = Arc::new(AtomicU64::new(0));
+    let session = Session::with_transport(
+        Configuration::production(),
+        Sequence(Mutex::new(vec![
+            device(),
+            tokens(),
+            json(
+                r#"{"access_token":"new-access","refresh_token":null,"refresh_token":"rotated-refresh","expires_in":3600}"#,
+            ),
+        ])),
+        Clock(now.clone()),
+    );
+    linked(&session, &now).await;
+    assert_eq!(
+        session.refresh().await,
+        Err(Error::ReauthenticationRequired)
+    );
+    assert_eq!(session.with_access_token(|_| ()), Err(Error::NoSession));
+    assert!(matches!(session.checkpoint(), Err(Error::NoSession)));
+}
+
+#[test]
+fn checkpoint_object_validation_rejects_changed_shape_and_trailing_documents() {
+    let valid = format!(
+        r#"{{"version":1,"issuer":"{ISSUER}","client_id":"{CLIENT_ID}","refresh_token":"refresh-secret"}}"#
+    );
+    let invalid = [
+        "null".to_owned(),
+        "true".to_owned(),
+        "42".to_owned(),
+        r#""synthetic-scalar""#.to_owned(),
+        valid.replace(r#""refresh-secret""#, r#"{"value":"refresh-secret"}"#),
+        valid.replace(r#""refresh-secret""#, r#"["refresh-secret"]"#),
+        valid.replace(r#""version":1"#, r#""version":1,"version":1"#),
+        valid.replace(
+            r#""refresh_token":"refresh-secret""#,
+            r#""refresh_token":"refresh-secret","refresh_token":"other-secret""#,
+        ),
+        valid.replace(r#""version":1"#, r#""version":1,"extra":{"items":[true]}"#),
+        format!("{valid} {{}}"),
+        format!("{valid} false"),
+    ];
+    for body in invalid {
+        assert!(matches!(
+            StoredSession::decode(SecretBody::new(body.into_bytes())),
+            Err(Error::InvalidResponse)
+        ));
+    }
+    assert!(StoredSession::decode(SecretBody::new(format!(" \n{valid}\t ").into_bytes())).is_ok());
+}

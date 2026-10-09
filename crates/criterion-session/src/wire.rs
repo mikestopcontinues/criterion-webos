@@ -1,5 +1,8 @@
 use crate::{CLIENT_ID, Error, Response, SCOPE, Secret, SecretBody};
-use serde::Deserialize;
+use serde::{
+    Deserialize, Deserializer,
+    de::{MapAccess, Visitor, value::MapAccessDeserializer},
+};
 use std::time::Duration;
 
 pub(crate) const MAX_BODY: usize = 65_536;
@@ -83,11 +86,34 @@ pub(crate) fn failure(response: &Response) -> Result<Failure, Error> {
         _ => Failure::Other,
     })
 }
-pub(crate) fn parse<T: for<'de> Deserialize<'de>>(response: &Response) -> Result<T, Error> {
+// Deserialize directly from a JSON map so derived struct sequence support cannot
+// admit positional arrays. No intermediate Value copies private response text.
+pub(crate) fn deserialize_object<'de, T: Deserialize<'de>>(body: &'de [u8]) -> Result<T, Error> {
+    struct ObjectVisitor<T>(std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> Visitor<'de> for ObjectVisitor<T> {
+        type Value = T;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a JSON object")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
+            T::deserialize(MapAccessDeserializer::new(map))
+        }
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_slice(body);
+    let value = deserializer
+        .deserialize_map(ObjectVisitor(std::marker::PhantomData))
+        .map_err(|_| Error::InvalidResponse)?;
+    deserializer.end().map_err(|_| Error::InvalidResponse)?;
+    Ok(value)
+}
+fn parse<T: for<'de> Deserialize<'de>>(response: &Response) -> Result<T, Error> {
     if response.body.expose().len() > MAX_BODY {
         return Err(Error::ResponseTooLarge);
     }
-    serde_json::from_slice(response.body.expose()).map_err(|_| Error::InvalidResponse)
+    deserialize_object(response.body.expose())
 }
 pub(crate) fn parse_device(response: &Response) -> Result<Device, Error> {
     if response.status != 200 {

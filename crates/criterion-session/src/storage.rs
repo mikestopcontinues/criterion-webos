@@ -31,8 +31,7 @@ impl StoredSession {
         if payload.expose().len() > crate::wire::MAX_BODY {
             return Err(Error::InvalidResponse);
         }
-        let record: Record =
-            serde_json::from_slice(payload.expose()).map_err(|_| Error::InvalidResponse)?;
+        let record: Record = crate::wire::deserialize_object(payload.expose())?;
         if record.version != 1
             || record.issuer.expose() != ISSUER
             || record.client_id.expose() != CLIENT_ID
