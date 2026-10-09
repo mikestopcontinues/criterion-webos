@@ -6,14 +6,14 @@ Deliver every acceptance criterion in [the product contract](docs/product.md). T
 
 ## Checkpoint
 
-Root owns integration, product/docs, subscriber/device access and publication. The signed Android TV reference and official website are linked; list, browser player controls and progress were compared, and temporary account changes restored. The captain selected PlxNative player inspiration. Public catalog, native window/input and the Rust interface core are integrated. Home/New discovery, Search/pointer input, account linking, artwork and the app runtime have isolated implementation owners. Platform executables and the TLS catalog library cross-compile against the pinned ARM32 SDK. The public GitHub source and landing page are live and initial CI passed; the complete application, E2E, C4 execution and licensed release remain unfinished.
+Root owns integration, product/docs, subscriber/device access and publication. The signed Android TV reference and official website are linked; list, browser player controls and progress were compared, and temporary account changes restored. The captain selected PlxNative player inspiration. Public catalog, native window/input, Rust interface, linking state, artwork and composed application runtime are integrated. The complete development application cross-links against the pinned ARM32 SDK; actual host SDL input/GLES framebuffer E2E is verified. Subscriber account adapters and the packaged Rust service lifetime probe have local coverage and independent review. Public GitHub source and landing page are live; current source publication, C4 execution, native caller/TEE rights and licensed release remain unfinished.
 
 ## Unfinished work
 
 - [ ] Complete subscriber reference comparison and record actual parity behavior.
 - [ ] Establish current Criterion provider contracts and licensed TV playback feasibility.
 - [ ] Select the proven native architecture and secure session/storage/player interfaces.
-- [ ] Build reproducible tooling and the first working native TV slice; verify before extending it.
+- [ ] Package and verify the first complete native TV slice and the exact packaged service/native-caller probes after the Elgee device executor releases the queue.
 - [ ] Implement verified discovery/search/details/supplements, My List, Continue Watching, account, playback and lifecycle behavior.
 - [ ] Complete behavioral unit/integration/E2E coverage, independent reviews and exact-package device/physical/audible validation.
 - [ ] Publish the verified release and update the live GitHub Pages landing page with measured capabilities and limitations.

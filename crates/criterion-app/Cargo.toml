@@ -12,5 +12,19 @@ webos = ["sdl", "criterion-platform/webos"]
 
 [dependencies]
 criterion-platform = { path = "../criterion-platform" }
+criterion-artwork = { path = "../criterion-artwork" }
+criterion-provider = { path = "../criterion-provider" }
+criterion-session = { path = "../criterion-session" }
 criterion-ui = { path = "../criterion-ui" }
+aws-lc-rs = "=1.18.1"
 egui = { version = "=0.36.2", default-features = false }
+glow = "=0.17.0"
+tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+
+[[bin]]
+name = "criterion-unofficial"
+path = "src/main.rs"
+required-features = ["sdl"]

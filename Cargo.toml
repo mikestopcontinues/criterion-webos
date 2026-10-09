@@ -1,6 +1,10 @@
 [workspace]
-members = ["crates/criterion-platform", "crates/criterion-provider", "crates/criterion-ui"]
+members = ["crates/criterion-platform", "crates/criterion-provider", "crates/criterion-ui", "crates/criterion-app", "crates/criterion-session", "crates/criterion-artwork", "crates/criterion-account", "tools/player-probe/broker"]
+exclude = ["crates/criterion-artwork/vendor/image-webp"]
 resolver = "3"
+
+[patch.crates-io]
+image-webp = { path = "crates/criterion-artwork/vendor/image-webp" }
 
 [profile.release]
 lto = "thin"

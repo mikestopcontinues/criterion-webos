@@ -29,6 +29,13 @@ jobs:
         run: ./dev cargo test --workspace --all-features --locked
       - name: Host SDL startup behavior
         run: ./dev cargo test -p criterion-platform --features sdl --locked
+      - name: Native SDL input and GLES frame E2E
+        run: >-
+          ./dev run xvfb-run -a -s '-screen 0 1920x1080x24'
+          env SDL_VIDEO_X11_FORCE_EGL=1 cargo test -p criterion-app
+          --bin criterion-unofficial --features sdl --locked
+          native_window_input_and_search_frame_present_end_to_end
+          -- --ignored --nocapture --test-threads=1
       - name: Diagnostics
         run: ./dev cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
   native:
@@ -42,5 +49,9 @@ jobs:
         run: ./dev native-image
       - name: Cross-link platform test executables
         run: ./dev native cargo test -p criterion-platform --target arm-unknown-linux-gnueabi -Z build-std=std,panic_abort,panic_unwind --features webos --no-run --locked
-      - name: Cross-compile catalog and TLS library
-        run: ./dev native cargo build -p criterion-provider --lib --target arm-unknown-linux-gnueabi -Z build-std=std,panic_abort --release --locked
+      - name: Cross-link the complete native application and packaged broker
+        run: >-
+          ./dev native cargo build -p criterion-app -p criterion-broker-probe
+          --features criterion-app/webos --target arm-unknown-linux-gnueabi
+          -Z build-std=std,panic_abort -Z build-std-features=compiler-builtins-mem
+          --release --locked

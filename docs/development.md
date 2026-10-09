@@ -9,3 +9,21 @@ The pinned nightly Cargo validates Rust source freshness with content checksums,
 The pinned SDK's wrapper contains an invalid formatted sysroot argument. Native commands use its underlying `gcc.br_real` driver with an explicit sysroot, retaining the driver's Cortex-A9/soft-float defaults. Rust links the SDK compatibility archive before `libdl`, which its auxiliary-vector implementation requires. An SDK C link verifies ARM32 EABI5, the stock SDL/GLES dependencies and baseline glibc symbols. A Rust cross-link, final ELF inspection and exact-device execution remain required before admitting any native package. The SDK library's host link metadata does not establish the LG runtime event ABI.
 
 The application uses the stock TV SDL/graphics stack; host SDL/Mesa checks do not prove LG event delivery, DRM, physical remote feel or native GPU performance. [The product contract](product.md) owns the separate acceptance criteria. Development networking is enabled for dependency preparation and live public-provider experiments; locked verification must explicitly separate offline checks from those live checks.
+
+## Application checks
+
+The complete native development executable uses `criterion-app`'s `sdl` host feature or `webos` ARM feature. Run the workspace behavior, formatting and strict Clippy commands in the README before source admission. CI also cross-links the complete application and the packaged lifetime broker. A successful SDK build is not a device execution result.
+
+Run the SDL/GLES E2E separately with one display owner:
+
+```sh
+./dev run xvfb-run -a -s '-screen 0 1920x1080x24' \
+  env SDL_VIDEO_X11_FORCE_EGL=1 cargo test -p criterion-app \
+  --bin criterion-unofficial --features sdl --locked \
+  native_window_input_and_search_frame_present_end_to_end \
+  -- --ignored --nocapture --test-threads=1
+```
+
+The runner's init process lets Xvfb receive its readiness signal and reaps children. The host test explicitly uses SDL's EGL path; the window still requires synchronized presentation. Its ignored `.local/e2e/native-search.ppm` capture contains synthetic Search input and no subscriber state. Inspect the settled framebuffer separately from the state assertions. Serialize GPU checks across agents; no host display fixture establishes LG compositor behavior.
+
+The separately ignored `native_public_catalog_artwork_and_detail_roundtrip_end_to_end` uses the production anonymous catalog/artwork transports. Run it with the same display command and that exact test name. It drives SDL All Films→detail→Back, waits for the current owning artwork, paints/reads/presents GLES and saves an ignored public-detail capture. It invokes no account/linking/player action. This opt-in live check requires current network/provider availability; Cargo's `--offline` only controls dependency resolution. CI uses the synthetic Search E2E, keeping provider availability outside the reproducible gate.

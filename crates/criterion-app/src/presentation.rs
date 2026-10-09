@@ -104,6 +104,7 @@ impl Presentation {
     pub(crate) fn artwork_bindings(&self) -> &[ImageBinding] {
         &self.artwork
     }
+    #[cfg(test)]
     pub(crate) fn gaps(&self) -> &ProjectionGaps {
         &self.gaps
     }
@@ -154,19 +155,24 @@ impl Presentation {
             self.selected_playlist = Some(index);
         }
     }
+    #[cfg(test)]
     pub(crate) fn selected_playlist(&self) -> Option<usize> {
         self.selected_playlist
     }
+    #[cfg(test)]
     pub(crate) fn title(&self) -> &str {
         &self.title
     }
+    #[cfg(test)]
     pub(crate) fn status(&self) -> LoadState {
         self.status
     }
+    #[cfg(test)]
     pub(crate) fn total(&self) -> u32 {
         self.total
     }
     /// Unrepresented public schedule rows; no current-time selection or playback is inferred.
+    #[cfg(test)]
     pub(crate) fn live_schedule(&self) -> &[criterion_provider::LiveProgram] {
         &self.live_schedule
     }
@@ -445,7 +451,11 @@ impl Presentation {
         });
         key
     }
-    pub(crate) fn with_view<R>(&self, consume: impl FnOnce(&ViewData<'_>) -> R) -> R {
+    pub(crate) fn with_view<R>(
+        &self,
+        login: criterion_ui::LoginView<'_>,
+        consume: impl FnOnce(&ViewData<'_>) -> R,
+    ) -> R {
         let cards: Vec<_> = match &self.card_indices {
             Some(indices) => indices
                 .iter()
@@ -515,6 +525,7 @@ impl Presentation {
             total: self.total,
             cards: &cards,
             search_counts: self.search_counts,
+            login,
         })
     }
 }
@@ -603,7 +614,7 @@ mod tests {
     #[test]
     fn loading_and_failure_lend_the_requested_title_without_inventing_content() {
         let mut presentation = Presentation::loading("Criterion 24/7");
-        presentation.with_view(|view| {
+        presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
             assert_eq!(view.title, "Criterion 24/7");
             assert_eq!(view.status, LoadState::Loading);
             assert_eq!(view.total, 0);
@@ -613,7 +624,9 @@ mod tests {
             assert!(view.detail.is_none());
         });
         presentation.set_status(LoadState::Offline);
-        presentation.with_view(|view| assert_eq!(view.status, LoadState::Offline));
+        presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
+            assert_eq!(view.status, LoadState::Offline)
+        });
     }
 
     #[test]
@@ -634,7 +647,7 @@ mod tests {
                 next_cursor: None,
             },
         );
-        presentation.with_view(|view| {
+        presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
             assert_eq!(view.title, "All Films");
             assert_eq!(view.status, LoadState::Ready);
             assert_eq!(view.total, 37);
@@ -705,7 +718,7 @@ mod tests {
             },
             SearchGroup::All,
         );
-        presentation.with_view(|view| {
+        presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
             assert_eq!(view.search_counts, [20, 11, 4, 3]);
             assert_eq!(view.total, 20);
             assert_eq!(
@@ -725,7 +738,7 @@ mod tests {
             (SearchGroup::Supplements, "Supplement fixture", 3),
         ] {
             presentation.set_group(group);
-            presentation.with_view(|view| {
+            presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
                 assert_eq!(view.cards.len(), 1);
                 assert_eq!(view.cards[0].title, title);
                 assert_eq!(view.total, count);
@@ -814,7 +827,7 @@ mod tests {
             ],
         };
         let presentation = Presentation::discovery(page);
-        presentation.with_view(|view| {
+        presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
             assert!(
                 view.hero.is_none(),
                 "a rail is never manufactured into a hero"
@@ -915,7 +928,7 @@ mod tests {
                 },
             ],
         });
-        presentation.with_view(|view| {
+        presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
             let hero = view
                 .hero
                 .as_ref()
@@ -1005,7 +1018,7 @@ mod tests {
                 },
             ],
         });
-        presentation.with_view(|view| {
+        presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
             let detail = view.detail.as_ref().unwrap();
             assert_eq!(detail.kind, DetailKind::Film);
             assert_eq!(
@@ -1078,7 +1091,7 @@ mod tests {
             };
             presentation.set_options(&options);
         }
-        presentation.with_view(|view| {
+        presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
             let groups = view.filters.as_ref().unwrap().groups;
             assert_eq!(
                 groups.iter().map(|group| group.label).collect::<Vec<_>>(),
@@ -1160,7 +1173,7 @@ mod tests {
                 ends_at: UtcTimestamp::new("2026-10-09T16:00:00Z").unwrap(),
             }],
         });
-        presentation.with_view(|view| {
+        presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
             let detail = view.detail.as_ref().unwrap();
             assert_eq!(
                 detail.card.duration_seconds, 0,
