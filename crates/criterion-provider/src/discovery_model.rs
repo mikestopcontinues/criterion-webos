@@ -1,10 +1,11 @@
 //! Typed ordered discovery metadata and validated content/artwork targets.
 use crate::{Error, MediaId, MediaSummary};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiscoveryRoute {
     Home,
     New,
+    Discover(Slug),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -281,7 +282,7 @@ impl EditorialImage {
                 !name.is_empty()
                     && name
                         .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b','))
             })
         {
             return Err(Error::InvalidRequest);

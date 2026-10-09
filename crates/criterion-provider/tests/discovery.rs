@@ -1,7 +1,7 @@
 use criterion_provider::{
     Catalog, ContentTarget, DiscoveryBlock, DiscoveryRoute, EditorialImage, Error, GalleryLayout,
     ImageLabel, MAX_RESPONSE_BYTES, MediaKind, MediaRoute, RailSource, Request, RequestTransport,
-    Response,
+    Response, Slug,
 };
 
 fn blocks_fixture() -> serde_json::Value {
@@ -52,6 +52,87 @@ async fn project(records: &str) -> Result<criterion_provider::DiscoveryPage, Err
 }
 
 struct HomeFixture;
+
+struct DiscoverFixture;
+
+impl RequestTransport for DiscoverFixture {
+    async fn get(&self, request: Request) -> Result<Response, Error> {
+        assert_eq!(
+            request.url.as_str(),
+            "https://www.criterionchannel.com/discover/newly-added"
+        );
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/provider/discovery-newly-added.json"
+        ))
+        .unwrap();
+        Ok(Response {
+            status: 200,
+            content_type: "text/html; charset=utf-8".into(),
+            body: envelope(&flight_records(fixture["blocks"].clone())),
+        })
+    }
+}
+
+#[tokio::test]
+async fn discover_destination_preserves_the_provided_grid_and_card_order() {
+    let page = Catalog::with_transport(DiscoverFixture)
+        .discovery(DiscoveryRoute::Discover(Slug::new("newly-added").unwrap()))
+        .await
+        .unwrap();
+    assert_eq!(page.blocks.len(), 1);
+    let DiscoveryBlock::Rail {
+        id,
+        cards,
+        presentation,
+        ..
+    } = &page.blocks[0]
+    else {
+        panic!("expected discovery grid")
+    };
+    assert_eq!(*id, 834);
+    assert_eq!(presentation.cards_per_view, 4);
+    assert_eq!(presentation.layout, GalleryLayout::Grid);
+    assert_eq!(cards.len(), 3);
+    assert_eq!(cards[0].media.title, "Barry Lyndon");
+    assert_eq!(cards[1].media.title, "Jennifer’s Body");
+    assert_eq!(cards[2].media.title, "The Gift");
+}
+
+#[tokio::test]
+async fn discovery_preserves_the_observed_shorts_banner_comma_in_asset_basename() {
+    // Factual metadata subset from anonymous /discover/shorts HTML, 2026-10-09,
+    // 483998 bytes, SHA256 bf83fefcc131f5fba6b9f55d21d7331803bd01efefacb3fee63934ffa6ccf0ef.
+    // One supplied 320-wide desktop/mobile asset each; no asset was fetched.
+    let banner: serde_json::Value =
+        serde_json::from_str(include_str!("data/discovery-shorts-banner.json")).unwrap();
+    let page = project(&flight_records(serde_json::json!([banner])))
+        .await
+        .unwrap();
+    let DiscoveryBlock::Banner { id, artwork, .. } = &page.blocks[0] else {
+        panic!("expected observed Shorts banner")
+    };
+    assert_eq!(*id, 656);
+    assert_eq!(
+        artwork.desktop[0].image.url().as_str(),
+        "https://cc.criterion.com/uploads/storyBlocks/thumbnails/DB_Romvari,S_Banner_Wide_320x0.webp"
+    );
+    for file in [
+        "name,../escape.webp",
+        "name,%2Fescape.webp",
+        "name,?secret.webp",
+        "name,#secret.webp",
+        "name,\\escape.webp",
+        "name,\n.webp",
+    ] {
+        assert!(
+            EditorialImage::new(
+                "https://cc.criterion.com/uploads/storyBlocks/thumbnails/",
+                file
+            )
+            .is_err()
+        );
+    }
+}
 
 struct NewFixture;
 

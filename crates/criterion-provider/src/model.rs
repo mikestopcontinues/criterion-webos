@@ -189,6 +189,7 @@ pub enum MediaKind {
     Category,
     Supplement,
     Series,
+    Live,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -219,6 +220,7 @@ impl MediaKind {
             "category" => Ok(Self::Category),
             "supplement" => Ok(Self::Supplement),
             "series" => Ok(Self::Series),
+            "live" => Ok(Self::Live),
             _ => Err(Error::InvalidResponse),
         }
     }
@@ -306,6 +308,8 @@ pub struct MediaDetail {
     pub commentary_tracks: Vec<String>,
     pub playlists: Vec<Playlist>,
     pub first_playlist_sortable: bool,
+    /// Public schedule in supplied order. Non-live media has no schedule.
+    pub live_schedule: Vec<LiveProgram>,
 }
 
 impl std::fmt::Debug for MediaDetail {
@@ -315,6 +319,66 @@ impl std::fmt::Debug for MediaDetail {
             .field("media", &self.media)
             .field("playlists", &self.playlists.len())
             .field("description_present", &self.description.is_some())
+            .field("schedule_entries", &self.live_schedule.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Canonical UTC second precision timestamps supplied by the public schedule.
+/// No local timezone conversion, trusted-current-time or playback progress is implied.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UtcTimestamp(String);
+
+impl UtcTimestamp {
+    pub fn new(value: &str) -> Result<Self, Error> {
+        let bytes = value.as_bytes();
+        if bytes.len() != 20
+            || bytes[10] != b'T'
+            || bytes[13] != b':'
+            || bytes[16] != b':'
+            || bytes[19] != b'Z'
+            || !bytes.iter().enumerate().all(|(index, byte)| {
+                matches!(index, 4 | 7 | 10 | 13 | 16 | 19) || byte.is_ascii_digit()
+            })
+            || !crate::wire::valid_date(&value[..10])
+            || !value[11..13].parse::<u8>().is_ok_and(|hour| hour < 24)
+            || !value[14..16].parse::<u8>().is_ok_and(|minute| minute < 60)
+            || !value[17..19].parse::<u8>().is_ok_and(|second| second < 60)
+        {
+            return Err(Error::InvalidRequest);
+        }
+        Ok(Self(value.into()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for UtcTimestamp {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("UtcTimestamp([redacted])")
+    }
+}
+
+#[derive(PartialEq, Eq)]
+pub struct LiveProgram {
+    /// Some observed schedule entries have an empty ID and no catalog target.
+    pub media_id: Option<MediaId>,
+    pub title: String,
+    pub kind: MediaKind,
+    pub duration_seconds: u32,
+    pub starts_at: UtcTimestamp,
+    pub ends_at: UtcTimestamp,
+}
+
+impl std::fmt::Debug for LiveProgram {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LiveProgram")
+            .field("kind", &self.kind)
+            .field("duration_seconds", &self.duration_seconds)
+            .field("catalog_target_present", &self.media_id.is_some())
             .finish_non_exhaustive()
     }
 }

@@ -1,4 +1,4 @@
-use crate::{Error, MAX_RESPONSE_BYTES, MediaId, Request, RequestTransport, Response};
+use crate::{Error, MAX_RESPONSE_BYTES, MediaId, Request, RequestTransport, Response, Slug};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -97,6 +97,9 @@ fn check_origin(url: &url::Url) -> Result<(), Error> {
     match url.path() {
         "/" | "/new" if url.query().is_none() => Ok(()),
         "/api/all-films/results" | "/api/all-films/filters" | "/api/search" => Ok(()),
+        path if path.starts_with("/discover/") && url.query().is_none() => {
+            Slug::new(&path["/discover/".len()..]).map(|_| ())
+        }
         path => path
             .strip_prefix("/api/media/")
             .ok_or(Error::InvalidRequest)
@@ -116,7 +119,9 @@ impl RequestTransport for HttpTransport {
     async fn get(&self, request: Request) -> Result<Response, Error> {
         check_origin(&request.url)?;
         let _permit = self.permits.try_acquire().map_err(|_| Error::Busy)?;
-        let accept = if matches!(request.url.path(), "/" | "/new") {
+        let accept = if matches!(request.url.path(), "/" | "/new")
+            || request.url.path().starts_with("/discover/")
+        {
             "text/html"
         } else {
             "application/json"

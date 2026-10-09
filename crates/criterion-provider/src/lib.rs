@@ -11,6 +11,7 @@ mod discovery;
 mod discovery_model;
 mod discovery_wire;
 mod flight;
+mod live_wire;
 mod model;
 mod record_json;
 mod wire;
@@ -89,13 +90,15 @@ impl<T: RequestTransport> Catalog<T> {
         Self { transport }
     }
 
-    /// Anonymous editorial Home/New discovery, in supplied block and card order.
+    /// Anonymous editorial discovery, in supplied block and card order.
     pub async fn discovery(&self, route: DiscoveryRoute) -> Result<DiscoveryPage, Error> {
-        let url = url::Url::parse(match route {
-            DiscoveryRoute::Home => "https://www.criterionchannel.com/",
-            DiscoveryRoute::New => "https://www.criterionchannel.com/new",
-        })
-        .map_err(|_| Error::Unavailable)?;
+        let path = match route {
+            DiscoveryRoute::Home => "/".to_owned(),
+            DiscoveryRoute::New => "/new".to_owned(),
+            DiscoveryRoute::Discover(slug) => format!("/discover/{}", slug.as_str()),
+        };
+        let url = url::Url::parse(&format!("https://www.criterionchannel.com{path}"))
+            .map_err(|_| Error::Unavailable)?;
         let response = self.transport.get(Request { url }).await?;
         discovery::parse(response)
     }
@@ -132,7 +135,7 @@ impl<T: RequestTransport> Catalog<T> {
         url.query_pairs_mut().append_pair("q", query);
         let search: WireSearch = self.request(url).await?;
         if search.playlist.len() > 100
-            || search.type_counts.len() > 4
+            || search.type_counts.len() > 6
             || search.type_counts.values().any(|count| *count > 1_000_000)
         {
             return Err(Error::InvalidResponse);

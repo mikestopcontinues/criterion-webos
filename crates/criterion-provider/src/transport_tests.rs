@@ -265,6 +265,12 @@ async fn real_http_transport_rejects_non_catalog_origins_and_paths_before_networ
         "https://www.criterionchannel.com/api/search?q=s#token",
         "https://www.criterionchannel.com/api/login",
         "https://www.criterionchannel.com/api/media/../token",
+        "https://www.criterionchannel.com/discover",
+        "https://www.criterionchannel.com/discover/",
+        "https://www.criterionchannel.com/discover/newly-added?token=secret",
+        "https://www.criterionchannel.com/discover/newly-added/extra",
+        "https://www.criterionchannel.com/discover/newly_added",
+        "https://www.criterionchannel.com/discover/%2F",
     ] {
         assert!(matches!(
             transport
@@ -313,6 +319,20 @@ async fn real_http_transport_bounds_active_requests_and_releases_cancelled_capac
 }
 
 fn tls_server(name: &str) -> (Server, rustls::RootCertStore) {
+    tls_server_response(
+        name,
+        "application/json",
+        include_bytes!("../../../tests/fixtures/provider/all-films.json").to_vec(),
+        None,
+    )
+}
+
+fn tls_server_response(
+    name: &str,
+    mime: &'static str,
+    body: Vec<u8>,
+    expected_request: Option<(&'static str, &'static str)>,
+) -> (Server, rustls::RootCertStore) {
     let rcgen::CertifiedKey { cert, signing_key } =
         rcgen::generate_simple_self_signed(vec![name.to_owned()]).unwrap();
     let certificate = cert.der().clone();
@@ -335,13 +355,77 @@ fn tls_server(name: &str) -> (Server, rustls::RootCertStore) {
             stream,
         );
         let mut request = [0_u8; 4096];
-        if tls.read(&mut request).is_ok() {
-            let body = include_bytes!("../../../tests/fixtures/provider/all-films.json");
-            let _ = write!(tls, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).and_then(|()| tls.write_all(body));
+        if let Ok(size) = tls.read(&mut request) {
+            if let Some((path, accept)) = expected_request {
+                let request = std::str::from_utf8(&request[..size]).unwrap();
+                assert!(request.starts_with(&format!("GET {path} HTTP/1.1\r\n")));
+                assert!(
+                    request
+                        .to_ascii_lowercase()
+                        .contains(&format!("accept: {accept}\r\n"))
+                );
+            }
+            let _ = write!(tls, "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).and_then(|()| tls.write_all(&body));
         }
     });
     server.origin.set_scheme("https").unwrap();
     (server, roots)
+}
+
+#[tokio::test]
+async fn real_tls_transport_projects_the_typed_discover_destination_as_html() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/provider/discovery-newly-added.json"
+    ))
+    .unwrap();
+    let records = format!(
+        "baf:I[37,[],\"LanderStoryBlocks\"]\nace:{}\n",
+        serde_json::json!(["$", "$Lbaf", null, {"blocks":fixture["blocks"]}])
+    );
+    let body = format!(
+        "<script>self.__next_f.push({})</script>",
+        serde_json::json!([1, records])
+    )
+    .into_bytes();
+    let (server, roots) = tls_server_response(
+        "127.0.0.1",
+        "text/html",
+        body,
+        Some(("/discover/newly-added", "text/html")),
+    );
+    let catalog =
+        Catalog::with_transport(HttpTransport::for_test_roots(server.origin.clone(), roots));
+    let page = catalog
+        .discovery(crate::DiscoveryRoute::Discover(
+            crate::Slug::new("newly-added").unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(page.blocks.len(), 1);
+    let crate::DiscoveryBlock::Rail { cards, .. } = &page.blocks[0] else {
+        panic!("expected discovery rail")
+    };
+    assert_eq!(cards.len(), 3);
+    assert_eq!(cards[0].media.title, "Barry Lyndon");
+}
+
+#[tokio::test]
+async fn real_tls_transport_projects_the_public_live_detail_and_schedule() {
+    let (server, roots) = tls_server_response(
+        "127.0.0.1",
+        "application/json",
+        include_bytes!("../tests/data/media-live.json").to_vec(),
+        Some(("/api/media/1emmgvqX", "application/json")),
+    );
+    let catalog =
+        Catalog::with_transport(HttpTransport::for_test_roots(server.origin.clone(), roots));
+    let detail = catalog
+        .detail(&crate::MediaId::new("1emmgvqX").unwrap())
+        .await
+        .unwrap();
+    assert_eq!(detail.media.kind, crate::MediaKind::Live);
+    assert_eq!(detail.live_schedule.len(), 4);
+    assert!(detail.live_schedule[2].media_id.is_none());
 }
 
 #[tokio::test]

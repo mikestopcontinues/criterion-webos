@@ -74,7 +74,7 @@ fn check_names(values: &[String]) -> Result<(), Error> {
         .try_for_each(|value| check_text(value, 512, false))
 }
 
-fn valid_date(value: &str) -> bool {
+pub(super) fn valid_date(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 10
         || bytes[4] != b'-'
@@ -171,6 +171,7 @@ pub(super) struct WireMedia {
     pub(super) playlists: Vec<WirePlaylist>,
     #[serde(default)]
     pub(super) is_first_tab_sortable: bool,
+    pub(super) schedule: Option<Vec<crate::live_wire::WireProgram>>,
 }
 
 #[derive(Deserialize)]
@@ -255,6 +256,8 @@ impl WireMedia {
         if self.mediaid != requested_id.as_str() {
             return Err(Error::InvalidResponse);
         }
+        let live_schedule =
+            crate::live_wire::project(MediaKind::parse(&self.content_type)?, self.schedule.take())?;
         let playlists = std::mem::take(&mut self.playlists)
             .into_iter()
             .map(|playlist| {
@@ -300,6 +303,7 @@ impl WireMedia {
             first_playlist_sortable: self.is_first_tab_sortable,
             playlists,
             media: self.into_summary()?,
+            live_schedule,
         })
     }
 }

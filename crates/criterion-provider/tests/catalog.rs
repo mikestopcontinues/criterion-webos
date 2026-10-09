@@ -140,6 +140,26 @@ async fn browse_preserves_display_metadata_and_the_next_page() {
 
 struct SearchFixture;
 
+#[tokio::test]
+async fn search_admits_counts_for_all_known_catalog_kinds_and_rejects_unknown_kinds() {
+    // Synthetic capacity check, not a claim that one observed query returns all kinds.
+    let mut body = serde_json::json!({"playlist":[], "type_counts":{
+        "film":1,"collection":1,"category":1,"supplement":1,"series":1,"live":1
+    }});
+    let results = Catalog::with_transport(BodyFixture(serde_json::to_vec(&body).unwrap()))
+        .search("Criterion")
+        .await
+        .unwrap();
+    assert_eq!(results.type_counts.len(), 6);
+    body["type_counts"] = serde_json::json!({"unexpected":1});
+    assert_eq!(
+        Catalog::with_transport(BodyFixture(serde_json::to_vec(&body).unwrap()))
+            .search("Criterion")
+            .await,
+        Err(Error::InvalidResponse)
+    );
+}
+
 impl RequestTransport for SearchFixture {
     async fn get(&self, request: Request) -> Result<Response, Error> {
         assert_eq!(request.url.path(), "/api/search");

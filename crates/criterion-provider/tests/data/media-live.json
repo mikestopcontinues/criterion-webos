@@ -1,0 +1,50 @@
+{
+  "mediaid": "1emmgvqX",
+  "title": "Criterion 24/7",
+  "contentType": "live",
+  "duration": 0,
+  "is_first_tab_sortable": false,
+  "playlists": [],
+  "schedule": [
+    {
+      "startTime": "2026-10-08T10:00:37Z",
+      "endTime": "2026-10-08T10:54:46Z",
+      "duration": 3240,
+      "mediaid": "lUeuT11x",
+      "contentType": "film",
+      "title": "Grenada: The Future Coming Towards Us",
+      "start_time": "2026-10-08T10:00:37Z",
+      "end_time": "2026-10-08T10:54:46Z"
+    },
+    {
+      "startTime": "2026-10-08T10:54:46Z",
+      "endTime": "2026-10-08T13:01:30Z",
+      "duration": 7620,
+      "mediaid": "QpoAk43F",
+      "contentType": "film",
+      "title": "Pressure",
+      "start_time": "2026-10-08T10:54:46Z",
+      "end_time": "2026-10-08T13:01:30Z"
+    },
+    {
+      "startTime": "2026-10-14T07:00:49Z",
+      "endTime": "2026-10-14T10:04:20Z",
+      "duration": 10980,
+      "mediaid": "",
+      "contentType": "film",
+      "title": "Streetwise",
+      "start_time": "2026-10-14T07:00:49Z",
+      "end_time": "2026-10-14T10:04:20Z"
+    },
+    {
+      "startTime": "2026-10-15T01:10:29Z",
+      "endTime": "2026-10-15T02:32:13Z",
+      "duration": 4920,
+      "mediaid": "",
+      "contentType": "film",
+      "title": "My Father Is Coming",
+      "start_time": "2026-10-15T01:10:29Z",
+      "end_time": "2026-10-15T02:32:13Z"
+    }
+  ]
+}
