@@ -46,6 +46,22 @@ test("client validates returned identity and counts at its external bus seam", a
   client.dispose();
 });
 
+test("client admits a three-caller snapshot and rejects a fourth subscriber", async () => {
+  for (const subscribers of [3, 4]) {
+    const bus = new Bus();
+    const published: unknown[] = [];
+    const client = new Client(bus, (value) => published.push(value));
+    try {
+      const attaching = client.attach();
+      const snapshot = { ...running, subscribers };
+      bus.calls[0]?.options.onSuccess(snapshot);
+      assert.equal(await attaching, subscribers === 3);
+      assert.deepEqual(published, subscribers === 3 ? [snapshot] : ["unavailable"]);
+      assert.equal(bus.calls[0]?.cancelled, subscribers === 4);
+    } finally { client.dispose(); }
+  }
+});
+
 test("a late ping reply cannot reopen confirmed terminal cleanup", async () => {
   const bus = new Bus();
   const published: unknown[] = [];

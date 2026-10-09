@@ -82,6 +82,9 @@ function oneShot(sender: unknown = PLAYER_ID): Message {
 for (const [name, change, expected] of [
   ["missing sender", (m: Message) => { m.sender = undefined; }, "unauthorized"],
   ["foreign sender with spoofed payload", (m: Message) => { m.sender = "foreign.app"; m.payload = { version: VERSION, subscribe: true, sender: PLAYER_ID }; }, "unauthorized"],
+  ["native named service alias", (m: Message) => { m.sender = "com.mikestopcontinues.criterion.probe.native.caller"; }, "unauthorized"],
+  ["native prefix extension", (m: Message) => { m.sender = "com.mikestopcontinues.criterion.probe.native.extra"; }, "unauthorized"],
+  ["production app identity", (m: Message) => { m.sender = "com.mikestopcontinues.criterion.unofficial"; }, "unauthorized"],
   ["unknown payload field", (m: Message) => { m.payload = { version: VERSION, subscribe: true, executable: "/bin/sh" }; }, "invalidRequest"],
   ["not a subscription", (m: Message) => { m.isSubscription = false; }, "invalidRequest"],
   ["version mismatch", (m: Message) => { m.payload = { version: "0.2.0", subscribe: true }; }, "versionMismatch"],
@@ -144,6 +147,144 @@ test("two exact app subscriptions overlap on one process and last release reaps 
     assert.equal(nextPing.replies[0]?.returnValue, true);
   } finally { await bridge.dispose(); }
 });
+
+const callers = [
+  "com.mikestopcontinues.criterion.probe.ui",
+  "com.mikestopcontinues.criterion.probe.player",
+  "com.mikestopcontinues.criterion.probe.native",
+] as const;
+
+function subscription(sender: string, token: string): Message {
+  const message = new Message();
+  message.sender = sender;
+  message.uniqueToken = token;
+  return message;
+}
+
+for (const sender of callers) {
+  test(`a repeated caller cannot take a second slot below capacity: ${sender}`, async () => {
+    const bridge = controller();
+    try {
+      const owned = subscription(sender, "owned-token");
+      await bridge.attach(owned);
+      const repeated = subscription(sender, "different-token");
+      await bridge.attach(repeated);
+      assert.deepEqual(repeated.replies, [{ returnValue: false, errorCode: "busy" }]);
+      assert.equal(repeated.cancelled, true);
+      const ping = oneShot(sender);
+      await bridge.ping(ping);
+      const reply = ping.replies[0];
+      assert.ok(reply?.returnValue);
+      assert.equal(reply.subscribers, 1);
+    } finally { await bridge.dispose(); }
+  });
+}
+
+test("the three exact disposable callers share one broker subscription lifetime", async () => {
+  const bridge = controller();
+  try {
+    const subscriptions = callers.map((sender, index) => subscription(sender, `caller-${index}`));
+    for (const message of subscriptions) {
+      await bridge.attach(message);
+      assert.equal(message.replies[0]?.returnValue, true);
+    }
+    const native = subscriptions[2];
+    assert.ok(native);
+    const snapshot = native.replies[native.replies.length - 1];
+    assert.ok(snapshot?.returnValue);
+    assert.equal(snapshot.subscribers, 3);
+    for (const message of subscriptions) {
+      const latest = message.replies[message.replies.length - 1];
+      assert.ok(latest?.returnValue);
+      assert.equal(latest.pid, snapshot.pid);
+      assert.equal(latest.subscribers, 3);
+    }
+    for (const [index, sender] of callers.entries()) {
+      const repeated = subscription(sender, `repeated-${index}`);
+      await bridge.attach(repeated);
+      assert.deepEqual(repeated.replies, [{ returnValue: false, errorCode: "busy" }]);
+      assert.equal(repeated.cancelled, true);
+    }
+    const fourthSender = "com.mikestopcontinues.criterion.probe.fourth";
+    const fourth = subscription(fourthSender, "fourth-token");
+    await bridge.attach(fourth);
+    assert.deepEqual(fourth.replies, [{ returnValue: false, errorCode: "unauthorized" }]);
+    assert.equal(fourth.cancelled, true);
+    for (const action of ["ping", "close"] as const) {
+      const request = oneShot(fourthSender);
+      await bridge[action](request);
+      assert.deepEqual(request.replies, [{ returnValue: false, errorCode: "unauthorized" }]);
+    }
+    for (const message of subscriptions.slice(0, 2)) await bridge.cancel(message);
+    const ping = oneShot(callers[2]);
+    await bridge.ping(ping);
+    const result = ping.replies[0];
+    assert.ok(result?.returnValue);
+    assert.equal(result.pid, snapshot.pid);
+    assert.equal(result.subscribers, 1);
+    await bridge.cancel(native);
+    assert.throws(() => process.kill(snapshot.pid, 0));
+  } finally { await bridge.dispose(); }
+});
+
+test("all three callers hold one-shot slots until their shared issued close settles", async () => {
+  const bridge = controller();
+  try {
+    const subscriptions = callers.map((sender, index) => subscription(sender, `close-${index}`));
+    for (const message of subscriptions) await bridge.attach(message);
+    const first = subscriptions[0]?.replies[0];
+    assert.ok(first?.returnValue);
+    const issued = callers.map((sender) => oneShot(sender));
+    const pending = issued.map((message) => bridge.close(message));
+    const native = subscriptions[2];
+    assert.ok(native);
+    await bridge.cancel(native);
+    for (const sender of callers) {
+      for (let index = 0; index < 16; index += 1) {
+        const repeated = oneShot(sender);
+        await bridge.ping(repeated);
+        assert.deepEqual(repeated.replies, [{ returnValue: false, errorCode: "busy" }]);
+      }
+    }
+    await Promise.all(pending);
+    for (const message of issued) {
+      const reply = message.replies[0];
+      assert.ok(reply?.returnValue);
+      assert.equal(reply.pid, first.pid);
+      assert.equal(reply.cleanupConfirmed, true);
+      assert.equal(reply.state, "closed");
+    }
+  } finally { await bridge.dispose(); }
+});
+
+for (const sender of callers) {
+  test(`cancellation and disposal retain issued action ownership: ${sender}`, async () => {
+    const bridge = new Controller(() => spawn(process.execPath, ["/workspace/tools/player-probe/dist/tests/child-fixture.js", "slow-pong"], {
+      shell: false, detached: false, stdio: ["pipe", "pipe", "pipe"],
+    }));
+    try {
+      const subscriptions = callers.map((caller, index) => subscription(caller, `cancel-${index}`));
+      for (const message of subscriptions) await bridge.attach(message);
+      const owned = subscriptions.find((message) => message.sender === sender);
+      assert.ok(owned);
+      const ping = oneShot(sender);
+      const pending = bridge.ping(ping);
+      await bridge.cancel(owned);
+      const repeated = oneShot(sender);
+      await bridge.close(repeated);
+      assert.deepEqual(repeated.replies, [{ returnValue: false, errorCode: "busy" }]);
+      const disposing = bridge.dispose();
+      for (const caller of callers) {
+        const rejected = oneShot(caller);
+        await bridge.close(rejected);
+        assert.deepEqual(rejected.replies, [{ returnValue: false, errorCode: "closed" }]);
+      }
+      await pending;
+      assert.equal(ping.replies[0]?.returnValue, false);
+      assert.equal((await disposing).confirmed, true);
+    } finally { await bridge.dispose(); }
+  });
+}
 
 test("heartbeat renews the owned lease and cancellation ends publication", async () => {
   const bridge = new Controller(() => spawn("/workspace/.local/player-probe/criterion-broker-probe", ["--lease-ms", "1500", "--max-ms", "5000"], {

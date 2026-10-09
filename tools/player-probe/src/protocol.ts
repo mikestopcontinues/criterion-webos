@@ -1,6 +1,8 @@
 export const VERSION = "0.1.0";
 export const UI_ID = "com.mikestopcontinues.criterion.probe.ui";
 export const PLAYER_ID = "com.mikestopcontinues.criterion.probe.player";
+export const NATIVE_ID = "com.mikestopcontinues.criterion.probe.native";
+export const MAX_CALLERS = 3;
 export const SERVICE_ID = `${PLAYER_ID}.bridge`;
 export const BROKER_ARGS = ["--lease-ms", "10000", "--max-ms", "120000"] as const;
 export const MAX_SEQUENCE = 1_000_000;

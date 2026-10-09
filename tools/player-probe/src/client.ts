@@ -1,4 +1,4 @@
-import { MAX_SEQUENCE, SERVICE_ID, VERSION, type Snapshot } from "./protocol.js";
+import { MAX_CALLERS, MAX_SEQUENCE, SERVICE_ID, VERSION, type Snapshot } from "./protocol.js";
 
 export interface Request { cancel(): void }
 export interface Requests {
@@ -14,7 +14,7 @@ function snapshot(value: unknown): Snapshot | undefined {
   const keys = ["returnValue", "version", "state", "counter", "pid", "subscribers", "stopAcknowledged", "cleanupConfirmed", "exitCode"];
   if (Object.keys(record).length !== keys.length || Object.keys(record).some((key) => !keys.includes(key))) return undefined;
   if (record.returnValue !== true || record.version !== VERSION || typeof record.state !== "string" || !["running", "closed", "failed"].includes(record.state)) return undefined;
-  for (const [key, min, max] of [["counter", 0, MAX_SEQUENCE], ["pid", 1, 0xffffffff], ["subscribers", 0, 2]] as const) {
+  for (const [key, min, max] of [["counter", 0, MAX_SEQUENCE], ["pid", 1, 0xffffffff], ["subscribers", 0, MAX_CALLERS]] as const) {
     if (typeof record[key] !== "number" || !Number.isInteger(record[key]) || record[key] < min || record[key] > max) return undefined;
   }
   if (typeof record.stopAcknowledged !== "boolean" || typeof record.cleanupConfirmed !== "boolean") return undefined;

@@ -1,7 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { setInterval, clearInterval } from "node:timers";
 import { Broker, ProbeError, type Cleanup } from "./broker.js";
-import { PLAYER_ID, UI_ID, VERSION, type BusMessage, type Failure, type Reply, type Snapshot } from "./protocol.js";
+import { MAX_CALLERS, NATIVE_ID, PLAYER_ID, UI_ID, VERSION, type BusMessage, type Failure, type Reply, type Snapshot } from "./protocol.js";
 
 type Subscriber = { sender: string; message: BusMessage };
 
@@ -21,7 +21,7 @@ export class Controller {
     if (typeof token !== "string" || token.length < 1 || token.length > 128 || /[\u0000-\u001f\u007f]/.test(token) || typeof sender !== "string") {
       this.error(message, "invalidRequest"); return;
     }
-    if (this.subscribers.size >= 2 || this.subscribers.has(token) || [...this.subscribers.values()].some((subscriber) => subscriber.sender === sender)) {
+    if (this.subscribers.size >= MAX_CALLERS || this.subscribers.has(token) || [...this.subscribers.values()].some((subscriber) => subscriber.sender === sender)) {
       this.error(message, "busy"); return;
     }
     if (this.broker && this.broker.state !== "running" && this.broker.state !== "starting" && !this.broker.cleanup.confirmed) {
@@ -117,7 +117,7 @@ export class Controller {
 
   private valid(message: BusMessage, subscription: boolean): boolean {
     if (this.disposed) { this.error(message, "closed"); return false; }
-    if (message.sender !== UI_ID && message.sender !== PLAYER_ID) { this.error(message, "unauthorized"); return false; }
+    if (message.sender !== UI_ID && message.sender !== PLAYER_ID && message.sender !== NATIVE_ID) { this.error(message, "unauthorized"); return false; }
     const payload = message.payload;
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) { this.error(message, "invalidRequest"); return false; }
     const record = payload as Record<string, unknown>;
