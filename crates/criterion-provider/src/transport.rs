@@ -95,6 +95,7 @@ fn check_origin(url: &url::Url) -> Result<(), Error> {
         return Err(Error::InvalidRequest);
     }
     match url.path() {
+        "/" | "/new" if url.query().is_none() => Ok(()),
         "/api/all-films/results" | "/api/all-films/filters" | "/api/search" => Ok(()),
         path => path
             .strip_prefix("/api/media/")
@@ -115,6 +116,11 @@ impl RequestTransport for HttpTransport {
     async fn get(&self, request: Request) -> Result<Response, Error> {
         check_origin(&request.url)?;
         let _permit = self.permits.try_acquire().map_err(|_| Error::Busy)?;
+        let accept = if matches!(request.url.path(), "/" | "/new") {
+            "text/html"
+        } else {
+            "application/json"
+        };
         let target = request.url;
         #[cfg(test)]
         let target = if let Some(origin) = &self.test_origin {
@@ -130,7 +136,7 @@ impl RequestTransport for HttpTransport {
         let mut response = self
             .client
             .get(target)
-            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::ACCEPT, accept)
             .send()
             .await
             .map_err(request_error)?;

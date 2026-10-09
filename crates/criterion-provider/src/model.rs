@@ -163,7 +163,7 @@ pub struct Filter {
     pub value: FilterValue,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct MediaSummary {
     pub id: MediaId,
     pub title: String,
@@ -188,6 +188,7 @@ pub enum MediaKind {
     Collection,
     Category,
     Supplement,
+    Series,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -217,6 +218,7 @@ impl MediaKind {
             "collection" => Ok(Self::Collection),
             "category" => Ok(Self::Category),
             "supplement" => Ok(Self::Supplement),
+            "series" => Ok(Self::Series),
             _ => Err(Error::InvalidResponse),
         }
     }

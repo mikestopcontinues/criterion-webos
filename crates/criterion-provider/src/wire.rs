@@ -2,13 +2,22 @@ use crate::{Error, MediaDetail, MediaId, MediaKind, MediaSummary, Playlist};
 use serde::Deserialize;
 
 pub(super) fn check_json_bounds(body: &[u8]) -> Result<(), Error> {
+    check_json_limits(body, 16, 32_768, 65_536)
+}
+
+pub(super) fn check_json_limits(
+    body: &[u8],
+    max_depth: usize,
+    max_tokens: usize,
+    max_string: usize,
+) -> Result<(), Error> {
     let mut depth = 0_usize;
     let mut tokens = 0_usize;
     let mut string_start = None;
     let mut escaped = false;
     for (index, byte) in body.iter().copied().enumerate() {
         if let Some(start) = string_start {
-            if index - start > 65_536 {
+            if index - start > max_string {
                 return Err(Error::InvalidResponse);
             }
             if escaped {
@@ -25,7 +34,7 @@ pub(super) fn check_json_bounds(body: &[u8]) -> Result<(), Error> {
             b'{' | b'[' => {
                 depth += 1;
                 tokens += 1;
-                if depth > 16 {
+                if depth > max_depth {
                     return Err(Error::InvalidResponse);
                 }
             }
@@ -35,9 +44,12 @@ pub(super) fn check_json_bounds(body: &[u8]) -> Result<(), Error> {
             b',' | b':' => tokens += 1,
             _ => (),
         }
-        if tokens > 32_768 {
+        if tokens > max_tokens {
             return Err(Error::InvalidResponse);
         }
+    }
+    if depth != 0 || string_start.is_some() {
+        return Err(Error::InvalidResponse);
     }
     Ok(())
 }

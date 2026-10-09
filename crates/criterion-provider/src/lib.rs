@@ -7,8 +7,14 @@
 #![forbid(unsafe_code)]
 
 use std::future::Future;
+mod discovery;
+mod discovery_model;
+mod discovery_wire;
+mod flight;
 mod model;
+mod record_json;
 mod wire;
+pub use discovery_model::*;
 pub use model::*;
 use wire::{WireMedia, WireOptions, WirePage, WireSearch, check_json_bounds, check_text};
 
@@ -18,7 +24,7 @@ pub use transport::HttpTransport;
 #[cfg(test)]
 mod transport_tests;
 
-/// Maximum decoded JSON body accepted for one public catalog response.
+/// Maximum decoded body accepted for one public catalog/discovery response.
 pub const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
 pub struct Request {
@@ -81,6 +87,17 @@ impl Catalog<HttpTransport> {
 impl<T: RequestTransport> Catalog<T> {
     pub fn with_transport(transport: T) -> Self {
         Self { transport }
+    }
+
+    /// Anonymous editorial Home/New discovery, in supplied block and card order.
+    pub async fn discovery(&self, route: DiscoveryRoute) -> Result<DiscoveryPage, Error> {
+        let url = url::Url::parse(match route {
+            DiscoveryRoute::Home => "https://www.criterionchannel.com/",
+            DiscoveryRoute::New => "https://www.criterionchannel.com/new",
+        })
+        .map_err(|_| Error::Unavailable)?;
+        let response = self.transport.get(Request { url }).await?;
+        discovery::parse(response)
     }
 
     async fn request<D: serde::de::DeserializeOwned>(&self, url: url::Url) -> Result<D, Error> {

@@ -7,6 +7,43 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+#[tokio::test]
+async fn live_adapter_requests_home_and_new_as_html_and_projects_their_real_envelopes() {
+    for (route, path, body, count) in [
+        (
+            crate::DiscoveryRoute::Home,
+            "/",
+            include_bytes!("../../../tests/fixtures/provider/discovery-home.html").as_slice(),
+            28,
+        ),
+        (
+            crate::DiscoveryRoute::New,
+            "/new",
+            include_bytes!("../../../tests/fixtures/provider/discovery-new.html").as_slice(),
+            17,
+        ),
+    ] {
+        let server = Server::respond_raw(false, move |mut stream| {
+            let mut request = [0_u8; 4096];
+            let size = stream.read(&mut request).unwrap();
+            let request = std::str::from_utf8(&request[..size]).unwrap();
+            assert!(request.starts_with(&format!("GET {path} HTTP/1.1\r\n")));
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("accept: text/html\r\n")
+            );
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+            stream.write_all(body).unwrap();
+        });
+        let catalog = Catalog::with_transport(HttpTransport::for_test(
+            server.origin.clone(),
+            Duration::from_secs(1),
+        ));
+        assert_eq!(catalog.discovery(route).await.unwrap().blocks.len(), count);
+    }
+}
+
 struct Server {
     origin: url::Url,
     stop: Arc<AtomicBool>,
