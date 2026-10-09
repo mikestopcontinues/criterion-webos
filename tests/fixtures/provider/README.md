@@ -7,7 +7,7 @@ These are bounded extracts from unauthenticated Criterion Channel JSON responses
 | `all-films.json` | Minimal public catalog items and first continuation token. |
 | `all-films-next.json` | Following the returned opaque token; distinct items and next token. |
 | `all-films-filtered.json` | Genre filter plus descending duration sort. |
-| `filters.json` | Current sort values and four filter groups; first three options per group. |
+| `filters.json` | Current sort values and four filter groups; first three options per group plus two mixed-case/Unicode director identifiers. |
 | `search.json` | Heterogeneous film/collection results and content-type counts. |
 | `media-film.json` | Detailed film, string-array metadata and collection/category links. |
 | `media-collection.json` | Generic primary playlist; at most three items per nested playlist. |

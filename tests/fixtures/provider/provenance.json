@@ -9,7 +9,7 @@
   "fixture_extraction": {
     "all": "Editorial description variants, sources, tracks and vimeo_id removed recursively. Remaining metadata retained.",
     "media-film": "First 20 words of actual description_medium retained for parser coverage; all other editorial description fields removed.",
-    "filters": "Only first three options of each filter group retained.",
+    "filters": "First three options of each filter group retained, plus actual director options González-juan-pablo and Hung-sammo for Unicode/case coverage.",
     "media-collection": "Only first three items of each nested playlist retained.",
     "media-supplements": "Only first two items of each nested playlist retained."
   },
@@ -60,8 +60,8 @@
       "response_date": "Fri, 09 Oct 2026 12:30:47 GMT",
       "captured_at_utc": "2026-10-09T12:30:47.764Z",
       "raw_sha256": "2baa6ce7c8f3c58e34add4d800f4348548bfecdff66a5818e40aba86f2f799ce",
-      "fixture_sha256": "e6b61e31af166c4fcb4113482c5a4340f15fd68234fae0c57920a64174f342ef",
-      "fixture_bytes": 1764
+      "fixture_sha256": "56ef8b8a23c052d92124dab1c13bdb73b47081b305c87aed03c3e4071e3e86ca",
+      "fixture_bytes": 1958
     },
     {
       "file": "search.json",
