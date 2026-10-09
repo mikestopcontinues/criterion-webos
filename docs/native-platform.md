@@ -24,6 +24,8 @@ Background notifications block swaps. Will-foreground does not reopen them; did-
 
 Literal fixtures establish decoder and geometry behavior. Isolated CPU startup tests establish error recovery and preservation of existing SDL event ownership. Host rendering, actual stock-TV event delivery, IME activation/reopening, lifecycle restoration and physical remote behavior require their designated executors. A successful SDL swap has no compositor completion acknowledgment.
 
+The host-only startup cases keep their platform library link outside the guarded test module: an ARM harness with no eligible cases still needs the original runtime used by Rust's standard library. The complete SDK `--no-run` gate cross-links every platform test executable; it does not execute them.
+
 ## Auxiliary vector
 
 The current ARM32 little-endian `webos-runtime` target supplies an original GPL Rust `getauxval(unsigned long)` implementation. It reads only fixed `/proc/self/auxv` through Linux kernel syscalls and retains one immutable bounded result, including a failed read. It allocates no heap storage and delegates no symbol. The safe `auxv::warm_auxiliary_vector()` interface warms this same cache before SDL or worker startup in the application, native caller and broker. The broker retains its unsafe-code prohibition and adds no SDL dependency. The SDK compatibility archive is excluded from linking; `libdl` remains required by Rust thread creation. [Development tooling](development.md) owns the complete cross-link and ELF/device gate.
