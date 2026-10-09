@@ -705,7 +705,7 @@ mod tests {
     }
     #[test]
     #[ignore = "live anonymous provider/artwork and serialized SDL/GLES; root executor only"]
-    fn native_public_catalog_artwork_and_detail_roundtrip_end_to_end() {
+    fn native_public_catalog_search_artwork_and_detail_roundtrip_end_to_end() {
         use criterion_ui::GlowRenderer;
         use glow::HasContext;
         use std::{
@@ -775,7 +775,8 @@ mod tests {
                         });
                 assert!(
                     !matches!(status, LoadState::Error | LoadState::Offline),
-                    "live public response must be admitted"
+                    "live public {:?} response must be admitted: {status:?}",
+                    app.ui.page()
                 );
                 if status == LoadState::Ready && matches && artwork_ready {
                     // Artwork may have been admitted after this frame's layout.
@@ -872,11 +873,144 @@ mod tests {
         key(&mut window, &mut app, &runtime, 41, 27, start.elapsed());
         assert_eq!(app.ui.page(), Page::AllFilms);
         assert_eq!(app.ui.focus(), origin);
+        // Continue through actual SDL input and the production anonymous Search
+        // transport. No synthetic catalog or direct navigation command is used.
+        for (scancode, keycode) in [
+            (80, 1_073_741_904),
+            (82, 1_073_741_906),
+            (82, 1_073_741_906),
+            (82, 1_073_741_906),
+            (40, 13),
+        ] {
+            key(
+                &mut window,
+                &mut app,
+                &runtime,
+                scancode,
+                keycode,
+                start.elapsed(),
+            );
+        }
+        assert_eq!(app.ui.page(), Page::Search);
+        let mut raw = [0u8; 56];
+        raw[..4].copy_from_slice(&0x303u32.to_le_bytes());
+        raw[12..18].copy_from_slice(b"godard");
+        let mut aligned = [0u64; 7];
+        for (word, bytes) in aligned.iter_mut().zip(raw.as_chunks::<8>().0) {
+            *word = u64::from_le_bytes(*bytes);
+        }
+        // SAFETY: same initialized/aligned desktop SDL text-event ABI as above.
+        assert_eq!(
+            unsafe { SDL_PushEvent(aligned.as_mut_ptr().cast::<c_void>()) },
+            1
+        );
+        for _ in 0..128 {
+            let Some(event) = window.poll_event().unwrap() else {
+                break;
+            };
+            app.event(event, window.surface().unwrap(), &runtime, start.elapsed());
+        }
+        app.consume(&runtime, start.elapsed());
+        assert_eq!(app.ui.query(), "godard");
+        ready(&mut app, &runtime, start, false);
+        let counts = app
+            .controller
+            .view
+            .with_view(app.authentication.view(), |view| view.search_counts);
+        assert!(counts[1] > 0, "the current public search must supply films");
+        // Keyboard→Voice→Field→All→Films. Selecting the admitted group must
+        // preserve the ready display and provider counts in the same frame.
+        for _ in 0..7 {
+            key(
+                &mut window,
+                &mut app,
+                &runtime,
+                79,
+                1_073_741_903,
+                start.elapsed(),
+            );
+        }
+        assert_eq!(app.ui.focus(), Focus::SearchField);
+        for (scancode, keycode) in [(81, 1_073_741_905), (79, 1_073_741_903), (40, 13)] {
+            key(
+                &mut window,
+                &mut app,
+                &runtime,
+                scancode,
+                keycode,
+                start.elapsed(),
+            );
+        }
+        assert_eq!(app.ui.search_group(), criterion_ui::SearchGroup::Films);
+        app.controller
+            .view
+            .with_view(app.authentication.view(), |view| {
+                assert_eq!(view.status, LoadState::Ready);
+                assert_eq!(view.search_counts, counts);
+                assert_eq!(view.total, counts[1]);
+                assert!(!view.cards.is_empty());
+            });
+        ready(&mut app, &runtime, start, false);
+        let mut frame = app.take_output().unwrap();
+        painter
+            .paint([drawable.width, drawable.height], app.context(), &mut frame)
+            .unwrap();
+        let mut pixels = vec![0u8; drawable.width as usize * drawable.height as usize * 4];
+        // SAFETY: current context and exact drawable RGBA8 buffer on this thread.
+        unsafe {
+            gl.read_pixels(
+                0,
+                0,
+                drawable.width as i32,
+                drawable.height as i32,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelPackData::Slice(Some(&mut pixels)),
+            );
+        }
+        assert_eq!(unsafe { gl.get_error() }, glow::NO_ERROR);
+        let buffer = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
+            drawable.width,
+            drawable.height,
+            pixels,
+        )
+        .unwrap();
+        image::imageops::flip_vertical(&buffer)
+            .save(directory.join("native-public-search.png"))
+            .unwrap();
+        window.present().unwrap();
+        key(
+            &mut window,
+            &mut app,
+            &runtime,
+            81,
+            1_073_741_905,
+            start.elapsed(),
+        );
+        let search_origin = app.ui.focus();
+        assert_eq!(search_origin, Focus::Card { row: 0, column: 0 });
+        key(&mut window, &mut app, &runtime, 40, 13, start.elapsed());
+        assert_eq!(app.ui.page(), Page::Detail);
+        ready(&mut app, &runtime, start, true);
+        key(&mut window, &mut app, &runtime, 41, 27, start.elapsed());
+        assert_eq!(app.ui.page(), Page::Search);
+        assert_eq!(app.ui.query(), "godard");
+        assert_eq!(app.ui.search_group(), criterion_ui::SearchGroup::Films);
+        assert_eq!(app.ui.focus(), search_origin);
+        app.controller
+            .view
+            .with_view(app.authentication.view(), |view| {
+                assert_eq!(view.status, LoadState::Ready);
+                assert_eq!(view.search_counts, counts);
+                assert_eq!(view.total, counts[1]);
+            });
         assert!(!app.authentication.signed_in());
         app.background();
         assert!(app.finish(&runtime));
         drop(app);
         painter.destroy();
-        println!("live anonymous catalog + artwork + native SDL detail/Back + GLES passed");
+        println!(
+            "live anonymous catalog + Search groups + artwork + native SDL detail/Back + GLES passed"
+        );
     }
 }

@@ -42,6 +42,12 @@ While paused, forward seek advanced the timeline by ten seconds; backward seek r
 
 Closing website playback changed the film action to Resume and created a Continue Watching card. Its information popup exposes Remove from Continue Watching. Removing the test-only entry removed that card and the empty shelf. All temporary list/progress changes were restored; private account contents and session material stay outside Git.
 
+## PlxNative player starting point
+
+The captain selected PlxNative's player as the control reference. Its pinned [input handling](https://github.com/GLinnik21/plx-native/blob/acca94a449a5f7db2c662d6501bd88199ce66d4e/rust-modules/screens/src/player/input.rs), [HUD](https://github.com/GLinnik21/plx-native/blob/acca94a449a5f7db2c662d6501bd88199ce66d4e/rust-modules/appkit/src/player_hud.rs) and [track menus](https://github.com/GLinnik21/plx-native/blob/acca94a449a5f7db2c662d6501bd88199ce66d4e/rust-modules/appkit/src/track_menu.rs) supply source-derived patterns: hidden directional input reveals controls, pause retains the HUD, open menus retain focus, seek previews preserve pause state, track selections use stable IDs and Back unwinds menus before closing playback. These are starting points for Criterion controls, not observed Criterion TV behavior.
+
+Adopt Criterion's observed ten-second seek actions and the admitted engine's seekable bounds. Plx's Plex quality ladder, elementary-stream delivery, final-three-second exclusion and five-second foreground rewind do not establish Criterion policy. Dedicated transport and Stop actions should remain available through settings menus; that proposed behavior differs from Plx's input handling. The licensed engine, actual track capabilities and lifecycle acknowledgements must be admitted before these controls become a working player.
+
 ## Unobserved boundaries
 
 | Area | Evidence still required |
