@@ -89,7 +89,7 @@ export function inspectIpk(bytes: Buffer, expected: PackageFiles, identity: Pack
 export async function normalizeIpk(bytes: Buffer, expected: PackageFiles, identity: PackageIdentity, work: string, maxBytes = 2 * 1024 * 1024): Promise<Buffer> {
   const control = inspectIpk(bytes, expected, identity, maxBytes, true);
   const root = resolve(work);
-  if (!/^\/workspace\/\.local\/(native-package|player-probe)\/normalization(?:\/[a-z]+)?$/.test(root)) invalid();
+  if (!/^\/workspace\/\.local\/(native-package|native-caller-package|player-probe)\/normalization(?:\/[a-z]+)?$/.test(root)) invalid();
   await mkdir(dirname(root), { recursive: true });
   if (await realpath(dirname(root)) !== dirname(root)) invalid();
   await rm(root, { recursive: true, force: true });

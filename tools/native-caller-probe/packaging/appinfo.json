@@ -1,0 +1,11 @@
+{
+  "id": "com.mikestopcontinues.criterion.probe.native",
+  "version": "0.1.0",
+  "type": "native",
+  "main": "criterion-native-caller-probe",
+  "title": "Criterion Native Caller Probe",
+  "appDescription": "Disposable native caller probe; TV admission is unverified.",
+  "icon": "icon.png",
+  "nativeLifeCycleInterfaceVersion": 2,
+  "handlesRelaunch": false
+}

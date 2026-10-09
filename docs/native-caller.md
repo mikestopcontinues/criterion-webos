@@ -1,6 +1,6 @@
 # Native application caller admission
 
-`tools/native-caller-probe` is a disposable Rust executable, separate from production UI, account and playback owners. Its proposed package ID is `com.mikestopcontinues.criterion.probe.native`; LS2 registers exactly that app ID with the service name `<app ID>.caller`. Root must verify the exact installed package, named registration, actual bus sender and service rights on the C4. Host SSH Luna calls and successful SDK linking cannot establish application admission.
+`tools/native-caller-probe` is a disposable Rust executable, separate from production UI, account and playback owners. Its fixed package ID is `com.mikestopcontinues.criterion.probe.native`; LS2 registers exactly that app ID with the service name `<app ID>.caller`. Root must verify the exact installed package, named registration, actual bus sender and service rights on the C4. Host SSH Luna calls and successful SDK linking cannot establish application admission.
 
 The [packaged lifetime probe](probe-player.md) owns its fixed service, protocol and caller allowlist. The native caller has no command-line parameters, external paths, proxy identity, anonymous registration or alternate sender policy. A registration rejection ends the probe. PlxNative's pinned [Keymanager adapter](https://github.com/GLinnik21/plx-native/blob/acca94a449a5f7db2c662d6501bd88199ce66d4e/rust-modules/platform/src/keymanager.rs) uses anonymous registration after a named-form rejection on its development set; that source does not establish this C4's rights.
 
@@ -32,3 +32,21 @@ Root owns workspace/lock admission and packaging. After admission, use the canon
 ```
 
 `abi.c` is compile/link-only against real SDK headers and libraries. It asserts ARM32 `LSError` layout, 32-bit tokens, one-byte LS2 C `bool`, four-byte GLib `gboolean` and every used function signature/symbol. Rust repeats the layout assertions. The fixture and native executable must not be run as host verification. CPU fixtures cover protocol and close ownership; SDK compilation establishes source/link acceptance. Actual SDL/LS2 callbacks, foreground behavior, caller identity and Keymanager policy require root's serialized device admission. Generated binaries, ABI fixtures and receipts remain ignored under `.local/native-caller`.
+
+## Disposable package
+
+`tools/package-native/caller-build.ts` packages only the fixed native caller. It reuses the [native package's pinned Docker/CLI/input/ELF and strict archive construction](native-package.md), with no additional dependency manifest. The descriptor has main `criterion-native-caller-probe`, type `native`, version `0.1.0`, lifecycle V2, no relaunch handling and no unproved service permissions. The payload is the root-staged executable, fixed descriptor, original icon, GPL text and exact caller/platform notices; the CLI adds only the fixed package descriptor. It bundles no SDK libraries, JavaScript service, account data or credentials.
+
+Root stages `.local/native-caller-package/input/criterion-native-caller-probe` and `build-receipt.json` after clean source/lock admission, the actual SDK build and ELF/library inspection. `CallerReceipt` has the same nine bounded fields as the production [build attestation](native-package.md#input-and-source-admission), with literal caller identity. Production receipt admission stays fixed to the production app and rejects caller receipts. Caller source admission includes fixed root configuration, crate compile sources and `tools/native-caller-probe` Rust/C/header/TOML/shader inputs. Minimum required caller inputs are its manifest, main/lib, native mod/bus/ffi and `abi.c`; root supplies the conservative complete compile-input map.
+
+The packager verifies source/lock/executable hashes before staging and after packaging, and never executes the ELF. The attestation identifies root's known compiler inputs; it does not independently prove compiler provenance or reproducibility. The shared normalizer admits only the fixed build-local output path, preserves the unsigned CLI original, reconstructs from sealed buffers, and audits exact files/control/bytes with directories and main `0755`, other files `0644`. Executable, receipt, archive/decompression, source counts, subprocess output and deadlines retain the existing strict limits.
+
+Run from the matching checkout with the already prepared pinned tooling and root-staged input; all execution remains in Docker:
+
+```sh
+docker run --rm --network none --mount type=bind,src="$PWD",dst=/workspace \
+  --workdir /workspace criterion-player-probe-tools:20261009 \
+  sh -c 'node tools/player-probe/node_modules/typescript/bin/tsc -p tools/package-native/tsconfig.json && /opt/node16/bin/node .local/native-package/compiled/tools/package-native/tests/run.js && node .local/native-package/compiled/tools/package-native/caller-build.js'
+```
+
+The guarded module import lets CPU tests exercise fixed caller identity, receipt/source integrity, metadata and actual GNU tar/ar normalization using explicit nonexecuted ELF metadata fixtures. Successful fixtures cannot establish native caller rights. Ignored output under `.local/native-caller-package` contains original CLI archive/log, staging/normalization tree, raw receipts, `package-seal.json` and `ipks/com.mikestopcontinues.criterion.probe.native_0.1.0_arm.ipk`. The seal records root's build attestation, current tooling/source hashes, exact tool versions, original/final archive hashes and every payload hash/mode. Root must collision-check the disposable app ID and use the exact admitted package through the serialized device queue. Complete compiled-library notices/corresponding source remain the separate publication inventory.
