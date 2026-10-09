@@ -6,7 +6,7 @@ Deliver every acceptance criterion in [the product contract](docs/product.md). T
 
 ## Checkpoint
 
-Local repository initialized on configured `master`. Root owns integration, product/docs, provider/device/browser account access and publication. Three independent agents investigate public provider contracts, hands-on official-app acquisition and native Rust/DRM architecture. No independent subscriber playback or current official-app hands-on comparison has been established.
+Root owns integration, product/docs, subscriber/device access and publication. The signed current Android TV reference runs in an isolated Google TV emulator; anonymous remote-navigation comparison is active. Public catalog implementation, the Rust interface and Home/New contracts have isolated owners. The native window/input crate and reviewed landing page are integrated. Native Rust platform executables cross-link against the pinned SDK; C4 execution and licensed subscriber playback remain unverified.
 
 ## Unfinished work
 
