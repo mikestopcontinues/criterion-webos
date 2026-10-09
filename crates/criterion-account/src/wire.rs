@@ -1,4 +1,4 @@
-use crate::{Error, Region, Response, SecretBody};
+use crate::{Error, Region, Response, SecretBody, object::Object};
 use criterion_session::Secret;
 use reqwest::header::HeaderValue;
 use serde::Deserialize;
@@ -19,7 +19,7 @@ struct BootstrapWire {
     country: String,
     token: Secret,
     #[serde(rename = "baseUrl")]
-    base_url: Bases,
+    base_url: Object<Bases>,
 }
 pub(crate) struct Bootstrap {
     pub region: Region,
@@ -33,9 +33,9 @@ pub(crate) fn bootstrap(response: &Response) -> Result<Bootstrap, Error> {
     if response.body.expose().len() > MAX_BODY {
         return Err(Error::ResponseTooLarge);
     }
-    let data: BootstrapWire =
+    let Object(data): Object<BootstrapWire> =
         serde_json::from_slice(response.body.expose()).map_err(|_| Error::InvalidResponse)?;
-    if data.base_url.us != US_BASE || data.base_url.ca != CA_BASE {
+    if data.base_url.0.us != US_BASE || data.base_url.0.ca != CA_BASE {
         return Err(Error::InvalidResponse);
     }
     valid_token(data.token.expose())?;

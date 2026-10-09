@@ -1,7 +1,8 @@
 //! Minimal native SDK projection. Unowned fields are discarded, including
 //! source/license URLs. Native duration/position values retain their wire units.
 use crate::{
-    ContinueWatching, Error, MediaKind, MediaSummary, MyListIds, Position, Response, wire::MAX_BODY,
+    ContinueWatching, Error, MediaKind, MediaSummary, MyListIds, Position, Response,
+    object::Object, wire::MAX_BODY,
 };
 use criterion_provider::{MediaId, PageCursor};
 use serde::{
@@ -93,7 +94,7 @@ impl From<PositionWire> for Position {
 #[derive(Deserialize)]
 struct IdsWire {
     watchlist: Items<Id>,
-    positions: Items<PositionWire>,
+    positions: Items<Object<PositionWire>>,
 }
 #[derive(Deserialize)]
 struct Common {
@@ -235,8 +236,8 @@ impl From<MediaWire> for MediaSummary {
 }
 #[derive(Deserialize)]
 struct ContinueWire {
-    playlist: Items<MediaWire>,
-    positions: Items<PositionWire>,
+    playlist: Items<Object<MediaWire>>,
+    positions: Items<Object<PositionWire>>,
 }
 fn parse<T: for<'de> Deserialize<'de>>(response: &Response) -> Result<T, Error> {
     if response.status != 200 {
@@ -245,20 +246,37 @@ fn parse<T: for<'de> Deserialize<'de>>(response: &Response) -> Result<T, Error> 
     if response.body.expose().len() > MAX_BODY {
         return Err(Error::ResponseTooLarge);
     }
-    serde_json::from_slice(response.body.expose()).map_err(|_| Error::InvalidResponse)
+    serde_json::from_slice::<Object<T>>(response.body.expose())
+        .map(|value| value.0)
+        .map_err(|_| Error::InvalidResponse)
 }
 pub(crate) fn my_list_ids(response: &Response) -> Result<MyListIds, Error> {
     let data: IdsWire = parse(response)?;
     Ok(MyListIds {
         watchlist: data.watchlist.0.into_iter().map(|id| id.0).collect(),
-        positions: data.positions.0.into_iter().map(Into::into).collect(),
+        positions: data
+            .positions
+            .0
+            .into_iter()
+            .map(|value| value.0.into())
+            .collect(),
     })
 }
 pub(crate) fn continue_watching(response: &Response) -> Result<ContinueWatching, Error> {
     let data: ContinueWire = parse(response)?;
     Ok(ContinueWatching {
-        playlist: data.playlist.0.into_iter().map(Into::into).collect(),
-        positions: data.positions.0.into_iter().map(Into::into).collect(),
+        playlist: data
+            .playlist
+            .0
+            .into_iter()
+            .map(|value| value.0.into())
+            .collect(),
+        positions: data
+            .positions
+            .0
+            .into_iter()
+            .map(|value| value.0.into())
+            .collect(),
     })
 }
 struct Cursor(PageCursor);
@@ -301,16 +319,16 @@ impl<'de> Deserialize<'de> for TypeCounts {
 }
 #[derive(Deserialize)]
 struct WatchWire {
-    paging: PagingWire,
+    paging: Object<PagingWire>,
     type_counts: TypeCounts,
-    playlist: Items<MediaWire>,
+    playlist: Items<Object<MediaWire>>,
 }
 pub(crate) fn watch_list(response: &Response) -> Result<crate::WatchList, Error> {
     let data: WatchWire = parse(response)?;
     Ok(crate::WatchList {
         paging: crate::PagingInfo {
-            page_limit: data.paging.page_limit,
-            next_pagination_key: data.paging.next_pagination_key.map(|value| value.0),
+            page_limit: data.paging.0.page_limit,
+            next_pagination_key: data.paging.0.next_pagination_key.map(|value| value.0),
         },
         type_counts: data
             .type_counts
@@ -321,7 +339,12 @@ pub(crate) fn watch_list(response: &Response) -> Result<crate::WatchList, Error>
                 count,
             })
             .collect(),
-        playlist: data.playlist.0.into_iter().map(Into::into).collect(),
+        playlist: data
+            .playlist
+            .0
+            .into_iter()
+            .map(|value| value.0.into())
+            .collect(),
     })
 }
 #[derive(Deserialize)]

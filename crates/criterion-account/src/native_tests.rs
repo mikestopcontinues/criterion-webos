@@ -328,6 +328,46 @@ async fn native_reads_require_bootstrap_and_live_subscriber_and_preserve_status_
 
 const WATCH: &str = r#"{"paging":{"page_limit":60,"next_pagination_key":"opaque-synthetic-cursor"},"type_counts":{"film":2,"opaque-future-type":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic listed film","duration":95.25}]}"#;
 #[tokio::test]
+async fn native_ids_require_objects_for_response_and_nested_positions() {
+    let (session, _) = linked().await;
+    for body in [
+        r#"{"watchlist":[],"positions":[["AbCd1234",0,7200,null,null,null]]}"#,
+        r#"[[],[]]"#,
+    ] {
+        assert_eq!(
+            account(body).await.my_list_ids(&session).await,
+            Err(Error::InvalidResponse)
+        );
+    }
+}
+#[tokio::test]
+async fn native_continue_requires_objects_for_response_and_nested_positions() {
+    let (session, _) = linked().await;
+    for body in [
+        r#"{"playlist":[],"positions":[["AbCd1234",0,7200,null,null,null]]}"#,
+        r#"[[],[]]"#,
+        r#"{"playlist":[["film","AbCd1234","Synthetic"]],"positions":[]}"#,
+    ] {
+        assert_eq!(
+            account(body).await.continue_watching(&session).await,
+            Err(Error::InvalidResponse)
+        );
+    }
+}
+#[tokio::test]
+async fn native_watch_list_requires_objects_for_response_and_nested_paging() {
+    let (session, _) = linked().await;
+    for body in [
+        r#"{"paging":[60,null],"type_counts":{},"playlist":[]}"#,
+        r#"[{"page_limit":60},{},[]]"#,
+    ] {
+        assert_eq!(
+            account(body).await.watch_list(&session).await,
+            Err(Error::InvalidResponse)
+        );
+    }
+}
+#[tokio::test]
 async fn native_watch_list_uses_default_route_and_preserves_required_paging_counts_cards() {
     let (session, _) = linked().await;
     let requests: Arc<Mutex<Vec<Target>>> = Arc::default();

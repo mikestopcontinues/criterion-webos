@@ -122,6 +122,19 @@ async fn hostile_bootstrap_bases_codes_duplicate_fields_and_tokens_are_not_admit
     );
 }
 struct SessionFixture;
+#[tokio::test]
+async fn bootstrap_requires_objects_for_response_and_base_map() {
+    for body in [
+        format!(
+            r#"{{"country":"US","token":"synthetic-bootstrap","baseUrl":["{US_BASE}","{CA_BASE}"]}}"#
+        ),
+        format!(r#"["US","synthetic-bootstrap",{{"us":"{US_BASE}","ca":"{CA_BASE}"}}]"#),
+    ] {
+        let account = AccountClient::with_transport(Body(body));
+        assert_eq!(account.bootstrap().await, Err(Error::InvalidResponse));
+        assert_eq!(account.region(), Err(Error::NoBootstrap));
+    }
+}
 impl criterion_session::Transport for SessionFixture {
     async fn post(
         &self,

@@ -3,6 +3,7 @@ use std::future::Future;
 mod client;
 mod model;
 mod native_wire;
+mod object;
 mod transport;
 mod wire;
 pub use client::AccountClient;

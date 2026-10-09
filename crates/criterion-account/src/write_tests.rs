@@ -111,6 +111,9 @@ async fn omitted_and_false_sync_are_valid_receipts_while_null_wrong_and_duplicat
         assert_eq!(account.write_status(), WriteStatus::Ready);
     }
     for body in [
+        b"[]".as_slice(),
+        b"[true]".as_slice(),
+        b"[false]".as_slice(),
         b"".as_slice(),
         br#"{"sync":null}"#,
         br#"{"sync":"true"}"#,
