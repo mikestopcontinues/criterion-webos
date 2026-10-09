@@ -85,6 +85,7 @@ fn discovery_navigation_forwards_validated_content_without_a_fake_media_id() {
 fn my_list_keeps_visible_grid_focus_above_the_first_row() {
     let target = criterion_ui::Target::Content(criterion_provider::ContentTarget::MyList);
     let data = ViewData {
+        login: criterion_ui::LoginView::SignedIn,
         hero: Some(criterion_ui::Hero {
             card: Card {
                 key: &target,

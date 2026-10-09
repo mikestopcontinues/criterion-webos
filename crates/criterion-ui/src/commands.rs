@@ -79,12 +79,12 @@ impl AppUi {
                             .and_then(|index| data.cards.get(index))
                     };
                     card.map(|card| {
-                        self.activate_target(card.key);
+                        self.activate_target(card.key, data.login);
                         Command::Open(card.key.clone())
                     })
                 }
                 Intent::OpenHero => data.hero.as_ref().map(|hero| {
-                    self.activate_target(hero.card.key);
+                    self.activate_target(hero.card.key, data.login);
                     Command::Open(hero.card.key.clone())
                 }),
                 Intent::Play => data

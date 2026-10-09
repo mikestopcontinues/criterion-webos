@@ -157,8 +157,16 @@ impl AppUi {
     pub fn focus(&self) -> Focus {
         self.focus
     }
-    pub(crate) fn activate_target(&mut self, target: &crate::Target) {
-        self.page = target.page();
+    pub(crate) fn activate_target(&mut self, target: &crate::Target, login: crate::LoginView<'_>) {
+        self.page = if matches!(
+            target,
+            crate::Target::Content(criterion_provider::ContentTarget::MyList)
+        ) && !matches!(login, crate::LoginView::SignedIn)
+        {
+            Page::Login
+        } else {
+            target.page()
+        };
         if self.page == Page::AllFilms {
             self.filters.open = false;
         }
