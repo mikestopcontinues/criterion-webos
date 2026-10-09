@@ -1,6 +1,6 @@
 # Criterion Provider Contract
 
-Public browsing works through Criterion Channel's current first-party JSON routes and parsed discovery pages. These are observed, undocumented service contracts; they establish technical behavior, not a supported third-party API or provider permission. [Subscriber session admission](session.md) establishes host device linking and logout; native account middleware, account synchronization and licensed C4 playback remain unverified. [Product acceptance](product.md) owns those admission requirements.
+Public browsing works through Criterion Channel's current first-party JSON routes and parsed discovery pages. These are observed, undocumented service contracts; they establish technical behavior, not a supported third-party API or provider permission. [Subscriber session admission](session.md) establishes host device linking and logout; [the account boundary](account.md) admits the initial native Watch List read in the composed host application. Other subscriber methods, account synchronization and licensed C4 playback remain unverified. [Product acceptance](product.md) owns those admission requirements.
 
 ## Public catalog
 
