@@ -269,7 +269,7 @@ impl<T: RequestTransport> Catalog<T> {
         }
         if let Some(cursor) = &request.cursor {
             url.query_pairs_mut()
-                .append_pair("pagination_key", cursor.value());
+                .append_pair("pagination_key", cursor.as_str());
         }
         let page: WirePage = self.request(url).await?;
         if page.items.len() > 100

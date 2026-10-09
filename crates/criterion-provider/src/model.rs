@@ -28,7 +28,7 @@ impl MediaId {
 pub struct PageCursor(String);
 
 impl PageCursor {
-    pub(super) fn value(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         &self.0
     }
 

@@ -12,6 +12,37 @@ pub enum MediaKind {
     Film,
     Supplement,
 }
+/// Verified grouped GET choices, distinct from the POST media content types.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WatchListFilter {
+    #[default]
+    All,
+    FilmSeries,
+    Collection,
+    OriginalFranchise,
+    Supplement,
+    Category,
+}
+impl WatchListFilter {
+    pub(crate) fn as_str(self) -> Option<&'static str> {
+        match self {
+            Self::All => None,
+            Self::FilmSeries => Some("film_series"),
+            Self::Collection => Some("collection"),
+            Self::OriginalFranchise => Some("original_franchise"),
+            Self::Supplement => Some("supplement"),
+            Self::Category => Some("category"),
+        }
+    }
+}
+/// One explicitly requested native page. The transport owns the fixed 50-item
+/// policy; response page sizes never select a subsequent request limit.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WatchListRequest {
+    pub filter: WatchListFilter,
+    pub cursor: Option<PageCursor>,
+}
+
 /// Exact native request enum; caller selection is explicit rather than an
 /// inferred automatic conversion from the media projection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -362,13 +362,17 @@ async fn native_watch_list_requires_objects_for_response_and_nested_paging() {
         r#"[{"page_limit":60},{},[]]"#,
     ] {
         assert_eq!(
-            account(body).await.watch_list(&session).await,
+            account(body)
+                .await
+                .watch_list(&session, WatchListRequest::default())
+                .await,
             Err(Error::InvalidResponse)
         );
     }
 }
 #[tokio::test]
-async fn native_watch_list_uses_default_route_and_preserves_required_paging_counts_cards() {
+async fn native_watch_list_uses_explicit_default_request_and_preserves_required_paging_counts_cards()
+ {
     let (session, _) = linked().await;
     let requests: Arc<Mutex<Vec<Target>>> = Arc::default();
     let client = AccountClient::with_transport(NativeFixture {
@@ -377,7 +381,10 @@ async fn native_watch_list_uses_default_route_and_preserves_required_paging_coun
         status: 200,
     });
     client.bootstrap().await.unwrap();
-    let result = client.watch_list(&session).await.unwrap();
+    let result = client
+        .watch_list(&session, WatchListRequest::default())
+        .await
+        .unwrap();
     assert_eq!(result.paging.page_limit, 60);
     assert_eq!(
         result.paging.next_pagination_key,
@@ -393,7 +400,13 @@ async fn native_watch_list_uses_default_route_and_preserves_required_paging_coun
     assert_eq!(result.playlist[0].duration, Some(95.25));
     assert_eq!(
         *requests.lock().unwrap(),
-        [Target::Bootstrap, Target::WatchList(Region::Ca)]
+        [
+            Target::Bootstrap,
+            Target::WatchList {
+                region: Region::Ca,
+                request: crate::WatchListRequest::default()
+            }
+        ]
     );
     let diagnostic = format!("{result:?} {:?} {:?}", result.paging, result.type_counts[0]);
     assert!(!diagnostic.contains("opaque") && !diagnostic.contains("Synthetic"));
@@ -401,7 +414,7 @@ async fn native_watch_list_uses_default_route_and_preserves_required_paging_coun
         r#"{"paging":{"page_limit":60,"next_pagination_key":null},"type_counts":{},"playlist":[]}"#,
     )
     .await
-    .watch_list(&session)
+    .watch_list(&session, WatchListRequest::default())
     .await
     .unwrap();
     assert!(empty.playlist.is_empty() && empty.paging.next_pagination_key.is_none());
@@ -417,9 +430,13 @@ async fn native_watch_list_rejects_missing_wrong_duplicate_and_oversized_metadat
         r#"{"paging":{"page_limit":60},"type_counts":{"film":null},"playlist":[]}"#,
         r#"{"paging":{"page_limit":60},"type_counts":{"film":1,"film":2},"playlist":[]}"#,
         r#"{"paging":{"page_limit":60,"next_pagination_key":""},"type_counts":{},"playlist":[]}"#,
+        r#"{"paging":{"page_limit":60,"next_pagination_key":"synthetic\nprivate"},"type_counts":{},"playlist":[]}"#,
     ] {
         assert_eq!(
-            account(body).await.watch_list(&session).await,
+            account(body)
+                .await
+                .watch_list(&session, WatchListRequest::default())
+                .await,
             Err(Error::InvalidResponse)
         );
     }
@@ -429,17 +446,26 @@ async fn native_watch_list_rejects_missing_wrong_duplicate_and_oversized_metadat
     let body = serde_json::json!({"paging":{"page_limit":60},"type_counts":counts,"playlist":[]})
         .to_string();
     assert_eq!(
-        account(&body).await.watch_list(&session).await,
+        account(&body)
+            .await
+            .watch_list(&session, WatchListRequest::default())
+            .await,
         Err(Error::InvalidResponse)
     );
     let body = serde_json::json!({"paging":{"page_limit":60,"next_pagination_key":"x".repeat(513)},"type_counts":{},"playlist":[]}).to_string();
     assert_eq!(
-        account(&body).await.watch_list(&session).await,
+        account(&body)
+            .await
+            .watch_list(&session, WatchListRequest::default())
+            .await,
         Err(Error::InvalidResponse)
     );
     let body = serde_json::json!({"paging":{"page_limit":60},"type_counts":{"x".repeat(65):1},"playlist":[]}).to_string();
     assert_eq!(
-        account(&body).await.watch_list(&session).await,
+        account(&body)
+            .await
+            .watch_list(&session, WatchListRequest::default())
+            .await,
         Err(Error::InvalidResponse)
     );
 }

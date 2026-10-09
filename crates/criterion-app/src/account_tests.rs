@@ -87,7 +87,9 @@ impl criterion_account::Transport for Middleware {
                 assert!(request.credentials.is_none());
                 br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec()
             }
-            Target::WatchList(Region::Us) => {
+            Target::WatchList {
+                region: Region::Us, ..
+            } => {
                 if self.hold.swap(false, Ordering::SeqCst) {
                     let _retire = Retire(self.retired.clone());
                     self.release.notified().await;
@@ -265,7 +267,13 @@ fn native_subscriber_rail_reads_list_without_home_cards_and_back_restores_displa
         });
         assert_eq!(
             *middleware.calls.lock().unwrap(),
-            vec![Target::Bootstrap, Target::WatchList(Region::Us)]
+            vec![
+                Target::Bootstrap,
+                Target::WatchList {
+                    region: Region::Us,
+                    request: criterion_account::WatchListRequest::default()
+                }
+            ]
         );
         native_key(&mut app, &runtime, (41, 27));
         assert_eq!(app.ui.page(), Page::Home);
@@ -316,7 +324,13 @@ fn native_account_to_my_list_to_explicit_logout_ignores_loading_home() {
     });
     assert_eq!(
         *middleware.calls.lock().unwrap(),
-        vec![Target::Bootstrap, Target::WatchList(Region::Us)]
+        vec![
+            Target::Bootstrap,
+            Target::WatchList {
+                region: Region::Us,
+                request: criterion_account::WatchListRequest::default()
+            }
+        ]
     );
     for key in [
         (80, 1_073_741_904),
@@ -558,7 +572,13 @@ fn signed_subscriber_reads_native_shelf_and_renders_real_adapter_projection() {
         });
     assert_eq!(
         *middleware.calls.lock().unwrap(),
-        vec![Target::Bootstrap, Target::WatchList(Region::Us)]
+        vec![
+            Target::Bootstrap,
+            Target::WatchList {
+                region: Region::Us,
+                request: criterion_account::WatchListRequest::default()
+            }
+        ]
     );
     assert!(app.finish(&runtime));
 }
@@ -738,7 +758,7 @@ fn identical_token_reauthentication_requires_a_fresh_list_intent_in_the_new_epoc
             .lock()
             .unwrap()
             .iter()
-            .filter(|target| matches!(target, Target::WatchList(_)))
+            .filter(|target| matches!(target, Target::WatchList { .. }))
             .count(),
         2
     );

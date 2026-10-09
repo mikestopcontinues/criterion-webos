@@ -10,7 +10,8 @@ pub use client::AccountClient;
 pub use criterion_session::SecretBody;
 pub use model::{
     ContinueWatching, MediaKind, MediaSummary, MyListIds, PagingInfo, Position, SyncReceipt,
-    TypeCount, WatchList, WatchListContentType, WriteFailure, WriteStatus,
+    TypeCount, WatchList, WatchListContentType, WatchListFilter, WatchListRequest, WriteFailure,
+    WriteStatus,
 };
 pub use transport::HttpTransport;
 pub use wire::{BOOTSTRAP_URL, CA_BASE, US_BASE};
@@ -47,7 +48,10 @@ pub enum Target {
     Bootstrap,
     MyListIds(Region),
     ContinueWatching(Region),
-    WatchList(Region),
+    WatchList {
+        region: Region,
+        request: WatchListRequest,
+    },
     AddWatchList {
         region: Region,
         media_id: criterion_provider::MediaId,

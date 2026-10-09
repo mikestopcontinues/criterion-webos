@@ -78,7 +78,28 @@ impl HttpTransport {
             Target::Bootstrap => {
                 url::Url::parse(crate::BOOTSTRAP_URL).map_err(|_| Error::InvalidRequest)?
             }
-            Target::WatchList(region) => account_target(*region, "/content/watch-list")?,
+            Target::WatchList { region, request } => {
+                let mut target = account_target(*region, "/content/watch-list")?;
+                {
+                    let mut query = target.query_pairs_mut();
+                    query.append_pair("page_limit", "50");
+                    if let Some(filter) = request.filter.as_str() {
+                        query.append_pair("content_type", filter);
+                    }
+                    if let Some(cursor) = &request.cursor {
+                        query.append_pair("pagination_key", cursor.as_str());
+                    }
+                }
+                // The maintained URL form encoder escapes the native raw-query
+                // set, but represents spaces as '+'. Raw plus is already %2B,
+                // so normalize only that form-space marker to native %20.
+                let query = target
+                    .query()
+                    .ok_or(Error::InvalidRequest)?
+                    .replace('+', "%20");
+                target.set_query(Some(&query));
+                target
+            }
             Target::MyListIds(region) => account_target(*region, "/content/my-stuff-ids")?,
             Target::ContinueWatching(region) => {
                 account_target(*region, "/content/continue-watching")?
@@ -243,7 +264,7 @@ impl Transport for HttpTransport {
             Target::Bootstrap => None,
             Target::MyListIds(_)
             | Target::ContinueWatching(_)
-            | Target::WatchList(_)
+            | Target::WatchList { .. }
             | Target::AddWatchList { .. }
             | Target::RemoveWatchList { .. } => {
                 let credentials = credentials.ok_or(Error::InvalidRequest)?;

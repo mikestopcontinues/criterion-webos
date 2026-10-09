@@ -573,7 +573,7 @@ mod cleanup_tests {
         ) -> Result<criterion_account::Response, criterion_account::Error> {
             let body = match request.target {
                 criterion_account::Target::Bootstrap => br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec(),
-                criterion_account::Target::WatchList(criterion_account::Region::Us) => br#"{"paging":{"page_limit":60},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private selection"}]}"#.to_vec(),
+                criterion_account::Target::WatchList { region: criterion_account::Region::Us, .. } => br#"{"paging":{"page_limit":60},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private selection"}]}"#.to_vec(),
                 _ => panic!("subscriber admission must remain read-only"),
             };
             Ok(criterion_account::Response {

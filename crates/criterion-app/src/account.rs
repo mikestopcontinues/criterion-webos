@@ -175,7 +175,9 @@ impl<
                 }
                 Err(error) => return Err(error),
             }
-            let watch_list = account.watch_list(&session).await?;
+            let watch_list = account
+                .watch_list(&session, criterion_account::WatchListRequest::default())
+                .await?;
             Ok(LoadedAccount {
                 generation: intent.generation,
                 session_generation: intent.session_generation,
@@ -312,7 +314,7 @@ mod tests {
                     assert!(request.credentials.is_none());
                     br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec()
                 }
-                Target::WatchList(Region::Us) => br#"{"paging":{"page_limit":60},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private film"}]}"#.to_vec(),
+                Target::WatchList { region: Region::Us, .. } => br#"{"paging":{"page_limit":60},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private film"}]}"#.to_vec(),
                 _ => panic!("unexpected typed request"),
             };
             Ok(Response {
@@ -387,7 +389,13 @@ mod tests {
         );
         assert_eq!(
             *middleware.calls.lock().unwrap(),
-            [Target::Bootstrap, Target::WatchList(Region::Us)]
+            [
+                Target::Bootstrap,
+                Target::WatchList {
+                    region: Region::Us,
+                    request: criterion_account::WatchListRequest::default()
+                }
+            ]
         );
         owner.request_shelf(runtime.handle(), 7).unwrap();
         result(&mut owner, &runtime, 7).unwrap();
@@ -395,8 +403,14 @@ mod tests {
             *middleware.calls.lock().unwrap(),
             [
                 Target::Bootstrap,
-                Target::WatchList(Region::Us),
-                Target::WatchList(Region::Us)
+                Target::WatchList {
+                    region: Region::Us,
+                    request: criterion_account::WatchListRequest::default()
+                },
+                Target::WatchList {
+                    region: Region::Us,
+                    request: criterion_account::WatchListRequest::default()
+                }
             ]
         );
         owner.dispose(&runtime);

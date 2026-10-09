@@ -718,8 +718,14 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
     for target in [
         Target::MyListIds(Region::Us),
         Target::ContinueWatching(Region::Ca),
-        Target::WatchList(Region::Us),
-        Target::WatchList(Region::Ca),
+        Target::WatchList {
+            region: Region::Us,
+            request: crate::WatchListRequest::default(),
+        },
+        Target::WatchList {
+            region: Region::Ca,
+            request: crate::WatchListRequest::default(),
+        },
         Target::AddWatchList {
             region: Region::Us,
             media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
@@ -802,8 +808,20 @@ async fn account_redirects_never_reissue_private_headers_to_bootstrap_or_another
                 Target::ContinueWatching(Region::Ca),
                 "/api/ca/content/continue-watching",
             ),
-            (Target::WatchList(Region::Us), "/api/us/content/watch-list"),
-            (Target::WatchList(Region::Ca), "/api/ca/content/watch-list"),
+            (
+                Target::WatchList {
+                    region: Region::Us,
+                    request: crate::WatchListRequest::default(),
+                },
+                "/api/us/content/watch-list?page_limit=50",
+            ),
+            (
+                Target::WatchList {
+                    region: Region::Ca,
+                    request: crate::WatchListRequest::default(),
+                },
+                "/api/ca/content/watch-list?page_limit=50",
+            ),
         ] {
             let outside = Server::json(200, b"{}");
             let location = format!("{}api/init", outside.origin);
@@ -884,10 +902,22 @@ async fn subscriber_errors_do_not_retry_and_later_bootstrap_has_no_stale_headers
 }
 
 #[tokio::test]
-async fn default_watch_list_gets_use_fixed_regional_routes_without_query_or_body() {
+async fn default_watch_list_gets_send_native_limit_and_omit_optional_queries() {
     for (target, path) in [
-        (Target::WatchList(Region::Us), "/api/us/content/watch-list"),
-        (Target::WatchList(Region::Ca), "/api/ca/content/watch-list"),
+        (
+            Target::WatchList {
+                region: Region::Us,
+                request: crate::WatchListRequest::default(),
+            },
+            "/api/us/content/watch-list?page_limit=50",
+        ),
+        (
+            Target::WatchList {
+                region: Region::Ca,
+                request: crate::WatchListRequest::default(),
+            },
+            "/api/ca/content/watch-list?page_limit=50",
+        ),
     ] {
         let server = Server::json(200, br#"{"playlist":[],"paging":{}}"#);
         let response = server
@@ -914,6 +944,240 @@ async fn default_watch_list_gets_use_fixed_regional_routes_without_query_or_body
         );
         assert!(header_values(&requests[0].head, "Cookie").is_empty());
         assert!(requests[0].body.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn watch_list_filters_and_raw_cursors_use_ordered_native_query_encoding() {
+    use crate::{WatchListFilter, WatchListRequest};
+    use criterion_provider::PageCursor;
+
+    // Literal request oracles from the signed native request path. The GET
+    // grouped strings are deliberately independent from POST content types.
+    for (region, prefix) in [(Region::Us, "/api/us"), (Region::Ca, "/api/ca")] {
+        for (filter, filter_query) in [
+            (WatchListFilter::All, ""),
+            (WatchListFilter::FilmSeries, "&content_type=film_series"),
+            (WatchListFilter::Collection, "&content_type=collection"),
+            (
+                WatchListFilter::OriginalFranchise,
+                "&content_type=original_franchise",
+            ),
+            (WatchListFilter::Supplement, "&content_type=supplement"),
+            (WatchListFilter::Category, "&content_type=category"),
+        ] {
+            for (cursor, cursor_query) in [
+                (None, ""),
+                (
+                    Some("+/=% ~é😀"),
+                    "&pagination_key=%2B%2F%3D%25%20%7E%C3%A9%F0%9F%98%80",
+                ),
+                (Some("Az09-._*"), "&pagination_key=Az09-._*"),
+                (
+                    Some(" !\"#$&'(),/:;<=>?@[]\\^`{|}~"),
+                    "&pagination_key=%20%21%22%23%24%26%27%28%29%2C%2F%3A%3B%3C%3D%3E%3F%40%5B%5D%5C%5E%60%7B%7C%7D%7E",
+                ),
+            ] {
+                let server = Server::json(200, b"{}");
+                let target = Target::WatchList {
+                    region,
+                    request: WatchListRequest {
+                        filter,
+                        cursor: cursor.map(|value| PageCursor::new(value).unwrap()),
+                    },
+                };
+                let outbound = account_request(target);
+                let diagnostic = format!("{outbound:?}");
+                if let Some(cursor) = cursor {
+                    assert!(!diagnostic.contains(cursor));
+                }
+                assert!(!diagnostic.contains("synthetic-bootstrap-capability"));
+                assert!(!diagnostic.contains("synthetic-subscriber-capability"));
+                assert!(
+                    server
+                        .transport(Duration::from_secs(1))
+                        .send(outbound)
+                        .await
+                        .is_ok()
+                );
+                let requests = server.requests.lock().unwrap();
+                assert_eq!(requests.len(), 1);
+                let path = format!(
+                    "{prefix}/content/watch-list?page_limit=50{filter_query}{cursor_query}"
+                );
+                assert!(
+                    requests[0]
+                        .head
+                        .starts_with(&format!("GET {path} HTTP/1.1\r\n"))
+                );
+                assert_eq!(
+                    header_values(&requests[0].head, "Authorization"),
+                    ["Bearer synthetic-bootstrap-capability"]
+                );
+                assert_eq!(
+                    header_values(&requests[0].head, "x-auth-token"),
+                    ["synthetic-subscriber-capability"]
+                );
+                assert!(header_values(&requests[0].head, "Cookie").is_empty());
+                assert!(requests[0].body.is_empty());
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn watch_list_continues_only_on_explicit_read_with_the_returned_raw_cursor() {
+    use crate::{AccountClient, WatchListFilter, WatchListRequest};
+    let responses = Arc::new(AtomicUsize::new(0));
+    let server_responses = responses.clone();
+    let server = Server::new("127.0.0.1", move |tls, _| {
+        let body: &[u8] = match server_responses.fetch_add(1, Ordering::AcqRel) {
+            0 => br#"{"country":"CA","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#,
+            1 => "{\"paging\":{\"page_limit\":60,\"next_pagination_key\":\"+/=% ~é😀\"},\"type_counts\":{},\"playlist\":[]}".as_bytes(),
+            _ => br#"{"paging":{"page_limit":-1,"next_pagination_key":null},"type_counts":{},"playlist":[]}"#,
+        };
+        let _ = write!(
+            tls,
+            "HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        let _ = tls.write_all(body);
+    });
+    let (session, _) = crate::native_tests::linked().await;
+    let account = AccountClient::with_transport(server.transport(Duration::from_secs(1)));
+    account.bootstrap().await.unwrap();
+    let first = account
+        .watch_list(
+            &session,
+            WatchListRequest {
+                filter: WatchListFilter::Collection,
+                cursor: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.paging.page_limit, 60);
+    let cursor = first.paging.next_pagination_key.unwrap();
+    assert_eq!(cursor.as_str(), "+/=% ~é😀");
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    let request = WatchListRequest {
+        filter: WatchListFilter::Collection,
+        cursor: Some(cursor),
+    };
+    assert!(!format!("{request:?}").contains("é😀"));
+    let last = account.watch_list(&session, request).await.unwrap();
+    assert_eq!(last.paging.page_limit, -1);
+    assert!(last.paging.next_pagination_key.is_none());
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests.len(), 3);
+    assert!(requests[1].head.starts_with(
+        "GET /api/ca/content/watch-list?page_limit=50&content_type=collection HTTP/1.1\r\n"
+    ));
+    assert!(requests[2].head.starts_with("GET /api/ca/content/watch-list?page_limit=50&content_type=collection&pagination_key=%2B%2F%3D%25%20%7E%C3%A9%F0%9F%98%80 HTTP/1.1\r\n"));
+    for received in &requests[1..] {
+        assert_eq!(
+            header_values(&received.head, "Authorization"),
+            ["Bearer synthetic-bootstrap"]
+        );
+        assert_eq!(
+            header_values(&received.head, "x-auth-token"),
+            ["synthetic-subscriber-0"]
+        );
+        assert!(received.body.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn held_watch_list_continuations_reject_departed_session_or_account_over_real_tls() {
+    use crate::{AccountClient, WatchListFilter, WatchListRequest};
+    use criterion_provider::PageCursor;
+    for action in 0..7 {
+        let responses = Arc::new(AtomicUsize::new(0));
+        let server_responses = responses.clone();
+        let release = Arc::new(AtomicBool::new(false));
+        let server_release = release.clone();
+        let server = Server::new("127.0.0.1", move |tls, stop| {
+            let body: &[u8] = if server_responses.fetch_add(1, Ordering::AcqRel) == 0 {
+                br#"{"country":"CA","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#
+            } else {
+                let deadline = Instant::now() + Duration::from_secs(2);
+                while !server_release.load(Ordering::Acquire)
+                    && !stop.load(Ordering::Acquire)
+                    && Instant::now() < deadline
+                {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                br#"{"paging":{"page_limit":50,"next_pagination_key":null},"type_counts":{},"playlist":[]}"#
+            };
+            let _ = write!(
+                tls,
+                "HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = tls.write_all(body);
+        });
+        let (session, now) = crate::native_tests::linked().await;
+        let account = AccountClient::with_transport(server.transport(Duration::from_secs(3)));
+        account.bootstrap().await.unwrap();
+        let request = WatchListRequest {
+            filter: WatchListFilter::FilmSeries,
+            cursor: Some(PageCursor::new("synthetic-next/+%20").unwrap()),
+        };
+        let mut pending = Box::pin(account.watch_list(&session, request));
+        tokio::select! {
+            value = &mut pending => panic!("continued read returned before delivery gate: {value:?}"),
+            () = wait_requests(&server, 2) => {}
+        }
+        assert_eq!(
+            account
+                .watch_list(&session, WatchListRequest::default())
+                .await,
+            Err(Error::Busy)
+        );
+        match action {
+            0 => {
+                session.refresh().await.unwrap();
+            }
+            1 => {
+                session.logout().await.unwrap();
+            }
+            2 => session.dispose(),
+            3 => now.store(3605, Ordering::SeqCst),
+            4 => account.cancel(),
+            5 => account.dispose(),
+            _ => {}
+        }
+        release.store(true, Ordering::Release);
+        if action == 6 {
+            drop(pending);
+            assert!(
+                account
+                    .watch_list(&session, WatchListRequest::default())
+                    .await
+                    .is_ok()
+            );
+        } else {
+            assert_eq!(
+                pending.await,
+                Err(if action == 5 {
+                    Error::Disposed
+                } else {
+                    Error::Stale
+                })
+            );
+        }
+        assert_eq!(
+            account.region(),
+            if action == 5 {
+                Err(Error::Disposed)
+            } else {
+                Ok(Region::Ca)
+            }
+        );
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), if action == 6 { 3 } else { 2 });
+        assert!(requests[1].head.starts_with("GET /api/ca/content/watch-list?page_limit=50&content_type=film_series&pagination_key=synthetic-next%2F%2B%2520 HTTP/1.1\r\n"));
+        assert!(requests[1].body.is_empty());
     }
 }
 
