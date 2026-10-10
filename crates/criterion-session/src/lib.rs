@@ -1,11 +1,13 @@
 //! Bounded Criterion native device authorization and subscriber session ownership.
 use std::future::Future;
 use std::time::Duration;
+mod lifecycle;
 mod secret;
 mod session;
 mod storage;
 mod transport;
 mod wire;
+pub use lifecycle::PersistentSession;
 pub use secret::{Secret, SecretBody};
 pub use session::Session;
 pub use storage::{SecureSessionStore, StoredSession};
@@ -34,6 +36,7 @@ pub enum Error {
     PollLimit,
     ReauthenticationRequired,
     RevocationUnconfirmed,
+    StorageUnconfirmed,
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -112,6 +115,8 @@ pub enum Status {
     ReauthenticationRequired,
     Disposed,
 }
+#[cfg(test)]
+mod lifecycle_tests;
 #[cfg(test)]
 mod session_tests;
 #[cfg(test)]

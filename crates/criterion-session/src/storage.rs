@@ -66,10 +66,21 @@ impl StoredSession {
 
 /// The platform owner admits and implements this contract; no backend is
 /// provided. Payloads require authenticated encryption and restricted access.
-/// Operations must be serialized, bounded, atomic and durably complete before
-/// returning success. `take` removes the saved record before returning it,
-/// preventing replay after a crash or uncertain refresh completion. On any
-/// ambiguous storage result, the owner must block restore and require sign-in.
+/// One session owner requires exclusive storage ownership, including reopening.
+/// Operations must be bounded and serialized. Success confirms an atomic,
+/// durably complete result: `take` (including `None`) and `clear` confirm absence
+/// before returning, and `replace` confirms the complete authenticated record.
+/// Confirmed `take` before refresh prevents old-token replay after a crash or
+/// uncertain issuer completion; an active owner keeps the checkpoint absent.
+///
+/// Every returned result must be settled, with no later mutation from that
+/// operation. Errors do not establish absence. On error or future interruption,
+/// the backend must refuse ambiguous checkpoints on reopening until durable
+/// recovery establishes a safe state. An interrupted older write must never
+/// become eligible after a newer removal. The backend must establish these
+/// recovery properties; an owner's in-memory failure latch cannot provide them.
+/// Dropping a future or owner does not confirm a disk barrier. Runtime shutdown
+/// must join issued operations; backend interruption safety remains required.
 pub trait SecureSessionStore: Send {
     fn take(&mut self) -> impl Future<Output = Result<Option<StoredSession>, Error>> + Send;
     fn replace(&mut self, session: StoredSession)
