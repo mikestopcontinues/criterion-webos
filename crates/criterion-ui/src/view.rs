@@ -500,6 +500,19 @@ impl AppUi {
                     CatalogTail::More => (),
                 }
             }
+            let unavailable_feedback = self.page() == Page::Detail
+                && data.status == LoadState::Ready
+                && data.detail.is_some()
+                && self.playback_feedback == PlaybackFeedback::Unavailable;
+            if unavailable_feedback {
+                // Erase content scrolling under the fixed notice; rail/modal
+                // controls still paint above this band, then notice text last.
+                p.rect_filled(
+                    Rect::from_min_max(Pos2::new(130.0, 0.0), Pos2::new(1920.0, 72.0)),
+                    0,
+                    Color32::from_rgb(17, 17, 17),
+                );
+            }
             paint_rail(&p, self.focus(), self.page(), data.login);
             if self.page() == Page::AllFilms && self.filters.open {
                 self.paint_filters(&p, data);
@@ -510,11 +523,7 @@ impl AppUi {
             {
                 self.paint_information(&p, detail);
             }
-            if self.page() == Page::Detail
-                && data.status == LoadState::Ready
-                && data.detail.is_some()
-                && self.playback_feedback == PlaybackFeedback::Unavailable
-            {
+            if unavailable_feedback {
                 label(
                     &p,
                     [150.0, 20.0],

@@ -359,6 +359,85 @@ fn actual_series_episode_card_uses_its_own_id_start_and_no_root_commentary() {
 }
 
 #[test]
+fn scrolled_ready_detail_feedback_masks_underlying_primary_text_before_painting_notice() {
+    let mut f = series();
+    for _ in 0..4 {
+        f.key(81, 1_073_741_905);
+    }
+    assert_eq!(f.app.ui.focus(), Focus::Card { row: 0, column: 0 });
+    assert!(f.native_ready("Listed01"));
+    let frame = output(&mut f);
+    let (notice_index, notice_bounds) = frame
+        .shapes
+        .iter()
+        .enumerate()
+        .find_map(|(index, shape)| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == "Playback unavailable" => {
+                Some((index, shape.shape.visual_bounding_rect()))
+            }
+            _ => None,
+        })
+        .expect("the current attempt must remain visibly unavailable");
+    let (caption_index, caption_bounds) = frame
+        .shapes
+        .iter()
+        .enumerate()
+        .find_map(|(index, shape)| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == "RESUME SEASON 3, EPISODE 1" => {
+                Some((
+                    index,
+                    shape
+                        .clip_rect
+                        .intersect(shape.shape.visual_bounding_rect()),
+                ))
+            }
+            _ => None,
+        })
+        .expect("the scrolling action remains in the Detail paint");
+    assert!(
+        caption_bounds.intersects(notice_bounds),
+        "this exact scroll must exercise the observed collision"
+    );
+    let band = egui::Rect::from_min_max(egui::pos2(130.0, 0.0), egui::pos2(1920.0, 72.0));
+    assert!(band.contains_rect(notice_bounds));
+    let cover = frame.shapes.iter().enumerate().find(|(index, shape)| {
+        *index > caption_index && *index < notice_index && shape.clip_rect.contains_rect(band)
+            && matches!(&shape.shape, egui::Shape::Rect(rect) if rect.rect == band && rect.fill.a() == 255 && rect.corner_radius == egui::CornerRadius::ZERO)
+    });
+    assert!(
+        cover.is_some(),
+        "an opaque fixed band must erase the scrolled caption before notice text paints"
+    );
+    assert!(text(&frame, "Unable to load films — try again").is_empty());
+    assert_eq!(f.script.calls.lock().unwrap().len(), 3);
+    f.key(80, 1_073_741_904);
+    assert!(matches!(f.app.ui.focus(), Focus::Rail(_)));
+    let expanded = output(&mut f);
+    let (heading_index, heading_bounds) = expanded
+        .shapes
+        .iter()
+        .enumerate()
+        .find_map(|(index, shape)| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == "CRITERION UNOFFICIAL" => Some((
+                index,
+                shape
+                    .clip_rect
+                    .intersect(shape.shape.visual_bounding_rect()),
+            )),
+            _ => None,
+        })
+        .expect("expanding the rail retains its heading");
+    assert!(
+        !expanded.shapes.iter().enumerate().any(|(index, shape)| {
+            index > heading_index
+                && matches!(&shape.shape, egui::Shape::Rect(rect)
+            if rect.fill.a() == 255 && rect.rect.intersects(heading_bounds))
+        }),
+        "feedback must not erase the expanded rail heading"
+    );
+}
+
+#[test]
 fn standalone_episode_primary_does_not_repurpose_optional_dto_parent_fields() {
     let mut f = Fixture::new(
         false,
