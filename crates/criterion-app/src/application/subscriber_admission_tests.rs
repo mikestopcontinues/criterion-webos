@@ -4,6 +4,10 @@ use super::*;
 use criterion_ui::{LoginView, Page};
 use std::time::Instant;
 
+#[path = "subscriber_membership_admission_tests.rs"]
+mod subscriber_membership_admission_tests;
+use subscriber_membership_admission_tests::{MembershipTrace, PaintObserver};
+
 fn finish_admission<P, T, C, A>(
     app: &mut Application<P, T, C, A>,
     runtime: &Runtime,
@@ -179,16 +183,30 @@ fn frame(
     }
     app.consume(runtime, journey.start.elapsed());
     journey.observe(app)?;
-    let mut output = app.take_output().ok_or("render frame")?;
     let drawable = window.surface().map_err(|_| "render surface")?.drawable;
-    painter
+    let mut output = app.take_output().ok_or("render frame")?;
+    let admission = match journey.prepare_membership_paint(app, &output) {
+        Ok(admission) => admission,
+        Err(error) => {
+            output.textures_delta.clear();
+            return Err(error);
+        }
+    };
+    if painter
         .paint(
             [drawable.width, drawable.height],
             app.context(),
             &mut output,
         )
-        .map_err(|_| "render frame")?;
+        .is_err()
+    {
+        output.textures_delta.clear();
+        return Err("render frame");
+    }
     window.present().map_err(|_| "native presentation")?;
+    if admission && let Some(observer) = &mut journey.membership {
+        observer.painted = true;
+    }
     journey.check()
 }
 
@@ -315,6 +333,12 @@ struct ReadAttempt {
 struct ReadTrace {
     reads: Vec<ReadAttempt>,
     refused: bool,
+    membership: Option<MembershipTrace>,
+}
+enum ReadReceipt {
+    Shelf(usize),
+    Detail,
+    Ids,
 }
 struct TracedAccount<A> {
     inner: A,
@@ -339,7 +363,26 @@ impl<A: criterion_account::Transport> criterion_account::Transport for TracedAcc
                         request: request.clone(),
                         returned: None,
                     });
-                    Some(index)
+                    Some(ReadReceipt::Shelf(index))
+                }
+                Request::Detail {
+                    region, media_id, ..
+                } if trace
+                    .membership
+                    .as_mut()
+                    .is_some_and(|membership| membership.admit_detail(*region, media_id)) =>
+                {
+                    Some(ReadReceipt::Detail)
+                }
+                Request::Subscriber {
+                    target: SubscriberTarget::MyListIds(region),
+                    ..
+                } if trace
+                    .membership
+                    .as_mut()
+                    .is_some_and(|membership| membership.admit_ids(*region)) =>
+                {
+                    Some(ReadReceipt::Ids)
                 }
                 Request::Detail { .. } | Request::Subscriber { .. } => {
                     trace.refused = true;
@@ -350,9 +393,26 @@ impl<A: criterion_account::Transport> criterion_account::Transport for TracedAcc
         // Preserve the real transport's credential/TLS/body/URL owner intact.
         // Never parse or retain the returned body, inspect headers, or retry.
         let result = self.inner.send(request).await;
-        if let Some(index) = index {
-            self.trace.lock().map_err(|_| Error::Unavailable)?.reads[index].returned =
-                Some(result.as_ref().is_ok_and(|response| response.status == 200));
+        if let Some(receipt) = index {
+            let mut trace = self.trace.lock().map_err(|_| Error::Unavailable)?;
+            let returned = Some(result.as_ref().is_ok_and(|response| response.status == 200));
+            match receipt {
+                ReadReceipt::Shelf(index) => trace.reads[index].returned = returned,
+                ReadReceipt::Detail => {
+                    trace
+                        .membership
+                        .as_mut()
+                        .ok_or(Error::Unavailable)?
+                        .detail_returned = returned;
+                }
+                ReadReceipt::Ids => {
+                    trace
+                        .membership
+                        .as_mut()
+                        .ok_or(Error::Unavailable)?
+                        .ids_returned = returned;
+                }
+            }
         }
         result
     }
@@ -362,6 +422,7 @@ impl<A: criterion_account::Transport> criterion_account::Transport for TracedAcc
 enum AdmissionMode {
     Initial,
     Grouped,
+    Membership,
 }
 type SubscriberApp = Application<
     HttpTransport,
@@ -381,6 +442,8 @@ struct Journey {
     deadline: Instant,
     logout_issued: bool,
     reads: Vec<ObservedRead>,
+    membership: Option<PaintObserver>,
+    membership_retired: bool,
 }
 impl Journey {
     fn new() -> Self {
@@ -390,6 +453,8 @@ impl Journey {
             deadline: start + Duration::from_secs(540),
             logout_issued: false,
             reads: Vec::new(),
+            membership: None,
+            membership_retired: false,
         }
     }
     fn check(&self) -> Result<(), &'static str> {
@@ -453,6 +518,18 @@ impl Journey {
             });
         }
         Ok(())
+    }
+    fn prepare_membership_paint(
+        &mut self,
+        app: &SubscriberApp,
+        output: &egui::FullOutput,
+    ) -> Result<bool, &'static str> {
+        if self.membership_retired {
+            subscriber_membership_admission_tests::retired_frame(app, output)?;
+        }
+        self.membership
+            .as_mut()
+            .map_or(Ok(false), |observer| observer.prepare(app, output))
     }
 }
 fn verify_trace(trace: &SharedTrace, journey: &Journey) -> Result<(), &'static str> {
@@ -727,7 +804,10 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
         .enable_all()
         .build()
         .map_err(|_| "request runtime")?;
-    let trace = Arc::new(std::sync::Mutex::new(ReadTrace::default()));
+    let trace = Arc::new(std::sync::Mutex::new(ReadTrace {
+        membership: (mode == AdmissionMode::Membership).then(MembershipTrace::default),
+        ..ReadTrace::default()
+    }));
     let authentication = Authentication::new().map_err(|_| "the subscriber session")?;
     let account = criterion_account::AccountClient::with_transport(TracedAccount {
         inner: criterion_account::HttpTransport::new().map_err(|_| "the account client")?,
@@ -917,6 +997,16 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
                 &trace,
             )?;
         }
+        if mode == AdmissionMode::Membership {
+            subscriber_membership_admission_tests::admit_membership(
+                &mut app,
+                &mut window,
+                &mut painter,
+                &runtime,
+                &mut journey_state,
+                &trace,
+            )?;
+        }
         admitted_reads = Some(
             trace
                 .lock()
@@ -924,7 +1014,7 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
                 .reads
                 .len(),
         );
-        // No private item/card action. Return to Account, then actual SDL Select
+        // Return to Account, then actual SDL Select
         // executes the UI's explicit Logout command. Cleanup never replays it.
         for remote in [
             (80, 1_073_741_904),
@@ -963,6 +1053,7 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
     }))
     .unwrap_or(Err("interrupted cleanup (remote state unconfirmed)"));
     let text_cleanup = window.text_input(false).map_err(|_| "native text disposal");
+    journey_state.membership = None;
     drop(app); // Retained private projections and unpainted frames lose their owner.
     runtime.shutdown_timeout(Duration::from_secs(2));
     painter.destroy();
@@ -976,7 +1067,11 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
                 .reads
                 .len();
             if Some(count) == admitted_reads {
-                Ok(())
+                if mode == AdmissionMode::Membership {
+                    subscriber_membership_admission_tests::verify_membership_trace(&trace)
+                } else {
+                    Ok(())
+                }
             } else {
                 Err("extra subscriber read during logout")
             }
@@ -987,6 +1082,7 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
     journey_state.reads.clear();
     if let Ok(mut trace) = trace.lock() {
         trace.reads.clear();
+        trace.membership = None;
     }
     if let Err(phase) = journey {
         println!("subscriber admission: stopped during {phase}");
@@ -1189,6 +1285,47 @@ mod admission_oracle_tests {
         ));
         assert!(received.lock().unwrap().len() == MAX_READS);
         assert!(trace.lock().unwrap().reads.len() == MAX_READS);
+        // Enabling the new mode grants no general subscriber capability. The
+        // same synthetic receiver would panic if any forbidden method escaped.
+        trace.lock().unwrap().membership = Some(MembershipTrace::default());
+        let root = criterion_provider::MediaId::new("Synth001").unwrap();
+        for target in [
+            SubscriberTarget::MyListIds(Region::Us),
+            SubscriberTarget::ContinueWatching(Region::Us),
+            SubscriberTarget::Entitlement {
+                region: Region::Us,
+                captured_unix_time_ms: 0,
+            },
+            SubscriberTarget::Playback {
+                region: Region::Us,
+                request: criterion_account::NativePlaybackRequest {
+                    media_id: root.clone(),
+                    drm_policy: criterion_account::DrmPolicy::Low,
+                },
+            },
+            SubscriberTarget::AddWatchList {
+                region: Region::Us,
+                media_id: root.clone(),
+                content_type: criterion_account::WatchListContentType::Film,
+            },
+            SubscriberTarget::RemoveWatchList {
+                region: Region::Us,
+                media_id: root,
+            },
+        ] {
+            let result = runtime.block_on(criterion_account::Transport::send(
+                &transport,
+                criterion_account::Request::Subscriber {
+                    target,
+                    credentials: capabilities.credentials(&session).unwrap(),
+                },
+            ));
+            assert!(matches!(
+                result,
+                Err(criterion_account::Error::InvalidRequest)
+            ));
+        }
+        assert!(received.lock().unwrap().len() == MAX_READS);
     }
 
     #[test]
@@ -1254,6 +1391,7 @@ mod admission_oracle_tests {
                 returned: Some(true),
             }],
             refused: false,
+            membership: None,
         }));
         let mut journey = Journey::new();
         journey.reads.push(ObservedRead {
