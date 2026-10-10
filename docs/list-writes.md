@@ -1,0 +1,27 @@
+# My List writes
+
+Explicit Add and Remove actions connect native Detail, the account client and a durable issued-write fence. The connected source has synthetic CPU coverage; actual provider mutation and C4 storage behavior remain unadmitted. [The account boundary](account.md#native-detail-membership-observation) owns the separately admitted Detail membership read.
+
+## Intent and settlement
+
+[UI commands](../crates/criterion-ui/src/commands.rs) carry the Detail root, visit and expected membership. [The Application write consumer](../crates/criterion-app/src/application/list_write.rs) requires a foreground current native Detail, the same account epoch and visit, an unchanged known membership observation, ready credentials and a ready fence. The admitted root kind supplies the typed Add content type; Live has no write action. A signed-out action enters activation without retaining a write to replay after linking.
+
+[Accounts](../crates/criterion-app/src/account.rs) admits one write only after account reads have settled. Its independent [Writes owner](../crates/criterion-app/src/account/list_write.rs) reserves the durable fence before polling Add or Remove. Departure, background or account retirement withdraws permission to start provider I/O; it does not abort an already issued operation. The bounded task retains settlement ownership, and obsolete completion cannot publish into another Detail visit or account epoch. Repeated presses cannot create overlapping writes.
+
+[The account client](../crates/criterion-account/src/client.rs) distinguishes definite `NotIssued` from `Unconfirmed`. Only definite nonissuance or an admitted write acknowledgement authorizes clearing the reservation. A timeout, potentially delivered error, malformed response or failed task leaves an unknown outcome held. Neither a matching membership read nor logout authorizes clearing it. Ordinary polling, relinking and restart cannot replay the write or automatically recover the held fence.
+
+[Authentication](../crates/criterion-app/src/authentication.rs) defers refresh and explicit issuer logout while the write is held. Logout retires subscriber publication before revocation can proceed. [Application cleanup](../crates/criterion-app/src/application.rs) joins account reads and write settlement before releasing that hold and finishing authentication. Joining a task does not establish that an unknown remote effect was undone.
+
+## Membership and navigation
+
+A typed [SyncReceipt](../crates/criterion-account/src/model.rs) and its `sync` flag do not establish applied membership. After acknowledgement, a still-current Detail uses the original action deadline for a fresh [My List IDs observation](../crates/criterion-app/src/application/list_membership.rs). That response alone determines the displayed saved state. Failure or expired currentness leaves membership unavailable; failed durable completion still prevents another write even if membership can be observed.
+
+A possibly issued write dirties same-epoch shelves through [the controller](../crates/criterion-app/src/controller/my_list.rs) and [UI history](../crates/criterion-ui/src/navigation.rs). Navigation destinations and the selected group survive; old rows, cursors, anchors and group counts do not. Back reloads the selected group. In [MyListState](../crates/criterion-app/src/my_list.rs), unknown counts keep supported groups accessible with no displayed count. A filtered response cannot manufacture global availability; only an admitted first All response restores global counts and hides known empty groups. Invalidation adds no automatic All request.
+
+## Storage and deployment boundary
+
+[The platform fence](../crates/criterion-platform/src/write_fence.rs) owns one fixed nonsecret DB8 record: object identity, schema version, revision and the possibly-issued bit. It stores no credential, account identity, content ID or URL. [The store](../crates/criterion-platform/src/write_fence/store.rs) changes `Clean` to `PossiblyIssued` using the observed revision, then requires the put acknowledgement and exact readback before granting the reservation. Authorized completion likewise acknowledges and reads back the clear. Missing, corrupt, unavailable or possibly-issued startup state refuses writes; normal application startup never creates or resets the record.
+
+On native webOS, `Accounts::from_parts` → `Writes::new` → `Db8WriteFence::new` eagerly starts [the worker](../crates/criterion-platform/src/write_fence/worker.rs) and opens [the fixed MAIN LS2 registration](../crates/criterion-platform/src/write_fence/native.rs). The DB8 state read is scheduled later by `Accounts::poll`. The private GLib context is pumped during DB8 calls; the idle worker blocks on its command receiver. This source does not establish continuous background callback dispatch. Future playback must share this one fixed registration and its lifetime.
+
+[MAIN's manifest](../tools/package-native/packaging/appinfo.json) requests the DB8 permission. Before this feature is usable, [canonical deployment](/Users/mike/Code/elgee-tv/TASKS.md#deployment-pipeline) must provide a separately verified initializer for the exact kind and record defined by the fence. A fresh put must explicitly supply `_kind` and the source-defined clean record fields; only the positive `_rev` is DB8 supplied. The initializer is not implemented. Actual C4 rights, DB8 configuration and restart durability, native ABI/link behavior and provider write/restore validation remain separate admission requirements.
