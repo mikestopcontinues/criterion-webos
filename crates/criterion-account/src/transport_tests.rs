@@ -825,6 +825,7 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
     let oversized_bootstrap = format!("Bearer {}", "b".repeat(16_385));
     let oversized_subscriber = "s".repeat(16_385);
     for target in [
+        playback_target(Region::Us, crate::DrmPolicy::High),
         SubscriberTarget::Entitlement {
             region: Region::Us,
             captured_unix_time_ms: 1_791_590_123_456,
@@ -1655,6 +1656,161 @@ async fn native_detail_declared_and_streamed_oversized_bodies_fail_atomically() 
                 .await
                 .err(),
             Some(Error::ResponseTooLarge)
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+    }
+}
+
+fn playback_target(region: Region, drm_policy: crate::DrmPolicy) -> SubscriberTarget {
+    SubscriberTarget::Playback {
+        region,
+        request: crate::NativePlaybackRequest {
+            media_id: criterion_provider::MediaId::new("Chosen01").unwrap(),
+            drm_policy,
+        },
+    }
+}
+
+#[tokio::test]
+async fn native_playback_tls_uses_all_six_explicit_policy_names_and_only_fixed_request_fields() {
+    // Literal names/paths are independently supplied by signed f71/i5 records.
+    for (policy, spelling) in [
+        (crate::DrmPolicy::Low, "low"),
+        (crate::DrmPolicy::Medium, "medium"),
+        (crate::DrmPolicy::High, "high"),
+        (crate::DrmPolicy::Highest, "highest"),
+        (crate::DrmPolicy::Offline, "offline"),
+        (crate::DrmPolicy::Cast, "cast"),
+    ] {
+        for (region, prefix) in [(Region::Us, "/api/us"), (Region::Ca, "/api/ca")] {
+            let server = Server::json(200, br#"{"playlist":[]}"#);
+            let result = server
+                .transport(Duration::from_secs(1))
+                .send(account_request(playback_target(region, policy)))
+                .await
+                .unwrap();
+            assert_eq!(result.status, 200);
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert!(requests[0].head.starts_with(&format!(
+                "GET {prefix}/playback/Chosen01?drm_policy={spelling} HTTP/1.1\r\n"
+            )));
+            assert_eq!(
+                header_values(&requests[0].head, "Authorization"),
+                ["Bearer synthetic-bootstrap-capability"]
+            );
+            assert_eq!(
+                header_values(&requests[0].head, "x-auth-token"),
+                ["synthetic-subscriber-capability"]
+            );
+            assert!(header_values(&requests[0].head, "Cookie").is_empty());
+            assert!(header_values(&requests[0].head, "Content-Type").is_empty());
+            assert!(requests[0].body.is_empty());
+        }
+    }
+}
+
+#[tokio::test]
+async fn native_playback_tls_has_its_own_inclusive_512k_body_limit_for_both_framings() {
+    for chunked in [false, true] {
+        for length in [65_537, 524_288, 524_289] {
+            let server = Server::new("127.0.0.1", move |tls, _| {
+                if chunked {
+                    let _ = write!(
+                        tls,
+                        "HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{length:x}\r\n"
+                    );
+                } else {
+                    let _ = write!(
+                        tls,
+                        "HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
+                    );
+                }
+                let mut body = b"{}".to_vec();
+                body.resize(length, b' ');
+                let _ = tls.write_all(&body);
+                if chunked {
+                    let _ = tls.write_all(b"\r\n0\r\n\r\n");
+                }
+            });
+            let result = server
+                .transport(Duration::from_secs(1))
+                .send(account_request(playback_target(
+                    Region::Ca,
+                    crate::DrmPolicy::Low,
+                )))
+                .await;
+            if length <= 524_288 {
+                assert_eq!(result.unwrap().body.expose().len(), length);
+            } else {
+                assert_eq!(result.err(), Some(Error::ResponseTooLarge));
+            }
+            assert_eq!(server.requests.lock().unwrap().len(), 1);
+        }
+    }
+    let normal = Server::new("127.0.0.1", |tls, _| {
+        let _ = tls.write_all(b"HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nContent-Length: 65537\r\nConnection: close\r\n\r\n");
+    });
+    assert_eq!(
+        normal
+            .transport(Duration::from_secs(1))
+            .send(account_request(SubscriberTarget::ContinueWatching(
+                Region::Ca
+            )))
+            .await
+            .err(),
+        Some(Error::ResponseTooLarge)
+    );
+}
+
+#[tokio::test]
+async fn native_playback_tls_refuses_untrusted_redirect_and_late_delivery_without_retry() {
+    let target = playback_target(Region::Us, crate::DrmPolicy::Medium);
+    let untrusted = Server::json(200, br#"{"playlist":[]}"#);
+    assert_eq!(
+        HttpTransport::for_test(untrusted.origin.clone(), Duration::from_secs(1))
+            .unwrap()
+            .send(account_request(target.clone()))
+            .await
+            .err(),
+        Some(Error::Unavailable)
+    );
+    assert!(untrusted.requests.lock().unwrap().is_empty());
+
+    let redirected = Server::new("127.0.0.1", |tls, _| {
+        let _ = tls.write_all(b"HTTP/1.1 302 Fixture\r\nLocation: https://example.invalid/private-redirect\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    });
+    assert_eq!(
+        redirected
+            .transport(Duration::from_secs(1))
+            .send(account_request(target.clone()))
+            .await
+            .err(),
+        Some(Error::HttpStatus(302))
+    );
+    assert_eq!(redirected.requests.lock().unwrap().len(), 1);
+
+    for body in [false, true] {
+        let server = Server::new("127.0.0.1", move |tls, stop| {
+            if body {
+                let _ = tls.write_all(b"HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nContent-Length: 500\r\nConnection: close\r\n\r\n");
+                let _ = tls.flush();
+            }
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while !stop.load(Ordering::Acquire) && Instant::now() < deadline {
+                if body && (tls.write_all(b" ").is_err() || tls.flush().is_err()) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(40));
+            }
+        });
+        assert_eq!(
+            server
+                .transport(Duration::from_millis(180))
+                .send(account_request(target.clone()))
+                .await
+                .err(),
+            Some(Error::Deadline)
         );
         assert_eq!(server.requests.lock().unwrap().len(), 1);
     }

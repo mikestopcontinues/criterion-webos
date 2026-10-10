@@ -1,5 +1,40 @@
 use criterion_provider::{MediaId, PageCursor};
 
+/// Exact signed native policy enum. The caller chooses explicitly; this type
+/// supplies no platform capability, rights decision or default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DrmPolicy {
+    Low,
+    Medium,
+    High,
+    Highest,
+    Offline,
+    Cast,
+}
+impl DrmPolicy {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Highest => "highest",
+            Self::Offline => "offline",
+            Self::Cast => "cast",
+        }
+    }
+}
+/// Selected stream identity, independent from the response media projection.
+#[derive(Clone, PartialEq, Eq)]
+pub struct NativePlaybackRequest {
+    pub media_id: MediaId,
+    pub drm_policy: DrmPolicy,
+}
+impl std::fmt::Debug for NativePlaybackRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("NativePlaybackRequest([redacted])")
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MediaKind {
     Category,

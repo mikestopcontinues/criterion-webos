@@ -18,9 +18,9 @@ pub use detail::{
     NativePlaylistKey, NativeSeason, NativeSeasonsPlaylist,
 };
 pub use model::{
-    ContinueWatching, MediaKind, MediaSummary, MyListIds, NativeEntitlement, PagingInfo, Position,
-    SyncReceipt, TypeCount, WatchList, WatchListContentType, WatchListFilter, WatchListRequest,
-    WriteFailure, WriteStatus,
+    ContinueWatching, DrmPolicy, MediaKind, MediaSummary, MyListIds, NativeEntitlement,
+    NativePlaybackRequest, PagingInfo, Position, SyncReceipt, TypeCount, WatchList,
+    WatchListContentType, WatchListFilter, WatchListRequest, WriteFailure, WriteStatus,
 };
 pub use playback::{NativePlayback, NativePlaybackSelection};
 pub use transport::HttpTransport;
@@ -55,6 +55,10 @@ pub enum Region {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SubscriberTarget {
+    Playback {
+        region: Region,
+        request: NativePlaybackRequest,
+    },
     Entitlement {
         region: Region,
         captured_unix_time_ms: i64,
@@ -149,3 +153,6 @@ mod entitlement_tests;
 
 #[cfg(test)]
 mod playback_tests;
+
+#[cfg(test)]
+mod playback_client_tests;

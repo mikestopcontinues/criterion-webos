@@ -9,6 +9,7 @@ use zeroize::Zeroizing;
 const MAX_REQUEST_BYTES: usize = 256;
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 const MAX_DETAIL_RESPONSE_BYTES: usize = 512 * 1024;
+const MAX_PLAYBACK_RESPONSE_BYTES: usize = 512 * 1024;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Fixed middleware HTTPS transport with verified static roots, no proxy,
@@ -81,6 +82,17 @@ impl HttpTransport {
                 target
             }
             Request::Subscriber { target, .. } => match target {
+                SubscriberTarget::Playback { region, request } => {
+                    let mut target = account_target(*region, "/playback")?;
+                    target
+                        .path_segments_mut()
+                        .map_err(|_| Error::InvalidRequest)?
+                        .push(request.media_id.as_str());
+                    target
+                        .query_pairs_mut()
+                        .append_pair("drm_policy", request.drm_policy.as_str());
+                    target
+                }
                 SubscriberTarget::Entitlement {
                     region,
                     captured_unix_time_ms,
@@ -311,10 +323,13 @@ impl Transport for HttpTransport {
             } => (reqwest::Method::DELETE, None),
             _ => (reqwest::Method::GET, None),
         };
-        let maximum = if matches!(&request, Request::Detail { .. }) {
-            MAX_DETAIL_RESPONSE_BYTES
-        } else {
-            MAX_RESPONSE_BYTES
+        let maximum = match &request {
+            Request::Detail { .. } => MAX_DETAIL_RESPONSE_BYTES,
+            Request::Subscriber {
+                target: SubscriberTarget::Playback { .. },
+                ..
+            } => MAX_PLAYBACK_RESPONSE_BYTES,
+            _ => MAX_RESPONSE_BYTES,
         };
         let _permit = self.permit.try_acquire().map_err(|_| Error::Busy)?;
         let target = self.target(&request)?;

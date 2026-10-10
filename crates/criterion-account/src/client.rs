@@ -77,6 +77,22 @@ impl<T: Transport> AccountClient<T> {
             state: Mutex::new(State::default()),
         }
     }
+    /// One explicitly selected native playback read. No refresh, policy chooser,
+    /// entitlement preflight, URL admission or license fetch is performed.
+    /// Admission rechecks current token bytes and the read lease; the runtime
+    /// owns retirement of Session epochs that reuse identical token bytes.
+    pub async fn playback<S: criterion_session::Transport, C: MonotonicClock>(
+        &self,
+        session: &Session<S, C>,
+        request: crate::NativePlaybackRequest,
+    ) -> Result<crate::NativePlaybackSelection, Error> {
+        self.read(
+            session,
+            move |region| SubscriberTarget::Playback { region, request },
+            crate::NativePlaybackSelection::from_response,
+        )
+        .await
+    }
     /// Native entitlement uses the caller-captured Unix millisecond timestamp.
     /// It does not select a DRM policy or establish playback permission.
     /// Admission rechecks the current access token and this client's read lease;
