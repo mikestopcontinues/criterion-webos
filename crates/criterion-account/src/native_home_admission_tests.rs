@@ -1,4 +1,4 @@
-//! Root-only anonymous candidate-route experiment; no production Lander request.
+//! Root-only anonymous native Home index observation; no production Lander default.
 use super::*;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use std::io::{Read, Write};
@@ -24,7 +24,7 @@ struct Report {
 impl Default for Report {
     fn default() -> Self {
         Self {
-            experiment: "candidate_literal_home_not_official_role",
+            experiment: "anonymous_native_home_index",
             phase: "not_started",
             outcome: "not_started",
             bootstrap_attempts: 0,
@@ -268,8 +268,8 @@ async fn run_experiment(transport: &HttpTransport, deadline: Instant) -> Report 
         drop(response);
         check_deadline(deadline)?;
         let _permit = transport.permit.try_acquire().map_err(|_| Error::Busy)?;
-        let target = candidate_target(transport, bootstrap.region)?;
-        report.phase = "candidate_home";
+        let target = home_index_target(transport, bootstrap.region)?;
+        report.phase = "native_home_index";
         report.home_attempts = 1;
         let response = transport
             .client
@@ -281,7 +281,7 @@ async fn run_experiment(transport: &HttpTransport, deadline: Instant) -> Report 
             .await
             .map_err(request_error)?;
         report.home_status = Some(response.status().as_u16());
-        let body = candidate_body(response).await?;
+        let body = home_index_body(response).await?;
         report.phase = "schema";
         let hash = sha256(body.expose())?;
         check_deadline(deadline)?;
@@ -295,7 +295,7 @@ async fn run_experiment(transport: &HttpTransport, deadline: Instant) -> Report 
     .unwrap_or(Err(Error::Deadline))
     .and_then(|()| check_deadline(deadline));
     report.outcome = match result {
-        Ok(()) => "admitted_experiment",
+        Ok(()) => "admitted_index_experiment",
         Err(Error::HttpStatus(status)) => {
             if report.home_attempts == 0 {
                 report.bootstrap_status = Some(status);
@@ -353,7 +353,7 @@ fn reserve_private_report(path: &std::path::Path) -> Result<std::fs::File, &'sta
         .mode(0o600)
         .open(path.join("attempt.json"))
         .map_err(|_| "attempt_already_reserved")?;
-    attempt.write_all(br#"{"experiment":"candidate_literal_home_not_official_role","max_bootstrap":1,"max_home":1,"state":"reserved_before_contact"}"#)
+    attempt.write_all(br#"{"experiment":"anonymous_native_home_index","max_bootstrap":1,"max_home":1,"state":"reserved_before_contact"}"#)
         .map_err(|_| "attempt_ledger")?;
     attempt.sync_all().map_err(|_| "attempt_ledger")?;
     std::fs::OpenOptions::new()
@@ -366,10 +366,11 @@ fn reserve_private_report(path: &std::path::Path) -> Result<std::fs::File, &'sta
 
 /// Root must compile offline, review the complete source, then invoke this exact
 /// ignored test once with a new private0700 mount and a separate process watchdog.
-/// The literal home is an experiment, never an official Home identity/default.
+/// Native Home supplies the observed identifier index. Provider delivery and a
+/// production Home default remain unadmitted until their separate checks.
 #[tokio::test(flavor = "current_thread")]
 #[ignore = "Root-only anonymous provider experiment; fixed private mount and explicit separate execution grant"]
-async fn live_anonymous_candidate_home_once() -> Result<(), &'static str> {
+async fn live_anonymous_native_home_index_once() -> Result<(), &'static str> {
     let mut output = reserve_private_report(std::path::Path::new(PRIVATE_DIRECTORY))?;
     let deadline = Instant::now() + REQUEST_DEADLINE;
     let mut report = match HttpTransport::new() {
@@ -387,10 +388,10 @@ async fn live_anonymous_candidate_home_once() -> Result<(), &'static str> {
     let encoded = encoded_report(&report)?;
     output.write_all(&encoded).map_err(|_| "report_write")?;
     output.sync_all().map_err(|_| "report_write")?;
-    if report.outcome == "admitted_experiment" {
+    if report.outcome == "admitted_index_experiment" {
         Ok(())
     } else {
-        Err("candidate_home_experiment_refused")
+        Err("native_home_index_experiment_refused")
     }
 }
 
@@ -402,8 +403,8 @@ fn check_deadline(deadline: Instant) -> Result<(), Error> {
     }
 }
 
-fn candidate_target(transport: &HttpTransport, region: Region) -> Result<url::Url, Error> {
-    let target = account_target(region, "/content/lander/home")?;
+fn home_index_target(transport: &HttpTransport, region: Region) -> Result<url::Url, Error> {
+    let target = account_target(region, "/content/lander/index")?;
     if let Some(origin) = &transport.test_origin {
         let mut target_fixture = origin.clone();
         target_fixture.set_path(target.path());
@@ -412,7 +413,7 @@ fn candidate_target(transport: &HttpTransport, region: Region) -> Result<url::Ur
     Ok(target)
 }
 
-async fn candidate_body(mut response: reqwest::Response) -> Result<SecretBody, Error> {
+async fn home_index_body(mut response: reqwest::Response) -> Result<SecretBody, Error> {
     let status = response.status().as_u16();
     if !(200..300).contains(&status) {
         return Err(Error::HttpStatus(status));
@@ -604,18 +605,20 @@ impl Drop for Server {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn anonymous_candidate_home_uses_one_bootstrap_then_one_regional_get() {
+async fn anonymous_native_home_index_uses_one_bootstrap_then_one_regional_get() {
     let server = Server::new(|index| Reply::json(if index == 0 { BOOTSTRAP } else { PAGE }));
     let result = run_experiment(&server.transport(), Instant::now() + Duration::from_secs(2)).await;
     let requests = server.requests.lock().unwrap();
     assert_eq!(
         requests.len(),
         2,
-        "candidate experiment must issue exactly two GETs"
+        "native Home index observation must issue exactly two GETs"
     );
     assert!(requests[0].starts_with("GET /api/init HTTP/1.1\r\n"));
-    assert!(requests[1].starts_with("GET /api/ca/content/lander/home HTTP/1.1\r\n"));
-    assert_eq!(result.outcome, "admitted_experiment");
+    assert!(requests[1].starts_with("GET /api/ca/content/lander/index HTTP/1.1\r\n"));
+    assert_eq!(result.experiment, "anonymous_native_home_index");
+    assert_eq!(result.phase, "schema");
+    assert_eq!(result.outcome, "admitted_index_experiment");
     assert_eq!(result.bootstrap_attempts, 1);
     assert_eq!(result.home_attempts, 1);
     assert_eq!(result.bootstrap_status, Some(200));
@@ -821,7 +824,7 @@ async fn failed_home_stops_without_redirect_new_refresh_or_retry() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn candidate_body_has_inclusive_512k_limit_for_known_and_chunked_lengths() {
+async fn home_index_body_has_inclusive_512k_limit_for_known_and_chunked_lengths() {
     for chunked in [false, true] {
         for length in [MAX_BODY, MAX_BODY + 1] {
             let server = Server::new(move |index| {
@@ -839,7 +842,7 @@ async fn candidate_body_has_inclusive_512k_limit_for_known_and_chunked_lengths()
             assert_eq!(
                 report.outcome,
                 if length == MAX_BODY {
-                    "admitted_experiment"
+                    "admitted_index_experiment"
                 } else {
                     "response_too_large"
                 }
@@ -850,7 +853,7 @@ async fn candidate_body_has_inclusive_512k_limit_for_known_and_chunked_lengths()
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn candidate_admits_only_json_identity_and_never_sends_received_cookies() {
+async fn home_index_admits_only_json_identity_and_never_sends_received_cookies() {
     for headers in [
         "Content-Encoding: gzip\r\n",
         "Content-Type: text/html\r\n",
@@ -870,7 +873,7 @@ async fn candidate_admits_only_json_identity_and_never_sends_received_cookies() 
         assert_eq!(
             report.outcome,
             if headers.is_empty() {
-                "admitted_experiment"
+                "admitted_index_experiment"
             } else {
                 "invalid_response"
             }
@@ -958,7 +961,7 @@ fn unsafe_directory_or_existing_report_refuses_before_provider_contact() {
 #[test]
 fn serialized_report_is_bounded_and_contains_only_coarse_observation() {
     let report = Report {
-        outcome: "admitted_experiment",
+        outcome: "admitted_index_experiment",
         body_sha256: Some(sha256(PAGE).unwrap()),
         schema: Some(observe(PAGE).unwrap()),
         ..Report::default()
@@ -992,10 +995,10 @@ async fn source_owned_us_base_is_selected_only_from_validated_bootstrap() {
         }
     });
     let report = run_experiment(&server.transport(), Instant::now() + Duration::from_secs(2)).await;
-    assert_eq!(report.outcome, "admitted_experiment");
+    assert_eq!(report.outcome, "admitted_index_experiment");
     let requests = server.requests.lock().unwrap();
     assert_eq!(requests.len(), 2);
-    assert!(requests[1].starts_with("GET /api/us/content/lander/home HTTP/1.1\r\n"));
+    assert!(requests[1].starts_with("GET /api/us/content/lander/index HTTP/1.1\r\n"));
     assert!(
         requests[1]
             .to_ascii_lowercase()
