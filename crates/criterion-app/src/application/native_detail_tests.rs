@@ -3,6 +3,10 @@
 use super::*;
 use criterion_ui::{Focus, LoadState};
 
+#[cfg(feature = "sdl")]
+#[path = "native_series_render_tests.rs"]
+mod native_series_render_tests;
+
 fn detail(id: &'static str, gate: Option<Arc<Gate>>) -> Step {
     Step {
         kind: Kind::NativeDetail(id),
