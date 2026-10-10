@@ -18,6 +18,8 @@ import { MainProducerCommandError, type MainProducerInput, type MainProducerExec
 import { packageWorkerProgram, packageWorkerLaunch } from "../src/package-worker.js";
 import { spawnSync } from "node:child_process";
 import { readInput } from "../src/input.js";
+import { prepareOfflineMainFromFiles } from "../offline-phase.js";
+import { offlineWorkerLaunch } from "../src/offline-worker.js";
 
 const dynamic = Buffer.from("Dynamic section at offset 0x100 contains 2 entries:\n 0x00000001 (NEEDED) Shared library: [libc.so.6]\n 0x00000000 (NULL) 0x0\n");
 const closed = (stdout: Buffer = Buffer.alloc(0)): ClosedCommand => ({ closed: true, exitCode: 0, signal: null, timedOut: false, stdout, stderr: Buffer.alloc(0) });
@@ -87,14 +89,17 @@ async function withProducer(run: (fixture: ProducerFixture) => Promise<void>): P
     const name = "main" + [...randomBytes(8)].map(byte => String.fromCharCode(97 + byte % 26)).join("");
     const outputDirectory = `/workspace/.local/native-package/producers/${name}`;
     const commands: ProducerCommand[] = [];
+    const registryArchivesRoot = join(input.registryRoot, "..", "archives"); await mkdir(registryArchivesRoot);
+    for (const file of ["example-1.2.3.crate", "runtime-only-1.0.0.crate"]) await writeFile(join(registryArchivesRoot, file), await input.readRegistryArchive(file), { flag: "wx" });
     const producerInput: MainProducerInput = { sourceRoot: "/workspace", sourceCommit: project.revision, outputDirectory,
       dependenciesRoot: "/workspace/tools/player-probe/node_modules",
-      offline: { ...input, requestBytes: Buffer.from(JSON.stringify(request)), runtimeInputs: { channel: Buffer.from(input.runtimeInputs.channel), archive: Buffer.from(input.runtimeInputs.archive), copyright: Buffer.from(input.runtimeInputs.copyright) } } };
+      offline: { installedRuntimeRoot: input.installedRuntimeRoot, registryRoot: input.registryRoot, registryArchivesRoot, requestBytes: Buffer.from(JSON.stringify(request)), runtimeInputs: { channel: Buffer.from(input.runtimeInputs.channel), archive: Buffer.from(input.runtimeInputs.archive), copyright: Buffer.from(input.runtimeInputs.copyright) } } };
     const execution: MainProducerExecution = {
       deadlineMs: 60000, now: () => 100,
       execute: async command => {
         commands.push(command);
         if (command.kind === "git") return gitFixture(project, command);
+        if (command.args[0] === "/workspace/.local/native-package/offline-launcher.cjs") return closed(Buffer.from(JSON.stringify(await prepareOfflineMainFromFiles({ sourceRoot: join(outputDirectory, "source"), outputDirectory, registryArchivesRoot, installedRuntimeRoot: input.installedRuntimeRoot, registryRoot: input.registryRoot }, { deadlineMs: 60000, now: () => 100 }))));
         if (command.executable === "/bin/sh") return closed(Buffer.from("aarch64\nrustc 1.98.0-nightly (4c9d2bfe4 2026-07-01)\nbinary: rustc\ncommit-hash: 4c9d2bfe4ad7a65669098754964aaebe0ec1ced2\ncommit-date: 2026-07-01\nhost: aarch64-unknown-linux-gnu\nrelease: 1.98.0-nightly\nLLVM version: 22.1.0\ncargo 1.98.0-nightly (123456789 2026-07-01)\n/usr/local/rustup/toolchains/nightly-2026-07-02-aarch64-unknown-linux-gnu\n" + ["/usr/local/rustup/toolchains/nightly-2026-07-02-aarch64-unknown-linux-gnu/bin/rustc", "/usr/local/rustup/toolchains/nightly-2026-07-02-aarch64-unknown-linux-gnu/bin/cargo", "/opt/webos-sdk/bin/arm-webos-linux-gnueabi-gcc.br_real", "/usr/bin/readelf"].map(path => "a".repeat(64) + "  " + path + "\n").join("") + "arm-webos-linux-gnueabi-gcc.br_real (Buildroot) 12.3.0\nGNU readelf (GNU Binutils) 2.40\n"));
         if (command.executable.endsWith("/cargo")) {
           const path = join(outputDirectory, "target/arm-unknown-linux-gnueabi/release"); await mkdir(path, { recursive: true });
@@ -175,6 +180,30 @@ test("late known Git closure keeps actual bytes and refuses the next command", a
     await assert.rejects(() => readFile(join(input.outputDirectory, "producer-seal.json")), /ENOENT/);
   });
 });
+test("post-command custody refusal retains the exact known closure and issues nothing further", async () => {
+  await withProducer(async ({ input, execution, commands }) => {
+    const outcome = closed(Buffer.from(input.sourceCommit + "\n"));
+    await assert.rejects(() => produceNativeMain(input, { ...execution, execute: async command => {
+      commands.push(command); await mkdir(join(input.outputDirectory, "git-0001.stdout")); return outcome;
+    } }), (error: unknown) => {
+      assert.ok(error instanceof MainProducerCommandError);
+      assert.equal(error.message, "producerCustodyFailed"); assert.deepEqual(error.received, outcome);
+      assert.ok(error.cause instanceof Error); assert.equal((error.cause as NodeJS.ErrnoException).code, "EEXIST"); return true;
+    });
+    assert.equal(commands.length, 1);
+    await assert.rejects(() => readFile(join(input.outputDirectory, "producer-seal.json")), /ENOENT/);
+  });
+});
+test("offline archive validation is an explicit settled GNU toolkit phase before the SDK", async () => {
+  await withProducer(async ({ input, execution, commands }) => {
+    await produceNativeMain(input, execution);
+    const offline = commands.findIndex(command => command.args.includes("/workspace/.local/native-package/offline-launcher.cjs"));
+    const sdk = commands.findIndex(command => command.executable === "/bin/sh");
+    assert.ok(offline >= 0 && sdk > offline);
+    const command = commands[offline]; assert.ok(command?.kind === "container");
+    assert.equal(command.image, PACKAGING_IMAGE); assert.equal(command.network, "none");
+  });
+});
 test("wrong compiler commit refuses before the MAIN build", async () => {
   await withProducer(async ({ input, execution, commands }) => {
     await assert.rejects(() => produceNativeMain(input, { ...execution, execute: async command => {
@@ -202,7 +231,7 @@ test("an ELF changed during static inspection cannot reach packaging", async () 
       if (command.executable === "/usr/bin/readelf") await writeFile(join(input.outputDirectory, "target/arm-unknown-linux-gnueabi/release/criterion-unofficial"), Buffer.from("changed ELF\n"));
       return result;
     } }), /producerExecutableChanged/);
-    assert.equal(commands.filter(command => command.kind === "container" && command.image === PACKAGING_IMAGE).length, 0);
+    assert.equal(commands.filter(command => command.args.includes("/workspace/.local/native-package/package-launcher.cjs")).length, 0);
   });
 });
 test("exact package bytes must still match the earned export before the producer seal", async () => {
@@ -246,4 +275,59 @@ test("the fixed packaging wrapper emits valid Node24 code and really closes an i
   assert.equal(result.status, 1); assert.equal(result.signal, null); assert.equal(result.stdout.length, 0);
   assert.match(result.stderr.toString(), /invalidDynamicMetadata/);
   // Only readelf read this literal ELF; no ELF execution, official CLI package or SDK occurred.
+});
+test("the fixed offline launcher is inert checked source and has no host tar or mutable deadline", () => {
+  const program = offlineWorkerLaunch(123456789);
+  const syntax = spawnSync(process.execPath, ["--check"], { input: program, timeout: 30000, maxBuffer: 65536 });
+  assert.equal(syntax.status, 0); assert.equal(syntax.signal, null); assert.equal(syntax.stderr.length, 0);
+  assert.match(program, /deadlineMs:123456789,now:Date.now/); assert.doesNotMatch(program, /spawn|\/usr\/bin\/tar/);
+  assert.throws(() => offlineWorkerLaunch(Number.NaN), /invalidOfflineWorker/);
+});
+test("failed offline closure preserves raw outcome and cannot start SDK metadata", async () => {
+  await withProducer(async ({ input, execution, commands }) => {
+    await assert.rejects(() => produceNativeMain(input, { ...execution, execute: async command => {
+      if (command.args.includes("/workspace/.local/native-package/offline-launcher.cjs")) { commands.push(command); return { ...closed(), exitCode: 1, stderr: Buffer.from("literal GNU phase failure\n") }; }
+      return execution.execute(command);
+    } }), (error: unknown) => { assert.ok(error instanceof MainProducerCommandError); assert.equal(error.message, "producerCommandFailed"); return true; });
+    assert.equal((await readFile(join(input.outputDirectory, "offline-sources.stderr"))).toString(), "literal GNU phase failure\n");
+    assert.equal(commands.filter(command => command.executable === "/bin/sh").length, 0);
+  });
+});
+test("changed authenticated materialization refuses the SDK before consuming changed Rust", async () => {
+  await withProducer(async ({ input, execution, commands }) => {
+    await assert.rejects(() => produceNativeMain(input, { ...execution, execute: async command => {
+      const result = await execution.execute(command);
+      if (command.args.includes("/workspace/.local/native-package/offline-launcher.cjs")) await writeFile(join(input.outputDirectory, "rust/library/core/src/lib.rs"), "changed Rust source\n");
+      return result;
+    } }), /invalidOfflineSource/);
+    assert.equal(commands.filter(command => command.executable === "/bin/sh").length, 0);
+    await assert.rejects(() => readFile(join(input.outputDirectory, "producer-seal.json")), /ENOENT/);
+  });
+});
+test("offline summary cannot claim a different raw runtime or source commit", async () => {
+  for (const field of ["sourceCommit", "runtimeArchive"] as const) {
+    await withProducer(async ({ input, execution, commands }) => {
+      await assert.rejects(() => produceNativeMain(input, { ...execution, execute: async command => {
+        const result = await execution.execute(command);
+        if (command.args.includes("/workspace/.local/native-package/offline-launcher.cjs") && result.closed) {
+          const summary = JSON.parse(result.stdout.toString("utf8")) as { sourceCommit: string; runtime: { archiveSha256: string } };
+          if (field === "sourceCommit") summary.sourceCommit = "0".repeat(40); else summary.runtime.archiveSha256 = "0".repeat(64);
+          return { ...result, stdout: Buffer.from(JSON.stringify(summary)) };
+        }
+        return result;
+      } }), /invalidProducerOffline/);
+      assert.equal(commands.filter(command => command.executable === "/bin/sh").length, 0);
+    });
+  }
+});
+test("post-command throwing clock retains both actual buffers and stops immediately", async () => {
+  await withProducer(async ({ input, execution, commands }) => {
+    let returned = false;
+    const outcome = { ...closed(Buffer.from("literal joined stdout\n")), stderr: Buffer.from("literal joined stderr\n") };
+    await assert.rejects(() => produceNativeMain(input, { ...execution, now: () => { if (returned) throw new Error("literal clock refusal"); return 100; }, execute: async command => { commands.push(command); returned = true; return outcome; } }), (error: unknown) => {
+      assert.ok(error instanceof MainProducerCommandError); assert.equal(error.message, "producerCustodyFailed"); assert.deepEqual(error.received, outcome);
+      assert.ok(error.cause instanceof Error); assert.equal(error.cause.message, "literal clock refusal"); return true;
+    });
+    assert.equal(commands.length, 1); await assert.rejects(() => readFile(join(input.outputDirectory, "producer-seal.json")), /ENOENT/);
+  });
 });

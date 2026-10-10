@@ -1,12 +1,14 @@
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { captureHostProject } from "../source-distribution/src/git.js";
-import { verifyOfflineSources } from "../source-distribution/src/offline.js";
+import { captureHostProject, GitCommandError } from "../source-distribution/src/git.js";
+import type { ProjectSnapshot } from "../source-distribution/src/project.js";
+import { admitOfflineSummary, verifyOfflineMaterialized } from "../source-distribution/src/offline.js";
 import { APP_ID, MAX_EXECUTABLE_BYTES, MAX_IPK_BYTES, VERSION, admitExecutable } from "./src/admission.js";
 import { PACKAGING_IMAGE, type ClosedCommand, type NativeMainExport } from "./src/contract.js";
 import { readInput } from "./src/input.js";
-import { ordinaryRoot, prepareMainSource, receiptForMain, verifyMaterialized, writeOwned } from "./src/main-source.js";
+import { ordinaryRoot, prepareMainProject, receiptForMain, verifyMaterialized, writeOwned } from "./src/main-source.js";
 import { packageWorkerLaunch } from "./src/package-worker.js";
+import { offlineWorkerLaunch } from "./src/offline-worker.js";
 import { PAYLOAD_NAMES } from "./src/manifest.js";
 import { admitBuildReceipt, sha256 } from "./src/receipt.js";
 import { MainProducerCommandError, NATIVE_COMPILER_IMAGE, type MainProducerExecution, type MainProducerInput, type NativeMainProduct, type ProducerCommand, type ProducerContainerCommand } from "./src/producer-contract.js";
@@ -73,19 +75,34 @@ export async function produceNativeMain(input: MainProducerInput, execution: Mai
     let result: ClosedCommand;
     try { result = closed(received, command.maxOutputBytes); } catch { throw new MainProducerCommandError("invalidProducerResult", command, received); }
     // Earned closed output remains available even when the original clock expires after await.
-    await writeOwned(join(output, name + ".stdout"), result.stdout); await writeOwned(join(output, name + ".stderr"), result.stderr);
-    commands.push({ name, command, stdoutSha256: sha256(result.stdout), stderrSha256: sha256(result.stderr), exitCode: result.exitCode, signal: result.signal, timedOut: result.timedOut });
-    await writeOwned(join(output, name + ".command.json"), Buffer.from(JSON.stringify(commands[commands.length - 1]) + "\n"));
+    try {
+      await writeOwned(join(output, name + ".stdout"), result.stdout); await writeOwned(join(output, name + ".stderr"), result.stderr);
+      commands.push({ name, command, stdoutSha256: sha256(result.stdout), stderrSha256: sha256(result.stderr), exitCode: result.exitCode, signal: result.signal, timedOut: result.timedOut });
+      await writeOwned(join(output, name + ".command.json"), Buffer.from(JSON.stringify(commands[commands.length - 1]) + "\n"));
+      check();
+    } catch (error) {
+      throw new MainProducerCommandError(error instanceof Error && error.message === "producerDeadline" ? "producerDeadline" : "producerCustodyFailed", command, result, error);
+    }
     if (command.kind === "container") {
-      try { check(); } catch { throw new MainProducerCommandError("producerDeadline", command, result); }
       if (result.exitCode !== 0 || result.signal !== null || result.timedOut) throw new MainProducerCommandError("producerCommandFailed", command, result);
     } // Git's shared owner admits its exact result and clock, retaining the actual closed outcome.
     return result;
   };
   let gitSequence = 0;
-  const project = await captureHostProject(sourceRoot, sourceCommit, { deadlineMs, now: () => { check(); return previous; }, execute: command => run(`git-${String(++gitSequence).padStart(4, "0")}`, { ...command, kind: "git" }) }); check();
-  const offline = await verifyOfflineSources({ ...offlineInput, project, budget: { deadlineMs, now: () => { check(); return previous; } } }); check();
-  await prepareMainSource(output, project, offline, () => { check(); }); check();
+  let project: ProjectSnapshot;
+  try {
+    project = await captureHostProject(sourceRoot, sourceCommit, { deadlineMs, now: () => { check(); return previous; }, execute: command => run(`git-${String(++gitSequence).padStart(4, "0")}`, { ...command, kind: "git" }) });
+  } catch (error) {
+    // The shared Git adapter wraps an executor rejection; preserve this producer's earned custody result.
+    if (error instanceof GitCommandError && error.received instanceof MainProducerCommandError) throw error.received;
+    throw error;
+  }
+  check();
+  await prepareMainProject(output, project, () => { check(); }); check();
+  for (const path of [offlineInput.installedRuntimeRoot, offlineInput.registryRoot, offlineInput.registryArchivesRoot]) { await ordinaryRoot(path); check(); }
+  await mkdir(join(output, "offline-input"), { mode: 0o700 }); check();
+  await writeOwned(join(output, "project.json"), Buffer.from(JSON.stringify({ revision: project.revision, commit: project.commit.toString("base64"), files: project.files.map(file => ({ name: file.name, mode: file.mode })) }) + "\n")); check();
+  for (const [name, bytes] of [["request.json", offlineInput.requestBytes], ["channel.toml", offlineInput.runtimeInputs.channel], ["rust-src.tar.gz", offlineInput.runtimeInputs.archive], ["COPYRIGHT-library.html", offlineInput.runtimeInputs.copyright]] as const) { await writeOwned(join(output, "offline-input", name), bytes); check(); }
   const channelFile = project.files.find(file => file.name === "rust-toolchain.toml");
   const channel = channelFile && /^channel = "(nightly-[0-9]{4}-[0-9]{2}-[0-9]{2})"$/m.exec(channelFile.bytes.toString("utf8"))?.[1];
   if (!channel) throw new Error("invalidProducerToolchain");
@@ -95,6 +112,16 @@ export async function produceNativeMain(input: MainProducerInput, execution: Mai
     args: Object.freeze([...args]), cwd: "/workspace", env: Object.freeze({ ...environment, RUSTUP_TOOLCHAIN: channel }),
     mounts: Object.freeze(mounts.map(mount => Object.freeze({ ...mount }))), deadlineMs, timeoutMs: Math.min(timeout, check()), maxOutputBytes: limit,
   });
+  const toolkitMounts = [sourceMount, { source: dependenciesRoot, target: "/workspace/tools/player-probe/node_modules", readOnly: true }, { source: output, target: "/workspace/.local/native-package", readOnly: false }];
+  await verifyMaterialized(join(output, "source"), project.files, () => { check(); });
+  await run("toolkit-compile", container(PACKAGING_IMAGE, "/usr/local/bin/node", ["tools/player-probe/node_modules/typescript/bin/tsc", "-p", "tools/package-native/tsconfig.json"], toolkitMounts, 1024 * 1024, 60000));
+  const offlineProgram = offlineWorkerLaunch(deadlineMs); await writeOwned(join(output, "offline-launcher.cjs"), Buffer.from(offlineProgram)); check();
+  const validated = await run("offline-sources", container(PACKAGING_IMAGE, "/usr/local/bin/node", ["/workspace/.local/native-package/offline-launcher.cjs"], [...toolkitMounts,
+    { source: offlineInput.registryArchivesRoot, target: "/offline/registry", readOnly: true }, { source: offlineInput.installedRuntimeRoot, target: "/offline/runtime", readOnly: true }, { source: offlineInput.registryRoot, target: "/offline/vendor", readOnly: true }], 16 * 1024 * 1024, 180000));
+  if (validated.stderr.length) throw new Error("invalidProducerOffline");
+  const offline = admitOfflineSummary(JSON.parse(validated.stdout.toString("utf8")) as unknown);
+  if (offline.sourceCommit !== sourceCommit || offline.runtime.archiveSha256 !== sha256(offlineInput.runtimeInputs.archive)) throw new Error("invalidProducerOffline");
+  await verifyOfflineMaterialized(join(output, "rust"), join(output, "vendor"), offline, { deadlineMs, now: () => { check(); return previous; } }); check();
   const metadata = await run("sdk-metadata", container(NATIVE_COMPILER_IMAGE, "/bin/sh", ["-ec", sdkMetadata], [sourceMount], 65536, 30000));
   if (metadata.stderr.length) throw new Error("invalidCompilerMetadata");
   const compiler = parseMetadata(metadata.stdout, offline.runtime.version, offline.runtime.commit, channel);
@@ -114,8 +141,7 @@ export async function produceNativeMain(input: MainProducerInput, execution: Mai
   const packageRoot = join(output, "package"); await mkdir(join(packageRoot, "input"), { mode: 0o700 });
   await writeOwned(join(packageRoot, "input/criterion-unofficial"), executable, 0o755);
   await writeOwned(join(packageRoot, "input/build-receipt.json"), receiptBytes, 0o644); check();
-  const packageMounts = [sourceMount, { source: dependenciesRoot, target: "/workspace/tools/player-probe/node_modules", readOnly: true }, { source: packageRoot, target: "/workspace/.local/native-package", readOnly: false }];
-  await run("package-compile", container(PACKAGING_IMAGE, "/usr/local/bin/node", ["tools/player-probe/node_modules/typescript/bin/tsc", "-p", "tools/package-native/tsconfig.json"], packageMounts, 1024 * 1024, 60000));
+  const packageMounts = [sourceMount, { source: dependenciesRoot, target: "/workspace/tools/player-probe/node_modules", readOnly: true }, { source: packageRoot, target: "/workspace/.local/native-package", readOnly: false }, { source: join(output, "compiled"), target: "/workspace/.local/native-package/compiled", readOnly: true }];
   const program = packageWorkerLaunch({ sourceRoot: "/workspace", outputDirectory: "/workspace/.local/native-package/exports/main", executablePath: "/workspace/.local/native-package/input/criterion-unofficial", receiptPath: "/workspace/.local/native-package/input/build-receipt.json", modulePath: "/workspace/.local/native-package/compiled/tools/package-native/package-phase.js", image: PACKAGING_IMAGE, deadlineMs });
   await writeOwned(join(packageRoot, "package-launcher.cjs"), Buffer.from(program), 0o644); check();
   const packaged = await run("package-main", container(PACKAGING_IMAGE, "/usr/local/bin/node", ["/workspace/.local/native-package/package-launcher.cjs"], packageMounts, 512 * 1024, 180000));
@@ -123,6 +149,7 @@ export async function produceNativeMain(input: MainProducerInput, execution: Mai
   const result = await admitPackageResult(packaged.stdout, packageRoot, receiptBytes, receipt); check();
   const workerBytes = await readInput(join(packageRoot, "package-worker.cjs"), 32768); check();
   await verifyMaterialized(snapshot, project.files, () => { check(); });
+  await verifyOfflineMaterialized(join(output, "rust"), join(output, "vendor"), offline, { deadlineMs, now: () => { check(); return previous; } }); check();
   if (sha256(await readInput(executablePath, MAX_EXECUTABLE_BYTES)) !== receipt.executableSha256) throw new Error("producerExecutableChanged"); check();
   const artifact = (path: string, bytes: Buffer) => ({ path, sha256: sha256(bytes), bytes: bytes.length });
   const buildReceipt = artifact(join(packageRoot, "input/build-receipt.json"), receiptBytes);
@@ -130,7 +157,7 @@ export async function produceNativeMain(input: MainProducerInput, execution: Mai
   const sealBytes = Buffer.from(JSON.stringify({ schemaVersion: 1, status: "development", sourceCommit, originalDeadlineMs: deadlineMs,
     source: { commitSha256: sha256(project.commit), files: project.files.map(file => ({ name: file.name, mode: file.mode, bytes: file.bytes.length, sha256: sha256(file.bytes) })) },
     compiler: { requiredImage: NATIVE_COMPILER_IMAGE, ...compiler }, offline: { requestSha256: sha256(offlineInput.requestBytes), channelManifestSha256: sha256(offlineInput.runtimeInputs.channel), copyrightSha256: sha256(offlineInput.runtimeInputs.copyright), runtime: offline.runtime, runtimeInventory: offline.runtimeInventory, registry: offline.registry.map(crate => ({ name: crate.name, version: crate.version, archiveSha256: crate.archiveSha256, inventory: crate.inventory })) },
-    commands, packagingLauncherSha256: sha256(Buffer.from(program)), generatedPackagingWorkerSha256: sha256(workerBytes), buildReceipt, executable: executableArtifact, package: result,
+    commands, offlineLauncherSha256: sha256(Buffer.from(offlineProgram)), packagingLauncherSha256: sha256(Buffer.from(program)), generatedPackagingWorkerSha256: sha256(workerBytes), buildReceipt, executable: executableArtifact, package: result,
     limits: ["Development source/input attribution only; no reproducibility or source-license admission.", "ELF/readelf facts are not runtime, CPU instruction, symbol resolution or playback admission."],
   }, null, 2) + "\n");
   check(); const sealPath = join(output, "producer-seal.json"); await writeOwned(sealPath, sealBytes, 0o644); check();

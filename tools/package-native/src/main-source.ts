@@ -32,10 +32,14 @@ async function materialize(root: string, files: readonly SourceFile[], directori
     await writeOwned(join(root, file.name), file.bytes, file.mode); check();
   }
 }
-export async function prepareMainSource(root: string, project: ProjectSnapshot, offline: OfflineSources, check: () => void): Promise<void> {
+export async function prepareMainProject(root: string, project: ProjectSnapshot, check: () => void): Promise<void> {
   admitProject(project); check();
-  if (offline.sourceCommit !== project.revision) throw new Error("invalidProducerSource");
   await materialize(join(root, "source"), project.files, [], check);
+  // Empty mount points never enter the committed input inventory.
+  await mkdir(join(root, "source/tools/player-probe/node_modules"), { recursive: true, mode: 0o755 });
+  await mkdir(join(root, "source/.local/native-package"), { recursive: true, mode: 0o755 }); check();
+}
+export async function prepareMainOffline(root: string, offline: OfflineSources, check: () => void): Promise<void> {
   await materialize(join(root, "rust"), offline.runtimeFiles, offline.runtimeDirectories, check);
   const vendorFiles: SourceFile[] = []; const vendorDirectories: string[] = [];
   for (const crate of offline.registry) {
@@ -46,9 +50,7 @@ export async function prepareMainSource(root: string, project: ProjectSnapshot, 
   await materialize(join(root, "vendor"), vendorFiles, vendorDirectories, check);
   for (const path of ["target", "cargo", "package"]) { check(); await mkdir(join(root, path), { mode: 0o700 }); check(); }
   await writeOwned(join(root, "cargo/config.toml"), Buffer.from('[source.crates-io]\nreplace-with = "verified-vendor"\n[source.verified-vendor]\ndirectory = "/vendor"\n[net]\noffline = true\n'));
-  // These empty mount points are outputs, never committed source or an inherited cache.
-  await mkdir(join(root, "source/tools/player-probe/node_modules"), { recursive: true, mode: 0o755 });
-  await mkdir(join(root, "source/.local/native-package"), { recursive: true, mode: 0o755 }); check();
+  await mkdir(join(root, "package/compiled"), { mode: 0o755 }); check();
 }
 export function receiptForMain(project: ProjectSnapshot, executable: Buffer): BuildReceipt {
   const files = new Map(project.files.map(file => [file.name, file.bytes]));

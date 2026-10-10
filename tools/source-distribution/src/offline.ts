@@ -18,15 +18,31 @@ export type OfflineSources = Readonly<{
   runtimeFiles: readonly SourceFile[]; runtimeDirectories: readonly string[]; runtimeInventory: readonly OfflineInventory[];
   registry: readonly Readonly<{ name: string; version: string; archiveSha256: string; files: readonly SourceFile[]; directories: readonly string[]; inventory: readonly OfflineInventory[] }>[];
 }>;
+export type OfflineSourceSummary = Readonly<{
+  sourceCommit: string; runtime: OfflineSources["runtime"];
+  runtimeInventory: readonly OfflineInventory[]; runtimeDirectories: readonly string[];
+  registry: readonly Readonly<{ name: string; version: string; archiveSha256: string; inventory: readonly OfflineInventory[]; directories: readonly string[] }>[];
+}>;
+/** The transport receipt contains source identity and exact shape/hashes, with no source buffers. */
+export function summarizeOfflineSources(sources: OfflineSources): OfflineSourceSummary {
+  return admitOfflineSummary({ sourceCommit: sources.sourceCommit, runtime: { version: sources.runtime.version, commit: sources.runtime.commit, archiveSha256: sources.runtime.archiveSha256, lockSha256: sources.runtime.lockSha256 }, runtimeInventory: sources.runtimeInventory, runtimeDirectories: sources.runtimeDirectories, registry: sources.registry.map((crate) => ({ name: crate.name, version: crate.version, archiveSha256: crate.archiveSha256, inventory: crate.inventory, directories: crate.directories })) });
+}
+/** Rechecks toolkit-written files through the same ordinary-tree authenticator used by source admission. */
+export async function verifyOfflineMaterialized(rootRust: string, rootVendor: string, summary: OfflineSourceSummary, budget: ArchiveBudget): Promise<void> {
+  const check = deadlineCheck(budget); check(); const admitted = admitOfflineSummary(summary); check();
+  await compareTree(rootRust, { files: admitted.runtimeInventory, directories: admitted.runtimeDirectories }, check);
+  await compareTree(rootVendor, vendorTree(admitted.registry), check); check();
+}
 type Tree = { files: SourceFile[]; directories: string[] };
-const MAX_BYTES = 256 * 1024 * 1024;
+type InventoryTree = { files: readonly OfflineInventory[]; directories: readonly string[] };
+const MAX_BYTES = 512 * 1024 * 1024;
 const MAX_FILE = 32 * 1024 * 1024;
 const sorted = (names: Iterable<string>): string[] => [...names].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
 function invalid(): never { throw new Error("invalidOfflineSource"); }
 function inventory(files: readonly SourceFile[]): OfflineInventory[] {
   return files.map((file) => ({ name: file.name, mode: file.mode, size: file.bytes.length, sha256: sha256(file.bytes) }));
 }
-function directoriesFor(files: readonly SourceFile[], declared: readonly string[]): string[] {
+function directoriesFor(files: readonly Pick<SourceFile, "name">[], declared: readonly string[]): string[] {
   const directories = new Set(declared); const names = new Set(files.map((file) => file.name));
   for (const file of files) {
     const parts = file.name.split("/");
@@ -34,6 +50,54 @@ function directoriesFor(files: readonly SourceFile[], declared: readonly string[
   }
   if (directories.size > 32768 || [...directories].some((name) => names.has(name)) || !unambiguousNames([...names, ...directories])) invalid();
   return sorted(directories);
+}
+function record(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("\0") !== [...keys].sort().join("\0")) invalid(); return value as Record<string, unknown>;
+}
+function hash(value: unknown): string { if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) invalid(); return value; }
+function revision(value: unknown): string { if (typeof value !== "string" || !/^[a-f0-9]{40}$/.test(value)) invalid(); return value; }
+/** One inventory admission feeds both the metadata decoder and the filesystem authenticator. */
+function admitInventoryTree(rawFiles: unknown, rawDirectories: unknown): InventoryTree {
+  if (!Array.isArray(rawFiles) || !Array.isArray(rawDirectories) || rawFiles.length + rawDirectories.length > 49152 || rawDirectories.length > 32768) invalid();
+  let total = 0;
+  const files: OfflineInventory[] = rawFiles.map((raw: unknown) => {
+    const file = record(raw, ["name", "mode", "size", "sha256"]);
+    if (typeof file.name !== "string" || !safeName(file.name) || (file.mode !== 0o644 && file.mode !== 0o755) || typeof file.size !== "number" || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > MAX_FILE) invalid();
+    total += file.size; if (total > MAX_BYTES) invalid();
+    return { name: file.name, mode: file.mode, size: file.size, sha256: hash(file.sha256) };
+  });
+  const directories: string[] = rawDirectories.map((name: unknown) => { if (typeof name !== "string" || !safeName(name)) invalid(); return name; });
+  if (new Set(files.map((file) => file.name)).size !== files.length || new Set(directories).size !== directories.length || !unambiguousNames([...files.map((file) => file.name), ...directories]) || directoriesFor(files, directories).length !== directories.length) invalid();
+  return { files: files.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))), directories: sorted(directories) };
+}
+function vendorTree(registry: OfflineSourceSummary["registry"]): InventoryTree {
+  const files = registry.flatMap((crate) => crate.inventory.map((file) => ({ ...file, name: `${crate.name}-${crate.version}/${file.name}` })));
+  const directories = registry.flatMap((crate) => [`${crate.name}-${crate.version}`, ...crate.directories.map((name) => `${crate.name}-${crate.version}/${name}`)]);
+  return admitInventoryTree(files, directories);
+}
+/** Decodes only the bounded metadata receipt; archive authentication remains the toolkit source phase. */
+export function admitOfflineSummary(value: unknown): OfflineSourceSummary {
+  const root = record(value, ["sourceCommit", "runtime", "runtimeInventory", "runtimeDirectories", "registry"]);
+  const runtime = record(root.runtime, ["version", "commit", "archiveSha256", "lockSha256"]); const commit = revision(runtime.commit);
+  if (typeof runtime.version !== "string" || runtime.version.length < 1 || runtime.version.length > 256 || !/^[\x20-\x7e]+$/.test(runtime.version) || !runtime.version.includes(`(${commit.slice(0, 9)} `) || !Array.isArray(root.registry) || root.registry.length > 2048) invalid();
+  const runtimeTree = admitInventoryTree(root.runtimeInventory, root.runtimeDirectories); const seen = new Set<string>(); let total = runtimeTree.files.reduce((sum, file) => sum + file.size, 0); let vendorEntries = 0;
+  const registry: OfflineSourceSummary["registry"][number][] = root.registry.map((raw: unknown) => {
+    const crate = record(raw, ["name", "version", "archiveSha256", "inventory", "directories"]);
+    if (typeof crate.name !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(crate.name) || typeof crate.version !== "string" || !/^[0-9][A-Za-z0-9.+-]{0,127}$/.test(crate.version)) invalid();
+    const key = `${crate.name}-${crate.version}`.toLowerCase(); if (seen.has(key)) invalid(); seen.add(key);
+    if (!Array.isArray(crate.inventory) || !Array.isArray(crate.directories)) invalid(); vendorEntries += crate.inventory.length + crate.directories.length + 1; if (vendorEntries > 49152) invalid();
+    const tree = admitInventoryTree(crate.inventory, crate.directories); total += tree.files.reduce((sum, file) => sum + file.size, 0); if (total > MAX_BYTES) invalid();
+    return { name: crate.name, version: crate.version, archiveSha256: hash(crate.archiveSha256), inventory: tree.files, directories: tree.directories };
+  });
+  vendorTree(registry);
+  return { sourceCommit: revision(root.sourceCommit), runtime: { version: runtime.version, commit, archiveSha256: hash(runtime.archiveSha256), lockSha256: hash(runtime.lockSha256) }, runtimeInventory: runtimeTree.files, runtimeDirectories: runtimeTree.directories, registry };
+}
+function deadlineCheck(budget: ArchiveBudget): () => number {
+  let last = -1;
+  return (): number => {
+    const now = budget.now();
+    if (!Number.isFinite(now) || now < 0 || now < last || !Number.isFinite(budget.deadlineMs) || now >= budget.deadlineMs) throw new Error("sourceDeadline"); last = now; return now;
+  };
 }
 /** GNU tar only reads authenticated archive members to bounded stdout; it never writes an extracted tree. */
 function archiveTree(archive: Buffer, root: string, budget: ArchiveBudget): Tree {
@@ -54,12 +118,12 @@ function archiveTree(archive: Buffer, root: string, budget: ArchiveBudget): Tree
     allNames.push(name);
     const size = Number(match[2]); if (!Number.isSafeInteger(size) || size < 0 || size > MAX_FILE) invalid();
     const relative = name.slice(root.length + 1);
-    if (match[1] === "drwxr-xr-x") {
+    if (match[1].startsWith("d")) {
       if (size !== 0) invalid(); if (relative) directories.push(relative);
     } else {
-      if (match[1] !== "-rw-r--r--" && match[1] !== "-rwxr-xr-x" || !relative || match[3].endsWith("/")) invalid();
+      if (!relative || match[3].endsWith("/")) invalid();
       total += size; if (total > 128 * 1024 * 1024) invalid();
-      files.push({ name: relative, size, mode: match[1] === "-rwxr-xr-x" ? 0o755 : 0o644 });
+      files.push({ name: relative, size, mode: match[1].includes("x") ? 0o755 : 0o644 });
     }
   }
   if (files.length < 1 || new Set(allNames).size !== allNames.length || !unambiguousNames(allNames)) invalid();
@@ -79,12 +143,13 @@ async function ordinaryRoot(path: string): Promise<string> {
   }
   return absolute;
 }
-async function compareTree(root: string, expected: Tree, check: () => void): Promise<void> {
-  const absolute = await ordinaryRoot(root); const files = new Map(expected.files.map((file) => [file.name, file])); const directories = new Set(expected.directories);
+async function compareTree(root: string, expected: InventoryTree, check: () => void): Promise<void> {
+  const admitted = admitInventoryTree(expected.files, expected.directories);
+  const absolute = await ordinaryRoot(root); const files = new Map(admitted.files.map((file) => [file.name, file])); const directories = new Set(admitted.directories);
   let visited = 0; const foundFiles = new Set<string>(); const foundDirectories = new Set<string>();
   async function visit(relative: string): Promise<void> {
     check(); const path = join(absolute, relative); const before = await lstat(path);
-    if (!before.isDirectory() || before.isSymbolicLink() || await realpath(path) !== path) invalid();
+    if (!before.isDirectory() || before.isSymbolicLink() || (before.mode & 0o7000) !== 0 || await realpath(path) !== path) invalid();
     const entries = await readdir(path);
     for (const entry of entries) {
       check(); const name = relative ? relative + "/" + entry : entry;
@@ -94,17 +159,17 @@ async function compareTree(root: string, expected: Tree, check: () => void): Pro
         if (!directories.has(name)) invalid(); foundDirectories.add(name); await visit(name);
       } else {
         const file = files.get(name);
-        if (!file || !stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size !== file.bytes.length || (stat.mode & 0o777) !== file.mode || await realpath(child) !== child) invalid();
+        if (!file || !stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size !== file.size || (stat.mode & 0o7777) !== file.mode || await realpath(child) !== child) invalid();
         const handle = await open(child, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
         try {
           const opened = await handle.stat();
           if (opened.dev !== stat.dev || opened.ino !== stat.ino || opened.nlink !== 1 || !opened.isFile() || opened.size !== stat.size) invalid();
-          const bytes = Buffer.alloc(file.bytes.length + 1); let offset = 0;
+          const bytes = Buffer.alloc(file.size + 1); let offset = 0;
           while (offset < bytes.length) {
             check(); const result = await handle.read(bytes, offset, bytes.length - offset, offset); if (result.bytesRead === 0) break; offset += result.bytesRead;
           }
           const after = await handle.stat(); const located = await lstat(child);
-          if (offset !== file.bytes.length || !bytes.subarray(0, offset).equals(file.bytes) || after.dev !== stat.dev || after.ino !== stat.ino || after.nlink !== 1 || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs || located.dev !== stat.dev || located.ino !== stat.ino || located.nlink !== 1) invalid();
+          if (offset !== file.size || sha256(bytes.subarray(0, offset)) !== file.sha256 || after.dev !== stat.dev || after.ino !== stat.ino || after.nlink !== 1 || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs || located.dev !== stat.dev || located.ino !== stat.ino || located.nlink !== 1) invalid();
         } finally { await handle.close(); }
         foundFiles.add(name);
       }
@@ -122,15 +187,11 @@ function checksumFile(files: readonly SourceFile[], archiveSha256: string): Sour
 }
 /** Binds actual prepared source trees to the admitted raw archives, then returns detached build buffers. */
 export async function verifyOfflineSources(input: OfflineSourceInput): Promise<OfflineSources> {
-  let last = -1;
-  const check = (): void => {
-    const now = input.budget.now();
-    if (!Number.isFinite(now) || now < 0 || now < last || !Number.isFinite(input.budget.deadlineMs) || now >= input.budget.deadlineMs) throw new Error("sourceDeadline"); last = now;
-  };
+  const check = deadlineCheck(input.budget);
   check();
   admitProject(input.project);
   if (input.requestBytes.length > 16384 || input.runtimeInputs.channel.length > 2 * 1024 * 1024 || input.runtimeInputs.archive.length > MAX_FILE || input.runtimeInputs.copyright.length > 8 * 1024 * 1024) invalid();
-  const budget: ArchiveBudget = { deadlineMs: input.budget.deadlineMs, now: () => { check(); return last; } };
+  const budget: ArchiveBudget = { deadlineMs: input.budget.deadlineMs, now: check };
   const project = { revision: input.project.revision, commit: Buffer.from(input.project.commit), files: input.project.files.map((file) => ({ ...file, bytes: Buffer.from(file.bytes) })) };
   const requestBytes = Buffer.from(input.requestBytes); const runtimeInputs = { channel: Buffer.from(input.runtimeInputs.channel), archive: Buffer.from(input.runtimeInputs.archive), copyright: Buffer.from(input.runtimeInputs.copyright) };
   const requirements = sourceRequirements(project, requestBytes, runtimeInputs, budget); check();
@@ -140,7 +201,7 @@ export async function verifyOfflineSources(input: OfflineSourceInput): Promise<O
   const runtimeFiles = component.files.filter((file) => file.name.startsWith(sourcePrefix)).map((file) => ({ ...file, name: file.name.slice(sourcePrefix.length) }));
   if (!runtimeFiles.some((file) => file.name === "library/Cargo.lock")) invalid();
   const runtimeDirectories = directoriesFor(runtimeFiles, component.directories.filter((name) => name.startsWith(sourcePrefix)).map((name) => name.slice(sourcePrefix.length)).filter(Boolean));
-  await compareTree(input.installedRuntimeRoot, { files: runtimeFiles, directories: runtimeDirectories }, check);
+  await compareTree(input.installedRuntimeRoot, { files: inventory(runtimeFiles), directories: runtimeDirectories }, check);
   const registry: OfflineSources["registry"][number][] = []; const allVendorFiles: SourceFile[] = []; const vendorDirectories: string[] = [];
   let total = runtimeFiles.reduce((sum, file) => sum + file.bytes.length, 0);
   for (const source of requirements.registry) {
@@ -154,6 +215,6 @@ export async function verifyOfflineSources(input: OfflineSourceInput): Promise<O
     registry.push({ name: source.name, version: source.version, archiveSha256: source.sha256, files, directories: tree.directories, inventory: inventory(files) });
     allVendorFiles.push(...files.map((file) => ({ ...file, name: root + "/" + file.name }))); vendorDirectories.push(root, ...tree.directories.map((name) => root + "/" + name));
   }
-  await compareTree(input.registryRoot, { files: allVendorFiles, directories: directoriesFor(allVendorFiles, vendorDirectories) }, check); check();
+  await compareTree(input.registryRoot, { files: inventory(allVendorFiles), directories: directoriesFor(allVendorFiles, vendorDirectories) }, check); check();
   return { sourceCommit: project.revision, runtime: { version: requirements.identity.version, commit: requirements.identity.commit, archiveSha256: requirements.request.runtime.sourceArchiveSha256, lockSha256: sha256(requirements.identity.lock) }, runtimeFiles, runtimeDirectories, runtimeInventory: inventory(runtimeFiles), registry };
 }

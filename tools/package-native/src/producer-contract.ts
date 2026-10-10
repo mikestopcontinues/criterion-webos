@@ -8,7 +8,7 @@ export type MainProducerInput = Readonly<{
   sourceRoot: string; sourceCommit: string; outputDirectory: string; dependenciesRoot: string;
   offline: Readonly<{
     requestBytes: Buffer; runtimeInputs: RuntimeInputs; installedRuntimeRoot: string; registryRoot: string;
-    readRegistryArchive: (name: string) => Promise<Buffer>;
+    registryArchivesRoot: string;
   }>;
 }>;
 export type ProducerContainerCommand = Readonly<{
@@ -21,12 +21,12 @@ export type ProducerContainerCommand = Readonly<{
 export type ProducerCommand = ProducerContainerCommand | (GitCommand & Readonly<{ kind: "git" }>);
 /** closed means the entire owned lifetime, including container/GNU children, was joined. */
 export type MainProducerExecution = Readonly<{
-  /** The caller bounds the entire invocation, including source callbacks and synchronous GNU readers. */
+  /** The caller bounds the entire invocation and joins each owned container/GNU lifetime. */
   deadlineMs: number; now: () => number;
   execute: (command: ProducerCommand) => Promise<CommandResult | GitCommandResult>;
 }>;
 export class MainProducerCommandError extends Error {
-  constructor(message: string, readonly command: ProducerCommand, readonly received: unknown) {
+  constructor(message: string, readonly command: ProducerCommand, readonly received: unknown, readonly cause?: unknown) {
     super(message); this.name = "MainProducerCommandError";
   }
 }

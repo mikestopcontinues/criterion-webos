@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { gzipSync } from "node:zlib";
 import { tarFixture, type TarEntry } from "../../player-probe/tests/fixture-tar.js";
 import type { ProjectSnapshot, SourceFile } from "../src/project.js";
-import { verifyOfflineSources, type OfflineSourceInput } from "../src/offline.js";
+import { admitOfflineSummary, summarizeOfflineSources, verifyOfflineMaterialized, verifyOfflineSources, type OfflineSourceInput } from "../src/offline.js";
 
 const sha = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
 const gitHash = (kind: string, bytes: Buffer): string => createHash("sha1").update(`${kind} ${bytes.length}\0`).update(bytes).digest("hex");
@@ -197,5 +197,107 @@ test("original deadline expiry after GNU tar retains its actual closed command r
       const result = error.outcome as { status: number | null; stdout: Buffer; stderr: Buffer };
       assert.equal(result.status, 0); assert.ok(result.stdout.toString().includes("rust-src-nightly/git-commit-hash")); assert.equal(result.stderr.length, 0); return true;
     });
+  });
+});
+test("metadata-only offline summary authenticates the materialized trees and refuses same-size tampering", async () => {
+  await withFixture(async (input) => {
+    const sources = await verifyOfflineSources(input); const summary = summarizeOfflineSources(sources);
+    assert.deepEqual(Object.keys(summary).sort(), ["registry", "runtime", "runtimeDirectories", "runtimeInventory", "sourceCommit"]);
+    assert.deepEqual(Object.keys(summary.registry[0] ?? {}).sort(), ["archiveSha256", "directories", "inventory", "name", "version"]);
+    assert.deepEqual(summary.registry[0]?.inventory.find((file) => file.name === "src/lib.rs"), { name: "src/lib.rs", mode: 0o644, size: 27, sha256: "4f5cc1e457ddd27d50c7bea9e13282f783061fed68d5b7514db58fca6b7362bb" });
+    await verifyOfflineMaterialized(input.installedRuntimeRoot, input.registryRoot, summary, input.budget);
+    await write(input.installedRuntimeRoot, "library/core/src/lib.rs", Buffer.from("literal runtime sourcd\n"));
+    await assert.rejects(() => verifyOfflineMaterialized(input.installedRuntimeRoot, input.registryRoot, summary, input.budget), /invalidOfflineSource/);
+  });
+});
+test("authenticated ordinary 0664 crate sources normalize to 0644 with identical content", async () => {
+  await withFixture(async (input) => {
+    const changed = await replaceExampleArchive(input, packageEntries("example-1.2.3").map((entry) => ({ ...entry, mode: entry.type === "5" ? entry.mode : 0o664 })));
+    const sources = await verifyOfflineSources(changed);
+    assert.deepEqual(sources.registry[0]?.inventory.find((file) => file.name === "src/lib.rs"), { name: "src/lib.rs", mode: 0o644, size: 27, sha256: "4f5cc1e457ddd27d50c7bea9e13282f783061fed68d5b7514db58fca6b7362bb" });
+    assert.equal(sources.registry[0]?.files.find((file) => file.name === "src/lib.rs")?.bytes.toString(), "pub const LITERAL: u8 = 7;\n");
+  });
+});
+test("ordinary archive directory permissions normalize while privileged archive modes are refused", async () => {
+  await withFixture(async (input) => {
+    const changed = await replaceExampleArchive(input, packageEntries("example-1.2.3").map((entry) => ({ ...entry, mode: entry.type === "5" ? 0o775 : entry.mode })));
+    const sources = await verifyOfflineSources(changed); assert.deepEqual(sources.registry[0]?.directories, ["src"]);
+  });
+  for (const mode of [0o4644, 0o2644, 0o1644]) await withFixture(async (input) => {
+    const changed = await replaceExampleArchive(input, packageEntries("example-1.2.3").map((entry) => ({ ...entry, mode: entry.type === "5" ? entry.mode : mode })));
+    await assert.rejects(() => verifyOfflineSources(changed), /invalidOfflineSource/);
+  });
+});
+test("summary admission copies exact metadata and refuses forged keys, identities and ambiguous inventories", async () => {
+  await withFixture(async (input) => {
+    const summary = summarizeOfflineSources(await verifyOfflineSources(input));
+    const first = summary.registry[0]; assert.ok(first);
+    const malformed: unknown[] = [
+      { ...summary, bytes: Buffer.from("no source buffers in receipt") },
+      { ...summary, sourceCommit: "A".repeat(40) },
+      { ...summary, runtime: { ...summary.runtime, archiveSha256: "0".repeat(63) } },
+      { ...summary, runtime: { ...summary.runtime, commit: "0".repeat(40) } },
+      { ...summary, registry: [...summary.registry, first] },
+      { ...summary, registry: [...summary.registry, { ...first, name: "EXAMPLE" }] },
+      { ...summary, registry: [{ ...first, inventory: [...first.inventory, first.inventory[0]] }] },
+      { ...summary, registry: [{ ...first, inventory: [{ name: "../escape", size: 0, mode: 0o644, sha256: "0".repeat(64) }] }] },
+      { ...summary, registry: [{ ...first, directories: [...first.directories, "SRC"] }] },
+      { ...summary, registry: [{ ...first, directories: [...first.directories, "src"] }] },
+      { ...summary, runtimeInventory: [{ name: "oversized", size: 33554433, mode: 0o644, sha256: "0".repeat(64) }] },
+      { ...summary, runtimeInventory: [{ name: "negative", size: -1, mode: 0o644, sha256: "0".repeat(64) }] },
+    ];
+    for (const value of malformed) assert.throws(() => admitOfflineSummary(value), /invalidOfflineSource/);
+    const raw = JSON.parse(JSON.stringify(summary)) as { registry: { inventory: { name: string; sha256: string }[]; directories: string[] }[] };
+    const admitted = admitOfflineSummary(raw); const rawCrate = raw.registry[0]; assert.ok(rawCrate);
+    const source = rawCrate.inventory.find((file) => file.name === "src/lib.rs"); assert.ok(source); source.sha256 = "0".repeat(64); rawCrate.directories.push("invented");
+    assert.equal(admitted.registry[0]?.inventory.find((file) => file.name === "src/lib.rs")?.sha256, "4f5cc1e457ddd27d50c7bea9e13282f783061fed68d5b7514db58fca6b7362bb");
+    assert.deepEqual(admitted.registry[0]?.directories, ["src"]);
+  });
+});
+test("the complete metadata source aggregate admits exactly 512 MiB and refuses one additional byte", async () => {
+  await withFixture(async (input) => {
+    const summary = summarizeOfflineSources(await verifyOfflineSources(input));
+    const runtimeInventory = Array.from({ length: 16 }, (_, index) => ({ name: `part-${index}`, size: 33554432, mode: 0o644 as const, sha256: "0".repeat(64) }));
+    const atLimit = { ...summary, runtimeInventory, runtimeDirectories: [], registry: [] };
+    assert.equal(admitOfflineSummary(atLimit).runtimeInventory.length, 16);
+    assert.throws(() => admitOfflineSummary({ ...atLimit, runtimeInventory: [...runtimeInventory, { name: "overflow", size: 1, mode: 0o644, sha256: "0".repeat(64) }] }), /invalidOfflineSource/);
+  });
+});
+test("materialized authentication rejects hash claims, extra files, links and privileged modes", async () => {
+  const mutations = [
+    async (input: OfflineSourceInput): Promise<void> => write(input.registryRoot, "example-1.2.3/src/lib.rs", Buffer.from("pub const LITERAL: u8 = 9;\n")),
+    async (input: OfflineSourceInput): Promise<void> => write(input.registryRoot, "example-1.2.3/extra.rs", Buffer.from("extra\n")),
+    async (input: OfflineSourceInput): Promise<void> => { const path = join(input.registryRoot, "example-1.2.3/src/lib.rs"); await rm(path); await symlink("../../../runtime-only-1.0.0/src/lib.rs", path); },
+    async (input: OfflineSourceInput): Promise<void> => link(join(input.registryRoot, "example-1.2.3/src/lib.rs"), join(input.registryRoot, "linked")),
+    async (input: OfflineSourceInput): Promise<void> => chmod(join(input.registryRoot, "example-1.2.3/src/lib.rs"), 0o4644),
+    async (input: OfflineSourceInput): Promise<void> => chmod(join(input.registryRoot, "example-1.2.3/src"), 0o1755),
+  ];
+  for (const mutate of mutations) await withFixture(async (input) => {
+    const summary = summarizeOfflineSources(await verifyOfflineSources(input)); await mutate(input);
+    await assert.rejects(() => verifyOfflineMaterialized(input.installedRuntimeRoot, input.registryRoot, summary, input.budget), /invalidOfflineSource/);
+  });
+  await withFixture(async (input) => {
+    const summary = summarizeOfflineSources(await verifyOfflineSources(input)); const first = summary.registry[0]; assert.ok(first);
+    const forged = { ...summary, registry: [{ ...first, inventory: first.inventory.map((file) => file.name === "src/lib.rs" ? { ...file, sha256: "0".repeat(64) } : file) }, ...summary.registry.slice(1)] };
+    await assert.rejects(() => verifyOfflineMaterialized(input.installedRuntimeRoot, input.registryRoot, forged, input.budget), /invalidOfflineSource/);
+    await assert.rejects(() => verifyOfflineMaterialized(input.installedRuntimeRoot, input.registryRoot, summary, { deadlineMs: 0, now: () => 0 }), /sourceDeadline/);
+  });
+});
+test("materialized authentication requires archive-proven empty runtime and vendor directories", async () => {
+  await withFixture(async (input) => {
+    const changed = await replaceExampleArchive(input, [...packageEntries("example-1.2.3"), { name: "example-1.2.3/empty/", type: "5", mode: 0o755, bytes: Buffer.alloc(0) }]);
+    const archive = gzipSync(tarFixture([...runtimeEntries, { name: runtimePrefix + "library/empty/", type: "5", mode: 0o755, bytes: Buffer.alloc(0) }]));
+    const channel = Buffer.from(changed.runtimeInputs.channel.toString().replace(sha(changed.runtimeInputs.archive), sha(archive)));
+    const request = JSON.parse(changed.requestBytes.toString()) as { runtime: { sourceArchiveSha256: string; channelManifestSha256: string } };
+    request.runtime.sourceArchiveSha256 = sha(archive); request.runtime.channelManifestSha256 = sha(channel);
+    await mkdir(join(input.installedRuntimeRoot, "library/empty")); await mkdir(join(input.registryRoot, "example-1.2.3/empty"));
+    const prepared = { ...changed, requestBytes: Buffer.from(JSON.stringify(request)), runtimeInputs: { ...changed.runtimeInputs, archive, channel } };
+    const summary = summarizeOfflineSources(await verifyOfflineSources(prepared));
+    assert.ok(summary.runtimeDirectories.includes("library/empty")); assert.ok(summary.registry[0]?.directories.includes("empty"));
+    await verifyOfflineMaterialized(input.installedRuntimeRoot, input.registryRoot, summary, input.budget);
+    await rm(join(input.installedRuntimeRoot, "library/empty"), { recursive: true });
+    await assert.rejects(() => verifyOfflineMaterialized(input.installedRuntimeRoot, input.registryRoot, summary, input.budget), /invalidOfflineSource/);
+    await mkdir(join(input.installedRuntimeRoot, "library/empty")); await rm(join(input.registryRoot, "example-1.2.3/empty"), { recursive: true });
+    await assert.rejects(() => verifyOfflineMaterialized(input.installedRuntimeRoot, input.registryRoot, summary, input.budget), /invalidOfflineSource/);
   });
 });
