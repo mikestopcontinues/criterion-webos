@@ -301,3 +301,76 @@ test("materialized authentication requires archive-proven empty runtime and vend
     await assert.rejects(() => verifyOfflineMaterialized(input.installedRuntimeRoot, input.registryRoot, summary, input.budget), /invalidOfflineSource/);
   });
 });
+test("authenticated literal parenthesized crate paths survive detached summary and fresh materialization", async () => {
+  await withFixture(async (input) => {
+    const { readFile } = await import("node:fs/promises");
+    const root = "zerocopy-derive-0.8.62";
+    const literals = [
+      { name: "src/output_tests/expected/into_bytes_enum.repr(C).expected.rs", bytes: Buffer.from("literal repr(C) expected source\n") },
+      { name: "src/output_tests/expected/into_bytes_struct.repr(align(2)).expected.rs", bytes: Buffer.from("literal repr(align(2)) expected source\n") },
+    ];
+    const entries: TarEntry[] = [
+      { name: root + "/", mode: 0o755, type: "5", bytes: Buffer.alloc(0) },
+      { name: root + "/Cargo.toml", mode: 0o644, bytes: Buffer.from('[package]\nname = "zerocopy-derive"\nversion = "0.8.62"\n') },
+      ...literals.map((file) => ({ ...file, name: root + "/" + file.name, mode: 0o644 })),
+    ];
+    const raw = gzipSync(tarFixture(entries));
+    const changedProject = projectFixture(input.project.files.map((file) => ({ ...file, bytes: file.name === "Cargo.lock" ? Buffer.from(`version = 4\n\n[[package]]\nname = "zerocopy-derive"\nversion = "0.8.62"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${sha(raw)}"\n`) : file.bytes })));
+    const request = JSON.parse(input.requestBytes.toString()) as { sourceCommit: string }; request.sourceCommit = changedProject.revision;
+    await rm(join(input.registryRoot, "example-1.2.3"), { recursive: true });
+    const files: Record<string, string> = {};
+    for (const entry of entries.filter((entry) => entry.type !== "5").sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)))) {
+      const relative = entry.name.slice(root.length + 1); files[relative] = sha(entry.bytes); await write(input.registryRoot, root + "/" + relative, entry.bytes);
+    }
+    await write(input.registryRoot, root + "/.cargo-checksum.json", Buffer.from(JSON.stringify({ files, package: sha(raw) })));
+    const sources = await verifyOfflineSources({ ...input, project: changedProject, requestBytes: Buffer.from(JSON.stringify(request)), readRegistryArchive: async (name) => name === root + ".crate" ? raw : input.readRegistryArchive(name) });
+    const admitted = sources.registry.find((crate) => crate.name === "zerocopy-derive"); assert.ok(admitted);
+    assert.equal(admitted.version, "0.8.62"); assert.equal(admitted.archiveSha256, sha(raw));
+    assert.deepEqual(admitted.directories, ["src", "src/output_tests", "src/output_tests/expected"]);
+    for (const literal of literals) {
+      assert.deepEqual(admitted.files.find((file) => file.name === literal.name), { ...literal, mode: 0o644 });
+      assert.deepEqual(admitted.inventory.find((file) => file.name === literal.name), { name: literal.name, mode: 0o644, size: literal.bytes.length, sha256: sha(literal.bytes) });
+      await write(input.registryRoot, root + "/" + literal.name, Buffer.alloc(literal.bytes.length));
+      assert.deepEqual(admitted.files.find((file) => file.name === literal.name)?.bytes, literal.bytes);
+    }
+    const summary = admitOfflineSummary(JSON.parse(JSON.stringify(summarizeOfflineSources(sources))) as unknown);
+    assert.deepEqual(summary.registry.find((crate) => crate.name === "zerocopy-derive"), { name: "zerocopy-derive", version: "0.8.62", archiveSha256: sha(raw), inventory: admitted.inventory, directories: admitted.directories });
+    const preparedRust = join(input.installedRuntimeRoot, "..", "prepared-rust"); const preparedVendor = join(input.registryRoot, "..", "prepared-vendor");
+    await mkdir(preparedRust); await mkdir(preparedVendor);
+    for (const directory of sources.runtimeDirectories) await mkdir(join(preparedRust, directory), { recursive: true });
+    for (const file of sources.runtimeFiles) { await write(preparedRust, file.name, file.bytes); await chmod(join(preparedRust, file.name), file.mode); }
+    for (const crate of sources.registry) {
+      const crateRoot = join(preparedVendor, `${crate.name}-${crate.version}`); await mkdir(crateRoot);
+      for (const directory of crate.directories) await mkdir(join(crateRoot, directory), { recursive: true });
+      for (const file of crate.files) { await write(crateRoot, file.name, file.bytes); await chmod(join(crateRoot, file.name), file.mode); }
+    }
+    await verifyOfflineMaterialized(preparedRust, preparedVendor, summary, input.budget);
+    for (const literal of literals) {
+      const path = join(preparedVendor, root, literal.name); assert.deepEqual(await readFile(path), literal.bytes);
+      const tampered = Buffer.from(literal.bytes); tampered[0] = (tampered[0] ?? 0) ^ 1; assert.equal(tampered.length, literal.bytes.length);
+      await writeFile(path, tampered);
+      await assert.rejects(() => verifyOfflineMaterialized(preparedRust, preparedVendor, summary, input.budget), /invalidOfflineSource/);
+      await writeFile(path, literal.bytes);
+    }
+  });
+});
+test("parenthesized-name admission continues refusing path, shell, control, link and special hazards", async () => {
+  const unsafeNames = ["../outside.rs", "src/../outside.rs", "src/control\nname.rs", "src/control\tname.rs", "src/$(id).rs", "src/`id`.rs", "src/name;id.rs", "src/name\\escape.rs", "/absolute.rs"];
+  const additions: TarEntry[] = [
+    ...unsafeNames.map((name) => ({ name: name.startsWith("/") ? name : "example-1.2.3/" + name, mode: 0o644, bytes: Buffer.from("refused literal\n") })),
+    { name: "example-1.2.3/src/link.repr(C).rs", mode: 0o644, type: "2", bytes: Buffer.alloc(0) },
+    { name: "example-1.2.3/src/hard.repr(C).rs", mode: 0o644, type: "1", bytes: Buffer.alloc(0) },
+    { name: "example-1.2.3/src/fifo.repr(C).rs", mode: 0o644, type: "6", bytes: Buffer.alloc(0) },
+  ];
+  for (const addition of additions) await withFixture(async (input) => {
+    const changed = await replaceExampleArchive(input, [...packageEntries("example-1.2.3"), addition]);
+    await assert.rejects(() => verifyOfflineSources(changed), /invalidOfflineSource|invalidSourceInput/);
+  });
+  await withFixture(async (input) => {
+    const summary = summarizeOfflineSources(await verifyOfflineSources(input)); const first = summary.registry[0]; assert.ok(first);
+    for (const name of [...unsafeNames, "src/control\0name.rs"]) {
+      const changed = { ...summary, registry: [{ ...first, inventory: [...first.inventory, { name, mode: 0o644, size: 0, sha256: sha(Buffer.alloc(0)) }] }, ...summary.registry.slice(1)] };
+      assert.throws(() => admitOfflineSummary(changed), /invalidOfflineSource/);
+    }
+  });
+});

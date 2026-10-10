@@ -6,7 +6,7 @@ export type ProjectFileDescriptor = { name: string; object: string; mode: 0o644 
 const gitHash = (kind: "commit" | "tree" | "blob", bytes: Buffer): string => createHash("sha1").update(`${kind} ${bytes.length}\0`).update(bytes).digest("hex");
 function invalid(): never { throw new Error("invalidProjectSource"); }
 export function safeName(name: string): boolean {
-  return name.length > 0 && name.length <= 240 && name.split("/").every((part) => /^[A-Za-z0-9_.+@-]+$/.test(part) && part !== "." && part !== "..");
+  return name.length > 0 && name.length <= 240 && name.split("/").every((part) => /^[A-Za-z0-9_.+@()-]+$/.test(part) && part !== "." && part !== "..");
 }
 /** Rejects directory aliases as well as file aliases on case-insensitive source/output filesystems. */
 export function unambiguousNames(names: readonly string[]): boolean {
