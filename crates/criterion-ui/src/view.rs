@@ -1219,6 +1219,34 @@ impl AppUi {
             WHITE,
             1200.0,
         );
+        if self.detail_state.information_pages > 1 {
+            label(
+                &p,
+                [348.0, 867.0],
+                &format!(
+                    "Synopsis {} / {}",
+                    self.detail_state.information_page + 1,
+                    self.detail_state.information_pages
+                ),
+                22.0,
+                MUTED,
+                450.0,
+            );
+            for (icon, x, available) in [
+                (Icon::ArrowUp, 848.0, self.detail_state.information_page > 0),
+                (
+                    Icon::ArrowDown,
+                    888.0,
+                    self.detail_state.information_page + 1 < self.detail_state.information_pages,
+                ),
+            ] {
+                icon.paint(
+                    &p,
+                    crate::icons::centered(Pos2::new(x, 880.0), 22.0),
+                    if available { WHITE } else { MUTED },
+                );
+            }
+        }
         icon_button(
             &p,
             Rect::from_min_size(Pos2::new(1490.0, 108.0), Vec2::splat(82.0)),
