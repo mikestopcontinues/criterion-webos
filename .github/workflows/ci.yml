@@ -107,6 +107,7 @@ jobs:
           sh -c 'npm run compile && npm test &&
           node node_modules/typescript/bin/tsc -p ../package-native/tsconfig.json &&
           /opt/node16/bin/node ../../.local/native-package/compiled/tools/package-native/tests/run.js &&
+          node ../../.local/native-package/compiled/tools/package-native/tests/export.test.js &&
           node node_modules/typescript/bin/tsc -p ../native-deployment/tsconfig.json &&
           /opt/node16/bin/node ../../.local/native-deployment/compiled/tests/prerequisites.test.js &&
           /opt/node16/bin/node ../../.local/native-deployment/compiled/tests/bounds.test.js'
