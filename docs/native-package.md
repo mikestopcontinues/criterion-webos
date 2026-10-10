@@ -10,7 +10,7 @@ The maintained [read-only prerequisite reader](../tools/native-deployment/index.
 
 The ten probed libraries are present as hash-stable ELF32 little-endian ARM EABI5 files: `libSDL2-2.0.so.0`, `libgcc_s.so.1`, `librt.so.1`, `libpthread.so.0`, `libm.so.6`, `libdl.so.2`, `libc.so.6`, `ld-linux.so.3`, `libEGL.so.1` and `libGLESv2.so.2`. This covers the supplied MAIN requirements and fixed graphics probes, not native-caller dependencies. File presence and header metadata do not establish required symbol versions, successful loading or application execution.
 
-`/proc/cpuinfo` reports architecture `8` and ASIMD, but ARM32 NEON capability remains unproved. Target ISA admission is still required alongside the [compiler and ELF gates](development.md). The exact-package install, native launch/render and complete cleanup checkpoint remains outstanding; no Criterion installation or licensed playback is admitted by these reads.
+A separate bounded read from the executing ELF32 little-endian ARM Node process reports `AT_HWCAP = 3649750`, with the NEON mask `4096` (bit 12) set. This admits the target's ARM32 NEON capability; `/proc/cpuinfo` architecture `8` and ASIMD alone would not establish it. Criterion instruction execution, required symbols and native runtime compatibility remain unadmitted alongside the [compiler and ELF gates](development.md). The exact-package install, native launch/render and complete cleanup checkpoint remains outstanding; no Criterion installation or licensed playback is admitted by these reads.
 
 ## Input and source admission
 
