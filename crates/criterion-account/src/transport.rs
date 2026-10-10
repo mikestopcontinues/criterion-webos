@@ -400,3 +400,7 @@ impl Transport for HttpTransport {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "native_home_admission_tests.rs"]
+mod native_home_admission_tests;
