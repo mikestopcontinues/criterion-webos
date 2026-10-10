@@ -8,6 +8,7 @@ import { PACKAGING_IMAGE, type ClosedCommand, type NativeMainExport } from "./sr
 import { readInput } from "./src/input.js";
 import { ordinaryRoot, prepareMainProject, receiptForMain, verifyMaterialized, writeOwned } from "./src/main-source.js";
 import { packageWorkerLaunch } from "./src/package-worker.js";
+import { prepareCliConfiguration } from "./src/cli-configuration.js";
 import { offlineWorkerLaunch } from "./src/offline-worker.js";
 import { PAYLOAD_NAMES } from "./src/manifest.js";
 import { admitBuildReceipt, sha256 } from "./src/receipt.js";
@@ -138,10 +139,12 @@ export async function produceNativeMain(input: MainProducerInput, execution: Mai
     if (sha256(await readInput(executablePath, MAX_EXECUTABLE_BYTES)) !== receipt.executableSha256) throw new Error("producerExecutableChanged"); check();
   }
   await verifyMaterialized(snapshot, project.files, () => { check(); });
-  const packageRoot = join(output, "package"); await mkdir(join(packageRoot, "input"), { mode: 0o700 });
+  const packageRoot = join(output, "package");
+  const cliConfiguration = await prepareCliConfiguration(dependenciesRoot, join(packageRoot, "cli-conf"), () => { check(); });
+  await mkdir(join(packageRoot, "input"), { mode: 0o700 });
   await writeOwned(join(packageRoot, "input/criterion-unofficial"), executable, 0o755);
   await writeOwned(join(packageRoot, "input/build-receipt.json"), receiptBytes, 0o644); check();
-  const packageMounts = [sourceMount, { source: dependenciesRoot, target: "/workspace/tools/player-probe/node_modules", readOnly: true }, { source: packageRoot, target: "/workspace/.local/native-package", readOnly: false }, { source: join(output, "compiled"), target: "/workspace/.local/native-package/compiled", readOnly: true }];
+  const packageMounts = [sourceMount, { source: dependenciesRoot, target: "/workspace/tools/player-probe/node_modules", readOnly: true }, { source: join(packageRoot, "cli-conf"), target: "/workspace/tools/player-probe/node_modules/@webos-tools/cli/files/conf", readOnly: false }, { source: packageRoot, target: "/workspace/.local/native-package", readOnly: false }, { source: join(output, "compiled"), target: "/workspace/.local/native-package/compiled", readOnly: true }];
   const program = packageWorkerLaunch({ sourceRoot: "/workspace", outputDirectory: "/workspace/.local/native-package/exports/main", executablePath: "/workspace/.local/native-package/input/criterion-unofficial", receiptPath: "/workspace/.local/native-package/input/build-receipt.json", modulePath: "/workspace/.local/native-package/compiled/tools/package-native/package-phase.js", image: PACKAGING_IMAGE, deadlineMs });
   await writeOwned(join(packageRoot, "package-launcher.cjs"), Buffer.from(program), 0o644); check();
   const packaged = await run("package-main", container(PACKAGING_IMAGE, "/usr/local/bin/node", ["/workspace/.local/native-package/package-launcher.cjs"], packageMounts, 512 * 1024, 180000));
@@ -157,7 +160,7 @@ export async function produceNativeMain(input: MainProducerInput, execution: Mai
   const sealBytes = Buffer.from(JSON.stringify({ schemaVersion: 1, status: "development", sourceCommit, originalDeadlineMs: deadlineMs,
     source: { commitSha256: sha256(project.commit), files: project.files.map(file => ({ name: file.name, mode: file.mode, bytes: file.bytes.length, sha256: sha256(file.bytes) })) },
     compiler: { requiredImage: NATIVE_COMPILER_IMAGE, ...compiler }, offline: { requestSha256: sha256(offlineInput.requestBytes), channelManifestSha256: sha256(offlineInput.runtimeInputs.channel), copyrightSha256: sha256(offlineInput.runtimeInputs.copyright), runtime: offline.runtime, runtimeInventory: offline.runtimeInventory, registry: offline.registry.map(crate => ({ name: crate.name, version: crate.version, archiveSha256: crate.archiveSha256, inventory: crate.inventory })) },
-    commands, offlineLauncherSha256: sha256(Buffer.from(offlineProgram)), packagingLauncherSha256: sha256(Buffer.from(program)), generatedPackagingWorkerSha256: sha256(workerBytes), buildReceipt, executable: executableArtifact, package: result,
+    commands, offlineLauncherSha256: sha256(Buffer.from(offlineProgram)), packagingLauncherSha256: sha256(Buffer.from(program)), generatedPackagingWorkerSha256: sha256(workerBytes), cliConfiguration, buildReceipt, executable: executableArtifact, package: result,
     limits: ["Development source/input attribution only; no reproducibility or source-license admission.", "ELF/readelf facts are not runtime, CPU instruction, symbol resolution or playback admission."],
   }, null, 2) + "\n");
   check(); const sealPath = join(output, "producer-seal.json"); await writeOwned(sealPath, sealBytes, 0o644); check();

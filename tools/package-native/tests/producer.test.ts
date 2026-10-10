@@ -20,6 +20,7 @@ import { spawnSync } from "node:child_process";
 import { readInput } from "../src/input.js";
 import { prepareOfflineMainFromFiles } from "../offline-phase.js";
 import { offlineWorkerLaunch } from "../src/offline-worker.js";
+import "./cli-configuration.test.js";
 
 const dynamic = Buffer.from("Dynamic section at offset 0x100 contains 2 entries:\n 0x00000001 (NEEDED) Shared library: [libc.so.6]\n 0x00000000 (NULL) 0x0\n");
 const closed = (stdout: Buffer = Buffer.alloc(0)): ClosedCommand => ({ closed: true, exitCode: 0, signal: null, timedOut: false, stdout, stderr: Buffer.alloc(0) });
@@ -329,5 +330,24 @@ test("post-command throwing clock retains both actual buffers and stops immediat
       assert.ok(error.cause instanceof Error); assert.equal(error.cause.message, "literal clock refusal"); return true;
     });
     assert.equal(commands.length, 1); await assert.rejects(() => readFile(join(input.outputDirectory, "producer-seal.json")), /ENOENT/);
+  });
+});
+
+test("produceNativeMain isolates only mutable official CLI configuration in the packaging mount", async () => {
+  await withProducer(async ({ input, execution, commands }) => {
+    await produceNativeMain(input, execution);
+    const packaging = commands.find(command => command.kind === "container"
+      && command.args[0] === "/workspace/.local/native-package/package-launcher.cjs");
+    assert.ok(packaging && packaging.kind === "container");
+    assert.ok(packaging.mounts.some(mount => mount.source === input.dependenciesRoot
+      && mount.target === "/workspace/tools/player-probe/node_modules" && mount.readOnly));
+    const conf = packaging.mounts.find(mount => mount.target === "/workspace/tools/player-probe/node_modules/@webos-tools/cli/files/conf");
+    assert.ok(conf, "the locked CLI needs its own mutable files/conf child");
+    assert.equal(conf.source, join(input.outputDirectory, "package/cli-conf"));
+    assert.equal(conf.readOnly, false);
+    assert.deepEqual((await readdir(conf.source)).sort(), ["ares.json", "command-service.json", "config.json", "ipk.json",
+      "novacom-devices.json", "query", "sdk.json", "template.json", "webos_emul"]);
+    assert.deepEqual(await readFile(join(conf.source, "config.json")),
+      await readFile(join(input.dependenciesRoot, "@webos-tools/cli/files/conf/config.json")));
   });
 });
