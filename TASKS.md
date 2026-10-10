@@ -8,7 +8,7 @@ Deliver every acceptance criterion in [the product contract](docs/product.md). T
 
 Root owns integration, provider access, product acceptance and publication. Public discovery rail actions and their shared rail geometry are integrated. Their host SDL/GLES journey passes See All, Discovery and exact warm Back restoration; individually inspected frames show clear New rail captions and restored selection. That journey uses captured metadata and synthetic artwork; live provider and TV acceptance remain separate.
 
-The inert MAIN packaging export and explicit packaged Widevine access probe are integrated. The maintained MAIN producer is being implemented with checked Git source, verified offline build inputs and the existing packaging owner. Its consumer must be [Elgee's canonical deployment entry point](/Users/mike/Code/elgee-tv/TASKS.md#deployment-pipeline). The first device checkpoint remains MAIN prerequisite inspection, exact-package install, launch/render and complete cleanup. No Criterion package has been installed on the C4. Caller, service, EME and licensed playback require separate device checkpoints.
+The inert MAIN packaging export and explicit packaged Widevine access probe are integrated. The maintained MAIN producer is being implemented with checked Git source, verified offline build inputs and the existing packaging owner. Its consumer must be [Elgee's canonical deployment entry point](/Users/mike/Code/elgee-tv/TASKS.md#deployment-pipeline). [Target prerequisite observations](docs/native-package.md#target-prerequisites) are established; target ISA admission and exact-package install, launch/render and complete cleanup remain the first device checkpoint. No Criterion package has been installed on the C4. Caller, service, EME and licensed playback require separate device checkpoints.
 
 The native Home source investigation must establish the official supplied page identifier before another provider experiment. The rejected literal candidate route establishes no official Home delivery. Native Play currently prepares the selected content and resume context, then displays unavailable feedback; the admitted provider policy and licensed platform consumer remain unfinished. [Application ownership](docs/application.md), [the account boundary](docs/account.md) and [the packaged probe](docs/probe-player.md) own these contracts and their acceptance limits.
 
@@ -16,7 +16,7 @@ Public source and the GitHub Pages landing page are live. [Native packaging](doc
 
 ## Unfinished work
 
-- [ ] Complete the maintained MAIN producer and canonical deployment adapter; verify prerequisite facts and the exact installed MAIN package through launch/render and cleanup.
+- [ ] Complete the maintained MAIN producer and canonical deployment adapter; close target ISA admission and verify the exact installed MAIN package through launch/render and cleanup.
 - [ ] Verify native caller, service lifetime, foreground/return and packaged Widevine access on the C4; establish secure session storage and licensed playback feasibility.
 - [ ] Establish official native Home identity and delivery, remaining Featured delivery and native Detail origins/subtypes; complete reference-app comparison.
 - [ ] Admit the protected playback configuration and license contract, then connect selected content, acknowledged resume, playing state and Back/closure to the production consumer.

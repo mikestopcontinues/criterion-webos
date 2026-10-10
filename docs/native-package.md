@@ -4,6 +4,14 @@ The inert [`packageNativeMain` API](../tools/package-native/index.ts) packages a
 
 The [fixed descriptor](../tools/package-native/src/manifest.ts) identifies **Criterion Unofficial** as a native development app with the `criterion-unofficial` main, lifecycle interface V2 and no relaunch handling or service permissions. [LG's application descriptor reference](https://webostv.developer.lge.com/develop/references/appinfo-json) owns the standard fields; the native lifecycle convention follows the source-verified Plx manifest and [native application guidance](https://www.webosose.org/docs/tutorials/native-apps/developing-built-in-native-apps/). Actual C4 lifecycle behavior requires device admission.
 
+## Target prerequisites
+
+The maintained [read-only prerequisite reader](../tools/native-deployment/index.ts) has confirmed model `OLED77C4PUA.DUSQLJR`, firmware `33.31.69` and SDK `10.3.1`. Its target process reports Node `16.20.2` on Linux `arm`. These observations are bound to a stable boot/compositor identity and must be refreshed before device phases.
+
+The ten probed libraries are present as hash-stable ELF32 little-endian ARM EABI5 files: `libSDL2-2.0.so.0`, `libgcc_s.so.1`, `librt.so.1`, `libpthread.so.0`, `libm.so.6`, `libdl.so.2`, `libc.so.6`, `ld-linux.so.3`, `libEGL.so.1` and `libGLESv2.so.2`. This covers the supplied MAIN requirements and fixed graphics probes, not native-caller dependencies. File presence and header metadata do not establish required symbol versions, successful loading or application execution.
+
+`/proc/cpuinfo` reports architecture `8` and ASIMD, but ARM32 NEON capability remains unproved. Target ISA admission is still required alongside the [compiler and ELF gates](development.md). The exact-package install, native launch/render and complete cleanup checkpoint remains outstanding; no Criterion installation or licensed playback is admitted by these reads.
+
 ## Input and source admission
 
 [`NativeMainInput`](../tools/package-native/src/contract.ts) supplies four values:
