@@ -243,11 +243,12 @@ fn modal_shapes(output: &egui::FullOutput, focus: Focus) -> bool {
     [
         ("Sort by", rect(510.0, 183.0, 750.0, 58.0)),
         ("Default", rect(510.0, 270.0, 900.0, 80.0)),
-        ("Title  ↑", rect(510.0, 370.0, 900.0, 80.0)),
+        ("Title", rect(510.0, 370.0, 900.0, 80.0)),
         ("Release Date", rect(510.0, 470.0, 900.0, 80.0)),
         ("Runtime", rect(510.0, 570.0, 900.0, 80.0)),
         ("APPLY", rect(510.0, 750.0, 900.0, 82.0)),
     ].into_iter().all(|(text, area)| text_inside(output, text, area))
+        && title_direction_shapes(output, Direction::Ascending)
         && output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(r)
             if r.rect == rect(450.0, 130.0, 1050.0, 760.0)
                 && r.fill == egui::Color32::from_rgb(28,28,28) && shape.clip_rect.contains_rect(r.rect)))
@@ -452,6 +453,7 @@ impl Capture {
             };
             return gold(550, 790)
                 && gold(1382, 410)
+                && gold(1340, 410)
                 && pixel(pixels, 550, 410).iter().all(|v| *v < 20)
                 && pixel(pixels, 480, 160)
                     .iter()
@@ -597,6 +599,93 @@ pub(super) fn journey(rendered: &mut Rendered<'_>) -> Result<(), &'static str> {
     )
 }
 
+fn title_direction_shapes(output: &egui::FullOutput, direction: Direction) -> bool {
+    let (stem, head) = match direction {
+        Direction::Ascending => (
+            [egui::pos2(1340.0, 422.0), egui::pos2(1340.0, 398.0)],
+            [
+                egui::pos2(1332.0, 406.0),
+                egui::pos2(1340.0, 398.0),
+                egui::pos2(1348.0, 406.0),
+            ],
+        ),
+        Direction::Descending => (
+            [egui::pos2(1340.0, 398.0), egui::pos2(1340.0, 422.0)],
+            [
+                egui::pos2(1332.0, 414.0),
+                egui::pos2(1340.0, 422.0),
+                egui::pos2(1348.0, 414.0),
+            ],
+        ),
+    };
+    let gold = egui::Color32::from_rgb(181, 138, 22);
+    output.shapes.iter().any(|shape| {
+        matches!(&shape.shape,
+        egui::Shape::LineSegment { points, stroke }
+        if *points == stem && stroke.color == gold && (stroke.width - 2.6666667).abs() < 0.00001
+            && stem.iter().all(|point| shape.clip_rect.contains(*point)))
+    }) && output.shapes.iter().any(|shape| {
+        matches!(&shape.shape,
+            egui::Shape::Path(path)
+            if path.points == head && path.stroke.color == egui::epaint::ColorMode::Solid(gold)
+                && (path.stroke.width - 2.6666667).abs() < 0.00001
+                && head.iter().all(|point| shape.clip_rect.contains(*point)))
+    })
+}
+
+#[test]
+fn sort_direction_is_visible_vector_geometry_for_both_actual_choices() {
+    let mut fixture = sort_fixture_with_positions(true);
+    fixture.wait(root_ready);
+    for key in DRAFT_TITLE {
+        fixture.key(key.0, key.1);
+        fixture.pump();
+    }
+    assert!(local_reads(&fixture));
+    assert!(
+        title_direction_shapes(fixture.app.output.as_ref().unwrap(), Direction::Ascending),
+        "current ascending direction must paint a complete unclipped vector arrow"
+    );
+    let mut missing = fixture.app.output.as_ref().unwrap().clone();
+    missing.textures_delta.clear();
+    missing.shapes.retain(|shape| {
+        !matches!(&shape.shape, egui::Shape::LineSegment { points, .. }
+        if *points == [egui::pos2(1340.0, 422.0), egui::pos2(1340.0, 398.0)])
+    });
+    assert!(
+        !title_direction_shapes(&missing, Direction::Ascending),
+        "missing stem refuses"
+    );
+    let mut clipped = fixture.app.output.as_ref().unwrap().clone();
+    clipped.textures_delta.clear();
+    for shape in &mut clipped.shapes {
+        if matches!(&shape.shape, egui::Shape::Path(path)
+            if path.points == [egui::pos2(1332.0, 406.0), egui::pos2(1340.0, 398.0), egui::pos2(1348.0, 406.0)])
+        {
+            shape.clip_rect = egui::Rect::ZERO;
+        }
+    }
+    assert!(
+        !title_direction_shapes(&clipped, Direction::Ascending),
+        "clipped head refuses"
+    );
+    fixture.key(SELECT.0, SELECT.1);
+    fixture.pump();
+    fixture.key(DOWN.0, DOWN.1);
+    fixture.pump();
+    for key in DRAFT_DESCENDING {
+        fixture.key(key.0, key.1);
+        fixture.pump();
+    }
+    assert!(local_reads(&fixture));
+    let output = fixture.app.output.as_ref().unwrap();
+    assert!(
+        title_direction_shapes(output, Direction::Descending),
+        "current descending direction must paint a complete unclipped vector arrow"
+    );
+    assert!(!title_direction_shapes(output, Direction::Ascending));
+}
+
 #[test]
 fn sort_capture_shapes_preserve_font_upload_and_match_actual_application_journey() {
     let mut fixture = fixture();
@@ -629,7 +718,7 @@ fn sort_capture_shapes_preserve_font_upload_and_match_actual_application_journey
     let title = modal
         .shapes
         .iter_mut()
-        .find(|shape| matches!(&shape.shape,egui::Shape::Text(t) if t.galley.job.text=="Title  ↑"))
+        .find(|shape| matches!(&shape.shape,egui::Shape::Text(t) if t.galley.job.text=="Title"))
         .unwrap();
     title.clip_rect = egui::Rect::ZERO;
     assert!(
@@ -732,6 +821,7 @@ fn sort_pixel_admission_refuses_placeholders_wrong_order_and_private_progress() 
     for (x, y, rgb) in [
         (550, 790, [181, 138, 22]),
         (1382, 410, [181, 138, 22]),
+        (1340, 410, [181, 138, 22]),
         (550, 410, [11, 11, 11]),
         (480, 160, [28, 28, 28]),
         (180, 80, [10, 10, 10]),
@@ -739,6 +829,12 @@ fn sort_pixel_admission_refuses_placeholders_wrong_order_and_private_progress() 
         set(&mut pixels, x, y, rgb);
     }
     assert!(Capture::PendingTitle.pixels(&pixels));
+    set(&mut pixels, 1340, 410, [11, 11, 11]);
+    assert!(
+        !Capture::PendingTitle.pixels(&pixels),
+        "missing direction refuses pixel admission"
+    );
+    set(&mut pixels, 1340, 410, [181, 138, 22]);
     set(&mut pixels, 1382, 410, [11, 11, 11]);
     assert!(!Capture::PendingTitle.pixels(&pixels));
 }

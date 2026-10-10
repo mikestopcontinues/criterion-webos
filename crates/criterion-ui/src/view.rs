@@ -1018,21 +1018,16 @@ impl AppUi {
         label(p, [510.0, 183.0], "Sort by", 36.0, WHITE, 750.0);
         for field in crate::DetailSortField::ALL {
             let focus = Focus::DetailSortOption(field);
-            let text = if sort.pending.field == field && field != crate::DetailSortField::Default {
-                format!(
-                    "{}  {}",
-                    field.label(),
-                    if sort.pending.direction == crate::DetailSortDirection::Ascending {
-                        "↑"
-                    } else {
-                        "↓"
-                    }
-                )
-            } else {
-                field.label().into()
-            };
             let area = crate::detail_sort::sort_rect(focus).expect("fixed sort option");
-            button(p, area, &text, self.focus() == focus);
+            button(p, area, field.label(), self.focus() == focus);
+            if sort.pending.field == field && field != crate::DetailSortField::Default {
+                let icon = if sort.pending.direction == crate::DetailSortDirection::Ascending {
+                    Icon::ArrowUp
+                } else {
+                    Icon::ArrowDown
+                };
+                icon.paint(p, centered(Pos2::new(1340.0, area.center().y), 32.0), GOLD);
+            }
             if sort.pending.field == field {
                 p.circle_filled(Pos2::new(area.right() - 28.0, area.center().y), 6.0, GOLD);
             }
