@@ -9,9 +9,9 @@ pub(crate) use account::my_list_filter;
 use continue_watching::ContinueWatchingState;
 use criterion_artwork::ImageRole;
 use criterion_provider::{
-    BrowseOptions, CatalogPage, DiscoveryArtwork, DiscoveryBlock, DiscoveryPage, EditorialImage,
-    GalleryPresentation, ImageLabel, MediaDetail, MediaId, MediaKind, MediaSummary, RailSource,
-    SearchResults,
+    BrowseOptions, CatalogPage, ContentTarget, DiscoveryArtwork, DiscoveryBlock, DiscoveryPage,
+    EditorialImage, GalleryPresentation, ImageLabel, MediaDetail, MediaId, MediaKind, MediaSummary,
+    RailSource, SearchResults,
 };
 use criterion_ui::{
     Card, Detail, DetailKind, FilterGroup, FilterMenu, LoadState, Rail, SearchGroup, Target,
@@ -459,7 +459,16 @@ impl Presentation {
                     let action =
                         if !opens_new_window && matches!(source, RailSource::Provided { .. }) {
                             cta.filter(|label| !label.trim().is_empty())
-                                .zip(target)
+                                .zip(target.filter(|target| {
+                                    matches!(
+                                        target,
+                                        ContentTarget::Media { .. }
+                                            | ContentTarget::Discover(_)
+                                            | ContentTarget::Home
+                                            | ContentTarget::New
+                                            | ContentTarget::AllFilms
+                                    )
+                                }))
                                 .map(|(label, target)| OwnedRailAction {
                                     block: id,
                                     label,

@@ -465,6 +465,79 @@ fn incomplete_blank_new_window_and_account_fed_ctas_remain_unrepresented() {
     assert_eq!(public.account_calls.load(Ordering::SeqCst), 0);
 }
 #[test]
+fn supplied_account_targets_cannot_become_public_rail_actions() {
+    for (link, caption) in [
+        ("/my-list", "Save to My List"),
+        ("/subscribe", "Subscribe now"),
+    ] {
+        let runtime = runtime();
+        let public = Public::default();
+        let mut raw = raw_rail();
+        raw["link"] = link.into();
+        raw["cta"] = caption.into();
+        supplied_new(&public, vec![raw]);
+        let mut app = fixture_app(&runtime, public.clone());
+        new_page(&mut app, &runtime);
+        // The supplied, same-window Provided rail still has real cards. Its
+        // account route must not become a remote header control.
+        for code in [81, 82, 40] {
+            key(&mut app, &runtime, code);
+        }
+        assert_eq!(app.ui.page(), Page::New, "account CTA opened {link}");
+        let before = app
+            .controller
+            .view
+            .with_view(app.authentication.view(), |data| {
+                assert_eq!(data.status, LoadState::Ready);
+                assert_eq!(data.rails.len(), 1);
+                assert!(data.rails[0].action.is_none());
+                assert!(!data.rails[0].cards.is_empty());
+                data.rails[0]
+                    .cards
+                    .iter()
+                    .map(|card| (card.key.clone(), card.artwork_key.map(str::to_owned)))
+                    .collect::<Vec<_>>()
+            });
+        key(&mut app, &runtime, 81);
+        assert!(!paint(&mut app, &runtime).iter().any(|text| text == caption));
+        // A pointer at the normal scrolled row-zero header and a forged exact
+        // row address must both refuse the unowned account action before Back.
+        pointer(&mut app, &runtime, true, [1620, 282]);
+        pointer(&mut app, &runtime, false, [1620, 282]);
+        app.command(
+            Command::ActivateRail {
+                origin: Page::New,
+                from: criterion_ui::RailActionCursor {
+                    visit: app.controller.membership_visit().unwrap(),
+                    block: 825,
+                    row: 0,
+                },
+                target: criterion_ui::Target::Content(
+                    criterion_provider::ContentTarget::parse(link).unwrap(),
+                ),
+            },
+            runtime.handle(),
+        );
+        assert_eq!(app.ui.page(), Page::New);
+        key(&mut app, &runtime, 41);
+        assert_eq!(app.ui.page(), Page::New);
+        let after = app
+            .controller
+            .view
+            .with_view(app.authentication.view(), |data| {
+                data.rails[0]
+                    .cards
+                    .iter()
+                    .map(|card| (card.key.clone(), card.artwork_key.map(str::to_owned)))
+                    .collect::<Vec<_>>()
+            });
+        assert_eq!(before, after);
+        assert_eq!(&*public.calls.lock().unwrap(), &["/", "/new"]);
+        assert!(app.finish(&runtime));
+        assert_eq!(public.account_calls.load(Ordering::SeqCst), 0);
+    }
+}
+#[test]
 fn duplicate_block_and_target_rows_keep_distinct_addresses_and_owned_action_budget() {
     let runtime = runtime();
     let public = Public::default();
