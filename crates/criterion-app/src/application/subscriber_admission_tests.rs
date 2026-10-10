@@ -357,7 +357,11 @@ impl<A: criterion_account::Transport> criterion_account::Transport for TracedAcc
                 Request::Subscriber {
                     target: SubscriberTarget::WatchList { request, .. },
                     ..
-                } if trace.reads.len() < MAX_READS => {
+                } if trace.reads.len() < MAX_READS
+                    && trace.membership.as_ref().is_none_or(|membership| {
+                        membership.admit_shelf(trace.reads.len(), request)
+                    }) =>
+                {
                     let index = trace.reads.len();
                     trace.reads.push(ReadAttempt {
                         request: request.clone(),
@@ -1326,6 +1330,55 @@ mod admission_oracle_tests {
             ));
         }
         assert!(received.lock().unwrap().len() == MAX_READS);
+        let membership_trace = Arc::new(Mutex::new(ReadTrace {
+            membership: Some(MembershipTrace::default()),
+            ..ReadTrace::default()
+        }));
+        let membership_transport = TracedAccount {
+            inner: Receiver(received.clone()),
+            trace: membership_trace.clone(),
+        };
+        for (request, allowed) in [
+            (
+                WatchListRequest {
+                    filter: WatchListFilter::FilmSeries,
+                    cursor: None,
+                },
+                false,
+            ),
+            (
+                WatchListRequest {
+                    filter: WatchListFilter::All,
+                    cursor: Some(PageCursor::new("synthetic-next").unwrap()),
+                },
+                false,
+            ),
+            (WatchListRequest::default(), true),
+            (WatchListRequest::default(), false),
+        ] {
+            let result = runtime.block_on(criterion_account::Transport::send(
+                &membership_transport,
+                criterion_account::Request::Subscriber {
+                    target: SubscriberTarget::WatchList {
+                        region: Region::Us,
+                        request,
+                    },
+                    credentials: capabilities.credentials(&session).unwrap(),
+                },
+            ));
+            assert!(if allowed {
+                matches!(result, Err(criterion_account::Error::Unavailable))
+            } else {
+                matches!(result, Err(criterion_account::Error::InvalidRequest))
+            });
+        }
+        assert!(received.lock().unwrap().len() == MAX_READS + 1);
+        let trace = membership_trace.lock().unwrap();
+        assert!(
+            trace.refused
+                && trace.reads.len() == 1
+                && trace.reads[0].request == WatchListRequest::default()
+        );
     }
 
     #[test]

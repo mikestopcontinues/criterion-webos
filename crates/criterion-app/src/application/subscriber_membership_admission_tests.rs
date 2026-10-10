@@ -25,6 +25,13 @@ pub(super) struct MembershipTrace {
     retired: bool,
 }
 impl MembershipTrace {
+    pub(super) fn admit_shelf(
+        &self,
+        previous: usize,
+        request: &criterion_account::WatchListRequest,
+    ) -> bool {
+        !self.retired && previous == 0 && *request == criterion_account::WatchListRequest::default()
+    }
     fn arm(&mut self, root: MediaId) -> Result<(), &'static str> {
         if self.selected.is_some() || self.detail_started || self.ids_started || self.retired {
             return Err("membership one-root admission");
@@ -186,6 +193,8 @@ pub(super) fn verify_membership_trace(trace: &SharedTrace) -> Result<(), &'stati
     let trace = trace.lock().map_err(|_| "private request trace")?;
     let membership = trace.membership.as_ref().ok_or("membership mode trace")?;
     if trace.refused
+        || trace.reads.len() != 1
+        || trace.reads[0].request != criterion_account::WatchListRequest::default()
         || !membership.completed()
         || !membership.retired
         || membership.selected.is_some()
@@ -211,10 +220,14 @@ pub(super) fn admit_membership(
         .controller
         .view
         .with_view(app.authentication.view(), |view| {
-            let first = view.catalog.ok_or("membership native shelf window")?.first;
+            let native_window = view.catalog.ok_or("membership native shelf window")?;
+            let first = native_window.first;
+            if first != 0 {
+                return Err("membership initial native window");
+            }
             view.cards
                 .iter()
-                .take(180)
+                .take(safe_rows(view.cards.len(), native_window.tail))
                 .enumerate()
                 .find_map(|(index, card)| {
                     let Target::Native(root) = card.key else {
@@ -228,6 +241,9 @@ pub(super) fn admit_membership(
         })?;
     if matches!(app.ui.focus(), Focus::MyListGroup(_)) {
         key(app, window, painter, runtime, journey, DOWN)?;
+    }
+    if app.ui.focus() != (Focus::Card { row: 0, column: 0 }) {
+        return Err("membership canonical initial card focus");
     }
     let wanted = Focus::Card {
         row: global / 4,
@@ -353,6 +369,16 @@ pub(super) fn admit_membership(
     Ok(())
 }
 
+fn safe_rows(rows: usize, tail: criterion_ui::CatalogTail) -> usize {
+    // Production MyList demand begins at end-12. Stay strictly before that
+    // threshold whenever a provider cursor exists; End cannot continue.
+    match tail {
+        criterion_ui::CatalogTail::More => rows.min(180).saturating_sub(12),
+        criterion_ui::CatalogTail::End => rows.min(180),
+        _ => 0,
+    }
+}
+
 #[test]
 #[ignore = "actual subscriber/provider and serialized SDL/GLES; private external mount; root executor only"]
 fn native_subscriber_detail_membership_back_and_logout_end_to_end() {
@@ -385,6 +411,16 @@ fn membership_guard_requires_exact_single_root_success_region_and_retirement() {
     assert!(!trace.admit_detail(Region::Us, &root));
     assert!(!trace.admit_ids(Region::Us));
     assert!(trace.arm(root).is_err());
+}
+
+#[test]
+fn membership_navigation_excludes_the_observed_continuation_demand_tail() {
+    use criterion_ui::CatalogTail;
+    assert_eq!(safe_rows(50, CatalogTail::More), 38);
+    assert_eq!(safe_rows(12, CatalogTail::More), 0);
+    assert_eq!(safe_rows(50, CatalogTail::End), 50);
+    assert_eq!(safe_rows(180, CatalogTail::More), 168);
+    assert_eq!(safe_rows(50, CatalogTail::Loading), 0);
 }
 
 #[test]
