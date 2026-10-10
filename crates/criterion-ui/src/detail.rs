@@ -90,6 +90,27 @@ impl AppUi {
         {
             self.focus = Focus::DetailTab(self.detail_state.selected_tab);
         }
+        if let Focus::Card { row, column } = self.focus
+            && row == self.detail_state.selected_tab
+            && let Some(season) = detail
+                .seasons
+                .as_ref()
+                .and_then(|view| view.choices.get(self.detail_state.selected_season))
+        {
+            let focus = if season.episode_count == 0 {
+                Focus::DetailSeason(self.detail_state.selected_season)
+            } else {
+                Focus::Card {
+                    row,
+                    column: column.min(season.episode_count - 1),
+                }
+            };
+            if focus != self.focus {
+                self.focus = focus;
+                self.pointer_press = None;
+                self.pointer_layout_focus = None;
+            }
+        }
     }
     pub(crate) fn handle_detail(&mut self, action: Action, rows: &[usize]) -> Option<Vec<Intent>> {
         if self.page() != Page::Detail {

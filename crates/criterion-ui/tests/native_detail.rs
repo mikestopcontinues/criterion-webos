@@ -280,6 +280,122 @@ fn episodes_tab_selects_source_seasons_and_plays_clicked_episode_without_departu
     assert_eq!(ui.focus(), Focus::Card { row: 0, column: 0 });
 }
 
+#[test]
+fn changed_selected_season_restores_visible_episode_focus() {
+    let target = Target::Native(MediaId::new("Series01").unwrap());
+    let first = Target::Native(MediaId::new("Episode1").unwrap());
+    let second = Target::Native(MediaId::new("Episode2").unwrap());
+    let choices = [
+        criterion_ui::SeasonChoice {
+            number: 1,
+            title: "First supplied season",
+            episode_count: 1,
+        },
+        criterion_ui::SeasonChoice {
+            number: 2,
+            title: "Second supplied season",
+            episode_count: 2,
+        },
+    ];
+    let mut first_card = card(&first);
+    first_card.action = CardAction::Play;
+    let mut second_card = card(&second);
+    second_card.action = CardAction::Play;
+    let episodes = [first_card, second_card];
+    let data = |selected| {
+        let mut native = detail(&target, first.media_id());
+        native.selected_playlist = Some(0);
+        native.seasons = Some(criterion_ui::SeasonView {
+            selected,
+            choices: &choices,
+        });
+        ViewData {
+            detail: Some(native),
+            status: LoadState::Ready,
+            ..ViewData::default()
+        }
+    };
+    let rails = [Rail {
+        title: "Episodes",
+        cards: &episodes,
+    }];
+    let mut initial = data(1);
+    initial.rails = &rails;
+    let mut ui = AppUi::new();
+    open_detail(&mut ui, &target);
+    for _ in 0..4 {
+        ui.handle(Action::Down, &initial);
+    }
+    ui.handle(Action::Right, &initial);
+    assert_eq!(ui.focus(), Focus::Card { row: 0, column: 1 });
+
+    let restored_rails = [Rail {
+        title: "Episodes",
+        cards: &episodes[..1],
+    }];
+    let mut restored = data(0);
+    restored.rails = &restored_rails;
+    let mut frame = ui.render(egui::RawInput::default(), &restored);
+    frame.output.textures_delta.clear();
+    assert_eq!(ui.focus(), Focus::Card { row: 0, column: 0 });
+    assert!(
+        frame
+            .visible_cards
+            .iter()
+            .any(|card| { card.row == 0 && card.column == 0 && card.key == first })
+    );
+    assert_eq!(
+        ui.handle(Action::Select, &restored),
+        [Command::Play(first.media_id().unwrap().clone())]
+    );
+
+    let empty_choices = [criterion_ui::SeasonChoice {
+        number: 1,
+        title: "Empty season",
+        episode_count: 0,
+    }];
+    let mut empty_detail = detail(&target, None);
+    empty_detail.selected_playlist = Some(0);
+    empty_detail.seasons = Some(criterion_ui::SeasonView {
+        selected: 0,
+        choices: &empty_choices,
+    });
+    let empty_rails = [Rail {
+        title: "Episodes",
+        cards: &[],
+    }];
+    let empty = ViewData {
+        rails: &empty_rails,
+        detail: Some(empty_detail),
+        status: LoadState::Ready,
+        ..ViewData::default()
+    };
+    let mut frame = ui.render(egui::RawInput::default(), &empty);
+    frame.output.textures_delta.clear();
+    assert_eq!(ui.focus(), Focus::DetailSeason(0));
+    assert!(frame.visible_cards.is_empty());
+    let control = frame
+        .output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == "Empty season" => {
+                Some((text, shape.shape.visual_bounding_rect()))
+            }
+            _ => None,
+        })
+        .expect("empty season selector remains painted");
+    assert!(!control.0.galley.elided);
+    assert!(
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0))
+            .contains_rect(control.1)
+    );
+    assert_eq!(
+        ui.handle(Action::Select, &empty),
+        [Command::SelectSeason(0)]
+    );
+}
+
 fn pointer(pos: egui::Pos2, pressed: bool) -> egui::Event {
     egui::Event::PointerButton {
         pos,
