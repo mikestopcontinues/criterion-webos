@@ -478,6 +478,8 @@ mod public_paging_tests;
 mod my_list_render_tests;
 #[cfg(test)]
 mod my_list_tests;
+#[cfg(all(test, feature = "sdl"))]
+mod native_detail_render_tests;
 
 #[cfg(test)]
 mod tests {
