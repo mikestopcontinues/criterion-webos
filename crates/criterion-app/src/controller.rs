@@ -2,6 +2,7 @@
 //! Main-thread catalog publication and bounded navigation snapshots.
 mod catalog;
 mod continue_watching;
+mod discovery_actions;
 mod hero;
 mod list_membership;
 mod native_detail;
@@ -174,7 +175,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                 return Effect::None;
             }
             // Application must validate the origin before committing UI history.
-            Command::ActivateHero { .. } => return Effect::None,
+            Command::ActivateHero { .. } | Command::ActivateRail { .. } => return Effect::None,
             Command::Navigate(destination) => {
                 if (destination == Page::Search && self.page != Page::Search)
                     || (destination != Page::Search && self.page == Page::Search)

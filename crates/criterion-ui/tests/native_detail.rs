@@ -17,6 +17,7 @@ fn episode_play_keeps_its_real_origin_focus_and_history() {
         action: CardAction::Play,
     }];
     let rails = [Rail {
+        action: None,
         title: "Episodes",
         cards: &cards,
     }];
@@ -75,6 +76,7 @@ fn detail<'a>(target: &'a Target, primary: Option<&'a MediaId>) -> criterion_ui:
 fn open_detail(ui: &mut AppUi, target: &Target) {
     let cards = [card(target)];
     let rails = [Rail {
+        action: None,
         title: "Native",
         cards: &cards,
     }];
@@ -235,10 +237,12 @@ fn episodes_tab_selects_source_seasons_and_plays_clicked_episode_without_departu
     let episodes = [episode_card];
     let rails = [
         Rail {
+            action: None,
             title: "Episodes",
             cards: &episodes,
         },
         Rail {
+            action: None,
             title: "Related",
             cards: &[],
         },
@@ -333,6 +337,7 @@ fn changed_selected_season_restores_visible_episode_focus() {
         }
     };
     let rails = [Rail {
+        action: None,
         title: "Episodes",
         cards: &episodes,
     }];
@@ -347,6 +352,7 @@ fn changed_selected_season_restores_visible_episode_focus() {
     assert_eq!(ui.focus(), Focus::Card { row: 0, column: 1 });
 
     let restored_rails = [Rail {
+        action: None,
         title: "Episodes",
         cards: &episodes[..1],
     }];
@@ -381,6 +387,7 @@ fn changed_selected_season_restores_visible_episode_focus() {
         choices: &empty_choices,
     });
     let empty_rails = [Rail {
+        action: None,
         title: "Episodes",
         cards: &[],
     }];
@@ -444,6 +451,7 @@ fn season_pointer_focus_selects_then_episode_pointer_play_preserves_series_origi
     c.action = CardAction::Play;
     let cards = [c];
     let rails = [Rail {
+        action: None,
         title: "Episodes",
         cards: &cards,
     }];
@@ -517,10 +525,12 @@ fn pointer_release_cannot_change_an_open_card_into_play() {
     let mut changed = original;
     changed[0].action = CardAction::Play;
     let first_rails = [Rail {
+        action: None,
         title: "Original",
         cards: &original,
     }];
     let changed_rails = [Rail {
+        action: None,
         title: "Original",
         cards: &changed,
     }];
@@ -603,6 +613,7 @@ fn late_generic_tab_remains_visible_and_selected_after_focus_leaves_tabs() {
     let rails: Vec<_> = titles
         .iter()
         .map(|title| Rail {
+            action: None,
             title,
             cards: &cards,
         })
@@ -672,6 +683,7 @@ fn late_detail_horizontal_card_movement_keeps_active_rail_visible_and_origin_sta
     let rails: Vec<_> = titles
         .iter()
         .map(|title| Rail {
+            action: None,
             title,
             cards: &cards,
         })

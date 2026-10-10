@@ -108,10 +108,12 @@ fn pointer_first_selection_is_normal_and_repeated_selected_first_tab_opens_root_
     let root = Target::Native(MediaId::new("Root0001").unwrap());
     let rails = [
         Rail {
+            action: None,
             title: "First",
             cards: &[],
         },
         Rail {
+            action: None,
             title: "Second",
             cards: &[],
         },
@@ -156,6 +158,7 @@ fn pointer_first_selection_is_normal_and_repeated_selected_first_tab_opens_root_
 fn visible_sheet_paints_bounded_controls_blocks_backdrop_and_returns_to_first_tab_on_owner_close() {
     let root = Target::Native(MediaId::new("Root0001").unwrap());
     let rails = [Rail {
+        action: None,
         title: "First",
         cards: &[],
     }];
@@ -229,6 +232,7 @@ fn closing_or_replacing_root_retires_a_pressed_modal_pointer() {
     let root = Target::Native(MediaId::new("Root0001").unwrap());
     let next = Target::Native(MediaId::new("Root0002").unwrap());
     let rails = [Rail {
+        action: None,
         title: "First",
         cards: &[],
     }];

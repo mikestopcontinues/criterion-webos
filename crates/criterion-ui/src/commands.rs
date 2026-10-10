@@ -15,6 +15,11 @@ pub enum Command {
         from: crate::HeroCursor,
         target: crate::Target,
     },
+    ActivateRail {
+        origin: Page,
+        from: crate::RailActionCursor,
+        target: crate::Target,
+    },
     ActivateCard {
         target: crate::Target,
         focus: Focus,
@@ -46,6 +51,132 @@ pub enum Command {
     MyListGroup(crate::MyListGroup),
 }
 impl AppUi {
+    pub(crate) fn sync_discovery_actions(&mut self, data: &ViewData<'_>) {
+        if !matches!(self.page(), Page::Home | Page::New | Page::Discovery) {
+            return;
+        }
+        let normalize = |focus| {
+            let Focus::DiscoveryRailAction { row, column } = focus else {
+                return focus;
+            };
+            match data.rails.get(row) {
+                Some(rail) if rail.action.is_some() => Focus::DiscoveryRailAction {
+                    row,
+                    column: column.min(rail.cards.len().saturating_sub(1)),
+                },
+                Some(rail) if !rail.cards.is_empty() => Focus::Card {
+                    row,
+                    column: column.min(rail.cards.len() - 1),
+                },
+                _ => Focus::Hero,
+            }
+        };
+        let next = normalize(self.focus);
+        if next != self.focus {
+            self.focus = next;
+            self.pointer_press = None;
+            self.pointer_layout_focus = None;
+        }
+        self.return_focus = normalize(self.return_focus);
+    }
+    fn handle_discovery_action(
+        &mut self,
+        action: Action,
+        data: &ViewData<'_>,
+    ) -> Option<Vec<Command>> {
+        if !matches!(self.page(), Page::Home | Page::New | Page::Discovery) {
+            return None;
+        }
+        let row_focus = |row: usize, column: usize| {
+            let rail = data.rails.get(row)?;
+            if !rail.cards.is_empty() {
+                Some(Focus::Card {
+                    row,
+                    column: column.min(rail.cards.len() - 1),
+                })
+            } else {
+                rail.action
+                    .map(|_| Focus::DiscoveryRailAction { row, column: 0 })
+            }
+        };
+        let next = match (self.focus, action) {
+            (Focus::DiscoveryRailAction { row, .. }, Action::Select) => {
+                return Some(
+                    data.rail_action_cursor(row)
+                        .map(|from| {
+                            vec![Command::ActivateRail {
+                                origin: self.page(),
+                                from,
+                                target: data.rails[row].action.unwrap().target.clone(),
+                            }]
+                        })
+                        .unwrap_or_default(),
+                );
+            }
+            (Focus::Card { row, column }, Action::Up)
+                if data
+                    .rails
+                    .get(row)
+                    .is_some_and(|rail| rail.action.is_some()) =>
+            {
+                Some(Focus::DiscoveryRailAction { row, column })
+            }
+            (Focus::DiscoveryRailAction { row, column }, Action::Right | Action::Down)
+                if !data.rails[row].cards.is_empty() =>
+            {
+                Some(Focus::Card {
+                    row,
+                    column: column.min(data.rails[row].cards.len() - 1),
+                })
+            }
+            (Focus::DiscoveryRailAction { row, .. }, Action::Down) => {
+                ((row + 1)..data.rails.len()).find_map(|row| row_focus(row, 0))
+            }
+            (Focus::Card { row, column }, Action::Down) => {
+                ((row + 1)..data.rails.len()).find_map(|row| row_focus(row, column))
+            }
+            (Focus::DiscoveryRailAction { row, column }, Action::Up) => (0..row)
+                .rev()
+                .find_map(|row| row_focus(row, column))
+                .or(Some(if data.hero.is_some() {
+                    Focus::Hero
+                } else if data
+                    .hero_carousel
+                    .is_some_and(|carousel| carousel.total > 1)
+                {
+                    Focus::HeroPrevious
+                } else {
+                    Focus::Hero
+                })),
+            (Focus::Card { row, column }, Action::Up)
+                if row > 0
+                    && data
+                        .rails
+                        .get(row - 1)
+                        .is_some_and(|rail| rail.cards.is_empty()) =>
+            {
+                (0..row).rev().find_map(|row| row_focus(row, column))
+            }
+            (Focus::Hero | Focus::HeroPrevious | Focus::HeroNext, Action::Down)
+                if data.rails.first().is_some_and(|rail| rail.cards.is_empty()) =>
+            {
+                (0..data.rails.len()).find_map(|row| row_focus(row, 0))
+            }
+            (Focus::DiscoveryRailAction { .. }, Action::Right) => return Some(Vec::new()),
+            _ => return None,
+        };
+        if let Some(focus) = next {
+            self.focus = focus;
+            self.scroll_y = match focus {
+                Focus::Card { row, .. } | Focus::DiscoveryRailAction { row, .. } => {
+                    632.0 + row as f32 * 397.0
+                }
+                _ => 0.0,
+            };
+        }
+        Some(Vec::new())
+    }
+
     pub(crate) fn sync_hero(&mut self, data: &ViewData<'_>) {
         if !matches!(self.page(), Page::Home | Page::New | Page::Discovery) {
             return;
@@ -63,8 +194,16 @@ impl AppUi {
             Focus::Hero
         } else if carousel.total > 1 && data.status == crate::LoadState::Ready {
             Focus::HeroPrevious
-        } else if let Some(row) = data.rails.iter().position(|rail| !rail.cards.is_empty()) {
-            Focus::Card { row, column: 0 }
+        } else if let Some(row) = data
+            .rails
+            .iter()
+            .position(|rail| !rail.cards.is_empty() || rail.action.is_some())
+        {
+            if data.rails[row].cards.is_empty() {
+                Focus::DiscoveryRailAction { row, column: 0 }
+            } else {
+                Focus::Card { row, column: 0 }
+            }
         } else {
             Focus::Rail(if self.page() == Page::New {
                 crate::RailItem::New
@@ -157,6 +296,10 @@ impl AppUi {
         self.sync_rail(data.login);
         self.sync_my_list(data);
         self.sync_hero(data);
+        self.sync_discovery_actions(data);
+        if let Some(commands) = self.handle_discovery_action(action, data) {
+            return commands;
+        }
         if let Some(commands) = self.handle_hero(action, data) {
             return commands;
         }

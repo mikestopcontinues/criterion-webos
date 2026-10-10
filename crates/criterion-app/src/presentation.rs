@@ -245,6 +245,7 @@ impl Presentation {
                 cards.push(projection.media_card(media, target, ImageLabel::Landscape));
             }
             projection.rails.push(OwnedRail {
+                action: None,
                 title: playlist.title,
                 cards,
                 gallery: None,
@@ -295,6 +296,9 @@ impl Presentation {
             vec_bytes(&self.cards) + self.cards.iter().map(OwnedCard::heap_bytes).sum::<usize>();
         bytes += vec_bytes(&self.rails);
         for rail in &self.rails {
+            if let Some(action) = &rail.action {
+                bytes += action.label.capacity() + target_bytes(&action.target);
+            }
             bytes += rail.title.capacity()
                 + vec_bytes(&rail.cards)
                 + rail.cards.iter().map(OwnedCard::heap_bytes).sum::<usize>();
@@ -401,6 +405,20 @@ impl Presentation {
             LoadState::Ready
         };
     }
+    pub(crate) fn rail_action_target(
+        &self,
+        from: criterion_ui::RailActionCursor,
+    ) -> Option<&Target> {
+        if self.status != LoadState::Ready {
+            return None;
+        }
+        self.rails
+            .get(from.row)?
+            .action
+            .as_ref()
+            .filter(|action| action.block == from.block)
+            .map(|action| &action.target)
+    }
     pub(crate) fn discovery(page: DiscoveryPage) -> Self {
         let mut projection = Self::loading("");
         let mut saw_slideshow = false;
@@ -424,6 +442,7 @@ impl Presentation {
                         usize::from(opens_new_window && target.is_some());
                 }
                 DiscoveryBlock::Rail {
+                    id,
                     header,
                     cards,
                     image_label,
@@ -435,9 +454,23 @@ impl Presentation {
                     ..
                 } => {
                     projection.gaps.gallery_presentations += 1;
-                    projection.gaps.rail_actions += usize::from(cta.is_some() || target.is_some());
-                    projection.gaps.new_window_targets +=
-                        usize::from(opens_new_window && target.is_some());
+                    let supplied_action = cta.is_some() || target.is_some();
+                    let new_window_target = opens_new_window && target.is_some();
+                    let action =
+                        if !opens_new_window && matches!(source, RailSource::Provided { .. }) {
+                            cta.filter(|label| !label.trim().is_empty())
+                                .zip(target)
+                                .map(|(label, target)| OwnedRailAction {
+                                    block: id,
+                                    label,
+                                    target: Target::Content(target),
+                                })
+                        } else {
+                            None
+                        };
+                    projection.gaps.rail_actions +=
+                        usize::from(supplied_action && action.is_none());
+                    projection.gaps.new_window_targets += usize::from(new_window_target);
                     projection.gaps.account_rails += usize::from(matches!(
                         source,
                         RailSource::Watchlist | RailSource::ContinueWatching
@@ -451,6 +484,7 @@ impl Presentation {
                         ));
                     }
                     projection.rails.push(OwnedRail {
+                        action,
                         title: header.unwrap_or_default(),
                         cards: projected,
                         gallery: Some((source, image_label, presentation)),
@@ -480,6 +514,7 @@ impl Presentation {
                         });
                     }
                     projection.rails.push(OwnedRail {
+                        action: None,
                         title: header.unwrap_or_default(),
                         cards,
                         gallery: None,
@@ -593,6 +628,11 @@ impl Presentation {
             .iter()
             .zip(&rail_cards)
             .map(|(rail, cards)| Rail {
+                action: rail.action.as_ref().map(|action| criterion_ui::RailAction {
+                    block: action.block,
+                    label: &action.label,
+                    target: &action.target,
+                }),
                 title: &rail.title,
                 cards,
             })
@@ -675,6 +715,7 @@ impl Presentation {
             .as_ref()
             .map(|_| FilterMenu { groups: &groups });
         consume(ViewData {
+            discovery_visit: None,
             filters,
             detail,
             hero,
@@ -762,7 +803,13 @@ struct OwnedDetail {
     languages: Option<String>,
     content_warnings: Option<String>,
 }
+struct OwnedRailAction {
+    block: u32,
+    label: String,
+    target: Target,
+}
 struct OwnedRail {
+    action: Option<OwnedRailAction>,
     title: String,
     cards: Vec<OwnedCard>,
     gallery: Option<(RailSource, ImageLabel, GalleryPresentation)>,

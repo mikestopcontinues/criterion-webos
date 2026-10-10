@@ -141,6 +141,7 @@ fn shared_home_and_new_rail_cards_scale_the_same_saved_fraction() {
         action: criterion_ui::CardAction::Open,
     }];
     let rails = [Rail {
+        action: None,
         title: "Supplied rail",
         cards: &cards,
     }];

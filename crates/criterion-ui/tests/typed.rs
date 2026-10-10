@@ -74,6 +74,7 @@ fn discovery_navigation_forwards_validated_content_without_a_fake_media_id() {
         action: criterion_ui::CardAction::Open,
     }];
     let rails = [criterion_ui::Rail {
+        action: None,
         title: "Explore",
         cards: &cards,
     }];
@@ -156,6 +157,7 @@ fn same_page_content_activation_ends_the_departed_pointer_batch() {
     ui.handle(Action::Select, &entry);
     let cards = [card(&next)];
     let rails = [criterion_ui::Rail {
+        action: None,
         title: "Explore",
         cards: &cards,
     }];

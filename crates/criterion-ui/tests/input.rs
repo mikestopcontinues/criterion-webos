@@ -307,6 +307,7 @@ fn detail_tab_press_is_bound_to_the_owning_detail_identity() {
     };
     let cards = [card(&first)];
     let rails = [criterion_ui::Rail {
+        action: None,
         title: "Supplements",
         cards: &cards,
     }];

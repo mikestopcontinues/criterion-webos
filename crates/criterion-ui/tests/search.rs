@@ -88,6 +88,7 @@ fn search_detail_back_restores_query_group_card_then_home_focus() {
         action: criterion_ui::CardAction::Open,
     }];
     let rails = [criterion_ui::Rail {
+        action: None,
         title: "Popular Movies",
         cards: &cards,
     }];

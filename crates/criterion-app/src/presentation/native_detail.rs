@@ -157,6 +157,7 @@ impl Presentation {
             projection.rails.insert(
                 0,
                 OwnedRail {
+                    action: None,
                     title: "Episodes".into(),
                     cards: Vec::new(),
                     gallery: None,
@@ -347,6 +348,7 @@ impl Presentation {
             cards.push(self.native_detail_card(child, ImageRole::Card, positions));
         }
         OwnedRail {
+            action: None,
             title,
             cards,
             gallery: None,

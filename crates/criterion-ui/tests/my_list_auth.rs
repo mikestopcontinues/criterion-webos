@@ -155,6 +155,7 @@ fn fixed_subscriber_rail_back_restores_the_originating_card_and_scroll() {
         action: criterion_ui::CardAction::Open,
     }];
     let rails = [Rail {
+        action: None,
         title: "Explore",
         cards: &cards,
     }];
@@ -253,6 +254,7 @@ fn signed_out_my_list_shows_activation_and_cancel_restores_the_home_card_once() 
         action: criterion_ui::CardAction::Open,
     }];
     let rails = [Rail {
+        action: None,
         title: "Explore",
         cards: &cards,
     }];
@@ -328,6 +330,7 @@ fn signed_in_my_list_opens_the_grid_and_back_restores_its_origin() {
         action: criterion_ui::CardAction::Open,
     }];
     let rails = [Rail {
+        action: None,
         title: "Explore",
         cards: &cards,
     }];
@@ -428,6 +431,7 @@ fn signed_out_my_list_pointer_activation_uses_the_same_login_route() {
         action: criterion_ui::CardAction::Open,
     }];
     let rails = [Rail {
+        action: None,
         title: "Explore",
         cards: &cards,
     }];

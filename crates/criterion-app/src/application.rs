@@ -171,6 +171,7 @@ impl<
             .controller
             .view
             .with_view(self.authentication.view(), |mut data| {
+                data.discovery_visit = hero_visit;
                 list_membership::overlay(&mut data, membership);
                 if let Some(hero) = &mut data.hero_carousel {
                     hero.visit = hero_visit;
@@ -193,6 +194,7 @@ impl<
                 self.controller
                     .view
                     .with_view(self.authentication.view(), |mut data| {
+                        data.discovery_visit = hero_visit;
                         list_membership::overlay(&mut data, membership);
                         if let Some(hero) = &mut data.hero_carousel {
                             hero.visit = hero_visit;
@@ -234,6 +236,22 @@ impl<
     }
     fn command(&mut self, command: Command, runtime: &Handle) {
         let command = match command {
+            Command::ActivateRail {
+                origin,
+                from,
+                target,
+            } => {
+                if !self.active || self.exiting || self.ui.page() != origin {
+                    return;
+                }
+                let Some(target) = self.controller.admit_rail_activation(origin, from, &target)
+                else {
+                    return;
+                };
+                self.ui
+                    .commit_discovery_target(&target, self.authentication.view());
+                Command::Open(target)
+            }
             Command::ActivateHero {
                 origin,
                 from,
@@ -247,7 +265,7 @@ impl<
                     return;
                 };
                 self.ui
-                    .commit_hero_target(&target, self.authentication.view());
+                    .commit_discovery_target(&target, self.authentication.view());
                 Command::Open(target)
             }
             Command::MoveHero { page, .. }
@@ -586,6 +604,7 @@ mod tests {
     use criterion_ui::{Action, Focus, Page};
     use std::sync::Arc;
 
+    mod discovery_actions_tests;
     mod hero_tests;
 
     struct Offline;

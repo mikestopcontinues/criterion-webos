@@ -35,6 +35,7 @@ fn long_synopsis_exposes_paging_and_remote_navigation_retains_every_page() {
     };
     let cards = [card];
     let rails = [criterion_ui::Rail {
+        action: None,
         title: "Synthetic origin",
         cards: &cards,
     }];

@@ -8,6 +8,7 @@ pub(crate) struct PointerTarget {
     action: Option<crate::CardAction>,
     primary: Option<criterion_provider::MediaId>,
     hero: Option<crate::HeroCursor>,
+    rail: Option<crate::RailActionCursor>,
 }
 fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
     Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, h))
@@ -186,6 +187,11 @@ impl AppUi {
                 page: self.page(),
                 focus,
                 identity: match focus {
+                    Focus::DiscoveryRailAction { row, .. } => data
+                        .rails
+                        .get(row)
+                        .and_then(|rail| rail.action)
+                        .map(|action| action.target.clone()),
                     Focus::Hero => data.hero.as_ref().map(|hero| hero.card.key.clone()),
                     Focus::DetailAction(_)
                     | Focus::InformationPrimary
@@ -200,6 +206,11 @@ impl AppUi {
                         data.detail.as_ref().map(|detail| detail.card.key.clone())
                     }
                     _ => None,
+                },
+                rail: if let Focus::DiscoveryRailAction { row, .. } = focus {
+                    data.rail_action_cursor(row)
+                } else {
+                    None
                 },
                 action: None,
                 hero: if matches!(focus, Focus::Hero | Focus::HeroPrevious | Focus::HeroNext) {
@@ -394,6 +405,27 @@ impl AppUi {
                 }
             }
         }
+        if matches!(self.page(), Page::Home | Page::New | Page::Discovery) {
+            for row in 0..data.rails.len() {
+                if data.rail_action_cursor(row).is_some()
+                    && crate::view::discovery_action_rect(row, self.scroll_y()).contains(pos)
+                {
+                    let column = match self.layout_focus() {
+                        Focus::Card {
+                            row: current,
+                            column,
+                        }
+                        | Focus::DiscoveryRailAction {
+                            row: current,
+                            column,
+                        } if current == row => column,
+                        _ => 0,
+                    }
+                    .min(data.rails[row].cards.len().saturating_sub(1));
+                    return target(Focus::DiscoveryRailAction { row, column });
+                }
+            }
+        }
         if self.page() == Page::Detail
             && let Some(detail) = &data.detail
         {
@@ -457,6 +489,7 @@ impl AppUi {
                     action: Some(current.action),
                     primary: None,
                     hero: None,
+                    rail: None,
                 })
             })
     }

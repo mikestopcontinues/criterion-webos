@@ -129,6 +129,7 @@ impl Presentation {
     }
     pub(super) fn refresh_discovery_status(&mut self) {
         self.status = if self.total > 0
+            || self.rails.iter().any(|rail| rail.action.is_some())
             || self
                 .slideshow
                 .as_ref()

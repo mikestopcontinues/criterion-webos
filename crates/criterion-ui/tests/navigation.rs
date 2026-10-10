@@ -210,6 +210,7 @@ fn nav(ui: &mut AppUi, action: Action, rows: &[usize]) -> Vec<criterion_ui::Comm
     let rails: Vec<_> = lists
         .iter()
         .map(|cards| criterion_ui::Rail {
+            action: None,
             title: "Fixture rail",
             cards,
         })

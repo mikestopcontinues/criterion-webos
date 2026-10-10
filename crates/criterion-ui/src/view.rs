@@ -16,6 +16,12 @@ pub(crate) fn hero_control_rect(focus: Focus, scroll: f32) -> Option<Rect> {
         Vec2::new(width, 80.0),
     ))
 }
+pub(crate) fn discovery_action_rect(row: usize, scroll: f32) -> Rect {
+    Rect::from_min_size(
+        Pos2::new(1470.0, 896.0 + row as f32 * 397.0 - scroll - 8.0),
+        Vec2::new(300.0, 52.0),
+    )
+}
 /// Fixed, nonprivate runtime feedback; never part of navigation history.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PlaybackFeedback {
@@ -50,7 +56,22 @@ pub struct Featured<'a> {
     pub title: Option<&'a str>,
     pub cards: &'a [Card<'a>],
 }
+/// Supplied ordinary same-window rail action; no private account target is synthesized.
+#[derive(Clone, Copy)]
+pub struct RailAction<'a> {
+    pub block: u32,
+    pub label: &'a str,
+    pub target: &'a crate::Target,
+}
+/// Exact supplied row and block in the current nonwrapping navigation visit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RailActionCursor {
+    pub visit: u64,
+    pub block: u32,
+    pub row: usize,
+}
 pub struct Rail<'a> {
+    pub action: Option<RailAction<'a>>,
     pub title: &'a str,
     pub cards: &'a [Card<'a>],
 }
@@ -169,6 +190,8 @@ pub struct CatalogWindow {
     pub tail: CatalogTail,
 }
 pub struct ViewData<'a> {
+    /// Lent by the foreground application, never cached in a projection/history.
+    pub discovery_visit: Option<u64>,
     pub title: &'a str,
     pub hero: Option<Hero<'a>>,
     pub hero_carousel: Option<HeroCarousel<'a>>,
@@ -186,6 +209,7 @@ pub struct ViewData<'a> {
 impl Default for ViewData<'_> {
     fn default() -> Self {
         Self {
+            discovery_visit: None,
             title: "",
             hero: None,
             hero_carousel: None,
@@ -200,6 +224,18 @@ impl Default for ViewData<'_> {
             search_counts: [0; 4],
             login: crate::LoginView::SignedOut,
         }
+    }
+}
+impl ViewData<'_> {
+    pub fn rail_action_cursor(&self, row: usize) -> Option<RailActionCursor> {
+        if self.status != LoadState::Ready {
+            return None;
+        }
+        Some(RailActionCursor {
+            visit: self.discovery_visit?,
+            row,
+            block: self.rails.get(row)?.action?.block,
+        })
     }
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -226,6 +262,7 @@ impl AppUi {
         self.sync_my_list(data);
         self.sync_catalog(data);
         self.sync_hero(data);
+        self.sync_discovery_actions(data);
         if !self.wants_text_input() {
             self.search.composition.clear();
             self.search.select_all = false;
@@ -380,9 +417,15 @@ impl AppUi {
                         if !(-380.0..1080.0).contains(&y) {
                             continue;
                         }
-                        label(&p, [150.0, y], rail.title, 34.0, WHITE, 1620.0);
+                        label(&p, [150.0, y], rail.title, 34.0, WHITE,
+                            if rail.action.is_some() { 1250.0 } else { 1620.0 });
+                        if let Some(action) = rail.action {
+                            let area = discovery_action_rect(row, self.scroll_y());
+                            button_background(&p, area, matches!(self.focus(), Focus::DiscoveryRailAction { row: current, .. } if current == row));
+                            label(&p, [area.left() + 24.0, area.top() + 8.0], action.label, 26.0, WHITE, area.width() - 48.0);
+                        }
                         let selected = match self.layout_focus() {
-                            Focus::Card { row: r, column } if r == row => column,
+                            Focus::Card { row: r, column } | Focus::DiscoveryRailAction { row: r, column } if r == row => column,
                             _ => 0,
                         };
                         let width = if self.page() == Page::New {
@@ -647,7 +690,9 @@ impl AppUi {
                 || commands[command_start..].iter().any(|command| {
                     matches!(
                         command,
-                        crate::Command::Open(_) | crate::Command::ActivateCard { .. }
+                        crate::Command::Open(_)
+                            | crate::Command::ActivateCard { .. }
+                            | crate::Command::ActivateRail { .. }
                     )
                 })
             {

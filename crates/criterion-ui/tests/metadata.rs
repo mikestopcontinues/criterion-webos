@@ -86,6 +86,7 @@ fn native_information_omits_headings_for_absent_metadata() {
     };
     let cards = [card];
     let rails = [criterion_ui::Rail {
+        action: None,
         title: "Native origin",
         cards: &cards,
     }];
@@ -152,6 +153,7 @@ fn header_and_information_paint_their_independent_borrowed_runtime_lines() {
     };
     let cards = [card];
     let rails = [criterion_ui::Rail {
+        action: None,
         title: "Native origin",
         cards: &cards,
     }];
@@ -232,6 +234,7 @@ fn populated_native_information(value: &str) -> criterion_ui::UiFrame {
     };
     let cards = [card];
     let rails = [criterion_ui::Rail {
+        action: None,
         title: "Native origin",
         cards: &cards,
     }];

@@ -66,7 +66,7 @@ fn explicit_arrows_preserve_rail_and_prepare_activation_before_navigation() {
     assert!(matches!(ui.focus(), Focus::Rail(_)));
     ui.handle(Action::Right, &data);
     assert_eq!(ui.focus(), Focus::Hero);
-    ui.commit_hero_target(&target, data.login);
+    ui.commit_discovery_target(&target, data.login);
     assert_eq!(ui.page(), Page::New);
     assert_eq!(
         ui.handle(Action::Back, &data),
@@ -173,6 +173,7 @@ fn scrolled_controls_use_current_geometry_and_an_absent_visit_cannot_activate() 
         action: Default::default(),
     }];
     let rails = [criterion_ui::Rail {
+        action: None,
         title: "Supplied rail",
         cards: &cards,
     }];

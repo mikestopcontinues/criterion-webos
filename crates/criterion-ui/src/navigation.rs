@@ -34,6 +34,7 @@ pub enum Focus {
     HeroNext,
     Card { row: usize, column: usize },
     FeaturedCard(usize),
+    DiscoveryRailAction { row: usize, column: usize },
     Rail(RailItem),
     FilterButton,
     LoginPrimary,
@@ -238,8 +239,8 @@ impl AppUi {
         };
         self.scroll_y = 0.0;
     }
-    /// Commit only after the application has admitted the prepared Hero origin.
-    pub fn commit_hero_target(&mut self, target: &crate::Target, login: crate::LoginView<'_>) {
+    /// Commit only after the application has admitted the prepared discovery origin.
+    pub fn commit_discovery_target(&mut self, target: &crate::Target, login: crate::LoginView<'_>) {
         self.push_history();
         self.activate_target(target, login);
     }
@@ -293,6 +294,7 @@ impl AppUi {
                 self.focus,
                 Focus::Hero
                     | Focus::HeroPrevious
+                    | Focus::DiscoveryRailAction { .. }
                     | Focus::Card { column: 0, .. }
                     | Focus::FeaturedCard(0)
             )

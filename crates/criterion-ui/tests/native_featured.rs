@@ -80,6 +80,7 @@ fn feature_row_has_its_own_address_artwork_and_actions_outside_tab_indices() {
     let feature = [card(&same, CardAction::Open)];
     let ordinary = [card(&same, CardAction::Play)];
     let rails = [Rail {
+        action: None,
         title: "Synthetic tab",
         cards: &ordinary,
     }];
@@ -265,6 +266,7 @@ fn empty_titled_feature_keeps_focused_tab_text_and_complete_control_in_viewport(
     let root = Target::Native(MediaId::new("Root0001").unwrap());
     let ordinary = [card(&root, CardAction::Open)];
     let rails = [Rail {
+        action: None,
         title: "Synthetic ordinary tab",
         cards: &ordinary,
     }];
