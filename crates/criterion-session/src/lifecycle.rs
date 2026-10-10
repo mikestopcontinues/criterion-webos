@@ -402,9 +402,29 @@ impl<T: Transport + 'static, C: MonotonicClock + 'static, S: SecureSessionStore 
     }
     pub fn poll_once(&self) -> impl Future<Output = Result<PollOutcome, Error>> + use<T, C, S> {
         let reply = self.issue(Command::Poll);
+        let owned = self.owned.clone();
+        let retiring = self.retiring.clone();
+        let alive = self.alive.clone();
+        let current = self.generation.clone();
+        let generation = current.load(Ordering::SeqCst);
         async move {
             match reply.await? {
-                Reply::Polled(value) => Ok(value),
+                Reply::Polled(value) => {
+                    let mut owned = owned.try_lock().map_err(|_| Error::Stale)?;
+                    let status = owned.status(&current);
+                    let live = match value {
+                        PollOutcome::Authorized => matches!(status, Status::SignedIn { .. }),
+                        _ => matches!(status, Status::Linking { .. }),
+                    };
+                    if !live
+                        || retiring.load(Ordering::SeqCst)
+                        || !alive.load(Ordering::SeqCst)
+                        || current.load(Ordering::SeqCst) != generation
+                    {
+                        return Err(Error::Stale);
+                    }
+                    Ok(value)
+                }
                 _ => unreachable!(),
             }
         }

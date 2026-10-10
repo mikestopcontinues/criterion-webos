@@ -705,8 +705,38 @@ async fn a_held_pending_poll_cannot_publish_after_grant_expiry() {
     }
     assert!(matches!(owner.status(), Ok(Status::Linking { .. })));
     time.store(600, Ordering::SeqCst);
-    assert_eq!(owner.status(), Ok(Status::Expired));
     assert_eq!(held.await, Err(Error::Stale));
+    assert_eq!(owner.status(), Ok(Status::Expired));
+    owner.logout().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_held_authorized_poll_cannot_publish_after_access_expiry() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let time = Arc::new(AtomicU64::new(0));
+    let owner = PersistentSession::with_transport(
+        Configuration::production(),
+        Issuer(
+            Arc::new(Mutex::new(vec![link(), token(), json("{}")])),
+            events.clone(),
+        ),
+        Clock(time.clone()),
+        Store(Arc::new(Mutex::new(None)), events),
+        tokio::runtime::Handle::current(),
+    );
+    owner.start_link().await.unwrap();
+    time.store(5, Ordering::SeqCst);
+    let held = owner.poll_once();
+    for _ in 0..100 {
+        if owner.status().is_ok() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(matches!(owner.status(), Ok(Status::SignedIn { .. })));
+    time.store(3605, Ordering::SeqCst);
+    assert_eq!(held.await, Err(Error::Stale));
+    assert_eq!(owner.status(), Ok(Status::RefreshRequired));
     owner.logout().await.unwrap();
 }
 
