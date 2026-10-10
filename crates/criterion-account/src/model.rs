@@ -199,3 +199,23 @@ impl std::fmt::Debug for WatchList {
             .finish_non_exhaustive()
     }
 }
+/// Required native entitlement fields. The Boolean is not a DRM/license grant.
+pub struct NativeEntitlement {
+    pub access_granted: bool,
+    pub(crate) customer_id: i32,
+}
+impl NativeEntitlement {
+    /// Private account identifier; callers must keep it out of diagnostics.
+    pub fn customer_id(&self) -> i32 {
+        self.customer_id
+    }
+}
+impl std::fmt::Debug for NativeEntitlement {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("NativeEntitlement")
+            .field("access_granted", &self.access_granted)
+            .field("customer_id", &"[redacted]")
+            .finish()
+    }
+}

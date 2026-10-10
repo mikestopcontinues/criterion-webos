@@ -295,6 +295,21 @@ fn parse<T: for<'de> Deserialize<'de>>(response: &Response) -> Result<T, Error> 
         .map(|value| value.0)
         .map_err(|_| Error::InvalidResponse)
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EntitlementWire {
+    access_granted: bool,
+    customer_id: i32,
+}
+pub(crate) fn entitlement(response: &Response) -> Result<crate::NativeEntitlement, Error> {
+    // Only the required native projection is owned. Optional grant/expiry/data
+    // fields are discarded; this does not infer their semantics or defaults.
+    let data: EntitlementWire = parse(response)?;
+    Ok(crate::NativeEntitlement {
+        access_granted: data.access_granted,
+        customer_id: data.customer_id,
+    })
+}
 pub(crate) fn my_list_ids(response: &Response) -> Result<MyListIds, Error> {
     let data: IdsWire = parse(response)?;
     Ok(MyListIds {

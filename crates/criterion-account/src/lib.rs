@@ -15,9 +15,9 @@ pub use detail::{
     NativePlaylistKey, NativeSeason, NativeSeasonsPlaylist,
 };
 pub use model::{
-    ContinueWatching, MediaKind, MediaSummary, MyListIds, PagingInfo, Position, SyncReceipt,
-    TypeCount, WatchList, WatchListContentType, WatchListFilter, WatchListRequest, WriteFailure,
-    WriteStatus,
+    ContinueWatching, MediaKind, MediaSummary, MyListIds, NativeEntitlement, PagingInfo, Position,
+    SyncReceipt, TypeCount, WatchList, WatchListContentType, WatchListFilter, WatchListRequest,
+    WriteFailure, WriteStatus,
 };
 pub use transport::HttpTransport;
 pub use wire::{BOOTSTRAP_URL, CA_BASE, US_BASE};
@@ -51,6 +51,10 @@ pub enum Region {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SubscriberTarget {
+    Entitlement {
+        region: Region,
+        captured_unix_time_ms: i64,
+    },
     MyListIds(Region),
     ContinueWatching(Region),
     WatchList {
@@ -135,3 +139,6 @@ mod detail_tests;
 
 #[cfg(test)]
 mod detail_client_tests;
+
+#[cfg(test)]
+mod entitlement_tests;

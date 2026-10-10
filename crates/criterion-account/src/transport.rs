@@ -81,6 +81,16 @@ impl HttpTransport {
                 target
             }
             Request::Subscriber { target, .. } => match target {
+                SubscriberTarget::Entitlement {
+                    region,
+                    captured_unix_time_ms,
+                } => {
+                    let mut target = account_target(*region, "/subscription/check-entitlement")?;
+                    target
+                        .query_pairs_mut()
+                        .append_pair("t", &captured_unix_time_ms.to_string());
+                    target
+                }
                 SubscriberTarget::AddWatchList { region, .. } => {
                     account_target(*region, "/content/watch-list")?
                 }

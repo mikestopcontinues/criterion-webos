@@ -77,6 +77,25 @@ impl<T: Transport> AccountClient<T> {
             state: Mutex::new(State::default()),
         }
     }
+    /// Native entitlement uses the caller-captured Unix millisecond timestamp.
+    /// It does not select a DRM policy or establish playback permission.
+    /// Admission rechecks the current access token and this client's read lease;
+    /// callers own retirement of relinks that reuse identical token bytes.
+    pub async fn entitlement<S: criterion_session::Transport, C: MonotonicClock>(
+        &self,
+        session: &Session<S, C>,
+        captured_unix_time_ms: i64,
+    ) -> Result<crate::NativeEntitlement, Error> {
+        self.read(
+            session,
+            move |region| SubscriberTarget::Entitlement {
+                region,
+                captured_unix_time_ms,
+            },
+            native_wire::entitlement,
+        )
+        .await
+    }
     /// Native Detail requires only the admitted regional bootstrap capability.
     pub async fn detail(
         &self,

@@ -626,6 +626,116 @@ fn header_values<'a>(head: &'a str, name: &str) -> Vec<&'a str> {
 }
 
 #[tokio::test]
+async fn native_entitlement_tls_preserves_signed_millisecond_query_and_dual_headers() {
+    for (region, captured_unix_time_ms, path) in [
+        (
+            Region::Us,
+            1_791_590_123_456,
+            "/api/us/subscription/check-entitlement?t=1791590123456",
+        ),
+        (
+            Region::Ca,
+            i64::MIN,
+            "/api/ca/subscription/check-entitlement?t=-9223372036854775808",
+        ),
+        (
+            Region::Ca,
+            i64::MAX,
+            "/api/ca/subscription/check-entitlement?t=9223372036854775807",
+        ),
+    ] {
+        let server = Server::json(200, br#"{"accessGranted":false,"customerId":0}"#);
+        let result = server
+            .transport(Duration::from_secs(1))
+            .send(account_request(SubscriberTarget::Entitlement {
+                region,
+                captured_unix_time_ms,
+            }))
+            .await
+            .unwrap();
+        assert_eq!(result.status, 200);
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .head
+                .starts_with(&format!("GET {path} HTTP/1.1\r\n"))
+        );
+        assert_eq!(
+            header_values(&requests[0].head, "Authorization"),
+            ["Bearer synthetic-bootstrap-capability"]
+        );
+        assert_eq!(
+            header_values(&requests[0].head, "x-auth-token"),
+            ["synthetic-subscriber-capability"]
+        );
+        assert_eq!(
+            header_values(&requests[0].head, "Accept"),
+            ["application/json"]
+        );
+        assert!(header_values(&requests[0].head, "Cookie").is_empty());
+        assert!(header_values(&requests[0].head, "Content-Type").is_empty());
+        assert!(requests[0].body.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn native_entitlement_tls_total_deadline_and_response_limit_apply_without_retry() {
+    let stalled = Server::new("127.0.0.1", |_tls, stop| {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !stop.load(Ordering::Acquire) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    });
+    let target = SubscriberTarget::Entitlement {
+        region: Region::Us,
+        captured_unix_time_ms: 1_791_590_123_456,
+    };
+    assert_eq!(
+        stalled
+            .transport(Duration::from_millis(180))
+            .send(account_request(target.clone()))
+            .await
+            .err(),
+        Some(Error::Deadline)
+    );
+    assert_eq!(stalled.requests.lock().unwrap().len(), 1);
+
+    let trickling = Server::new("127.0.0.1", |tls, stop| {
+        let _ = tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 500\r\nConnection: close\r\n\r\n");
+        for _ in 0..20 {
+            if stop.load(Ordering::Acquire) || tls.write_all(b" ").is_err() {
+                break;
+            }
+            let _ = tls.flush();
+            std::thread::sleep(Duration::from_millis(40));
+        }
+    });
+    assert_eq!(
+        trickling
+            .transport(Duration::from_millis(180))
+            .send(account_request(target.clone()))
+            .await
+            .err(),
+        Some(Error::Deadline)
+    );
+    assert_eq!(trickling.requests.lock().unwrap().len(), 1);
+
+    let oversized = Server::new("127.0.0.1", |tls, _| {
+        let _ = tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 65537\r\nConnection: close\r\n\r\n");
+    });
+    assert_eq!(
+        oversized
+            .transport(Duration::from_secs(1))
+            .send(account_request(target))
+            .await
+            .err(),
+        Some(Error::ResponseTooLarge)
+    );
+    assert_eq!(oversized.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn verified_account_gets_use_exact_regional_routes_and_distinct_private_headers() {
     for (target, path) in [
         (
@@ -715,6 +825,10 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
     let oversized_bootstrap = format!("Bearer {}", "b".repeat(16_385));
     let oversized_subscriber = "s".repeat(16_385);
     for target in [
+        SubscriberTarget::Entitlement {
+            region: Region::Us,
+            captured_unix_time_ms: 1_791_590_123_456,
+        },
         SubscriberTarget::MyListIds(Region::Us),
         SubscriberTarget::ContinueWatching(Region::Ca),
         SubscriberTarget::WatchList {
@@ -789,6 +903,13 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
 async fn account_redirects_never_reissue_private_headers_to_bootstrap_or_another_origin() {
     for status in [302, 307, 308] {
         for (target, path) in [
+            (
+                SubscriberTarget::Entitlement {
+                    region: Region::Ca,
+                    captured_unix_time_ms: 1_791_590_123_456,
+                },
+                "/api/ca/subscription/check-entitlement?t=1791590123456",
+            ),
             (
                 SubscriberTarget::MyListIds(Region::Us),
                 "/api/us/content/my-stuff-ids",
