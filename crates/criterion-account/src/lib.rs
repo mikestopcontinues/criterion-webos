@@ -155,4 +155,6 @@ mod entitlement_tests;
 mod playback_tests;
 
 #[cfg(test)]
+mod playback_admission_tests;
+#[cfg(test)]
 mod playback_client_tests;
