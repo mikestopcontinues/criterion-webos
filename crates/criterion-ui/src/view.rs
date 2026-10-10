@@ -1020,16 +1020,25 @@ impl AppUi {
             let focus = Focus::DetailSortOption(field);
             let area = crate::detail_sort::sort_rect(focus).expect("fixed sort option");
             button(p, area, field.label(), self.focus() == focus);
+            let indicator_color = if self.focus() == focus { WHITE } else { GOLD };
             if sort.pending.field == field && field != crate::DetailSortField::Default {
                 let icon = if sort.pending.direction == crate::DetailSortDirection::Ascending {
                     Icon::ArrowUp
                 } else {
                     Icon::ArrowDown
                 };
-                icon.paint(p, centered(Pos2::new(1340.0, area.center().y), 32.0), GOLD);
+                icon.paint(
+                    p,
+                    centered(Pos2::new(1340.0, area.center().y), 32.0),
+                    indicator_color,
+                );
             }
             if sort.pending.field == field {
-                p.circle_filled(Pos2::new(area.right() - 28.0, area.center().y), 6.0, GOLD);
+                p.circle_filled(
+                    Pos2::new(area.right() - 28.0, area.center().y),
+                    6.0,
+                    indicator_color,
+                );
             }
         }
         button(

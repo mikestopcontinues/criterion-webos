@@ -27,14 +27,16 @@ const REAPPLY_TITLE: [(u32, i32); 8] = [UP, SELECT, DOWN, SELECT, RIGHT, SELECT,
 #[derive(Clone, Copy)]
 pub(super) enum Capture {
     PendingTitle,
+    PendingDescending,
     TitleAscending,
     DefaultRestored,
     WarmBack,
     SignedOutBack,
 }
-pub(super) const CAPTURES: [Capture; 5] = [
+pub(super) const CAPTURES: [Capture; 6] = [
     Capture::PendingTitle,
     Capture::TitleAscending,
+    Capture::PendingDescending,
     Capture::DefaultRestored,
     Capture::WarmBack,
     Capture::SignedOutBack,
@@ -231,7 +233,7 @@ fn admit_current_artwork(fixture: &mut Fixture) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn modal_shapes(output: &egui::FullOutput, focus: Focus) -> bool {
+fn modal_shapes(output: &egui::FullOutput, focus: Focus, direction: Direction) -> bool {
     let rect = |x, y, width, height| {
         egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(width, height))
     };
@@ -248,7 +250,7 @@ fn modal_shapes(output: &egui::FullOutput, focus: Focus) -> bool {
         ("Runtime", rect(510.0, 570.0, 900.0, 80.0)),
         ("APPLY", rect(510.0, 750.0, 900.0, 82.0)),
     ].into_iter().all(|(text, area)| text_inside(output, text, area))
-        && title_direction_shapes(output, Direction::Ascending)
+        && title_direction_shapes(output, direction, focus)
         && output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(r)
             if r.rect == rect(450.0, 130.0, 1050.0, 760.0)
                 && r.fill == egui::Color32::from_rgb(28,28,28) && shape.clip_rect.contains_rect(r.rect)))
@@ -260,7 +262,7 @@ fn modal_shapes(output: &egui::FullOutput, focus: Focus) -> bool {
                 && r.fill == egui::Color32::from_rgb(181,138,22)))
         && output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Circle(c)
             if c.center == egui::pos2(1382.0,410.0) && c.radius == 6.0
-                && c.fill == egui::Color32::from_rgb(181,138,22)))
+                && c.fill == if focus == Focus::DetailSortOption(Field::Title) { egui::Color32::from_rgb(239,239,239) } else { egui::Color32::from_rgb(181,138,22) }))
 }
 
 impl Capture {
@@ -268,6 +270,7 @@ impl Capture {
         match self {
             Self::PendingTitle => "synthetic-sort-pending-title.png",
             Self::TitleAscending => "synthetic-sort-title-ascending.png",
+            Self::PendingDescending => "synthetic-sort-focused-descending.png",
             Self::DefaultRestored => "synthetic-sort-default-restored.png",
             Self::WarmBack => "synthetic-sort-warm-back.png",
             Self::SignedOutBack => "synthetic-sort-signed-out-back.png",
@@ -276,8 +279,18 @@ impl Capture {
     fn ascending(self) -> bool {
         matches!(
             self,
-            Self::TitleAscending | Self::WarmBack | Self::SignedOutBack
+            Self::TitleAscending | Self::PendingDescending | Self::WarmBack | Self::SignedOutBack
         )
+    }
+    fn pending(self) -> bool {
+        matches!(self, Self::PendingTitle | Self::PendingDescending)
+    }
+    fn pending_direction(self) -> Direction {
+        if matches!(self, Self::PendingDescending) {
+            Direction::Descending
+        } else {
+            Direction::Ascending
+        }
     }
     fn fraction(self) -> Option<f32> {
         (!matches!(self, Self::WarmBack | Self::SignedOutBack)).then_some(0.25)
@@ -285,6 +298,7 @@ impl Capture {
     pub(super) fn focus(self) -> Focus {
         match self {
             Self::PendingTitle => Focus::DetailSortApply,
+            Self::PendingDescending => Focus::DetailSortOption(Field::Title),
             Self::TitleAscending | Self::DefaultRestored => Focus::Card { row: 0, column: 0 },
             Self::WarmBack | Self::SignedOutBack => Focus::Card { row: 0, column: 1 },
         }
@@ -292,6 +306,7 @@ impl Capture {
     pub(super) fn focus_region(self) -> (Range<usize>, Range<usize>) {
         match self {
             Self::PendingTitle => (510..1410, 750..832),
+            Self::PendingDescending => (510..1410, 370..450),
             Self::TitleAscending | Self::DefaultRestored => (142..536, 427..656),
             Self::WarmBack | Self::SignedOutBack => (556..950, 427..656),
         }
@@ -316,7 +331,7 @@ impl Capture {
                 && projection(fixture, self.ascending(), self.fraction()),
             "exact current Sort root/cards/runtime/fractions/focus/membership",
         )?;
-        let pending = matches!(self, Self::PendingTitle);
+        let pending = self.pending();
         require(
             sort_state(
                 fixture,
@@ -327,7 +342,7 @@ impl Capture {
                     } else {
                         Field::Default
                     },
-                    Direction::Ascending,
+                    self.pending_direction(),
                 ),
                 selection(
                     if self.ascending() {
@@ -342,7 +357,8 @@ impl Capture {
         )?;
         if pending {
             require(
-                local_reads(fixture) && modal_shapes(output, self.focus()),
+                local_reads(fixture)
+                    && modal_shapes(output, self.focus(), self.pending_direction()),
                 "current complete pending Sort modal geometry",
             )?;
             return Ok(());
@@ -446,15 +462,24 @@ impl Capture {
         Ok(())
     }
     pub(super) fn pixels(self, pixels: &[u8]) -> bool {
-        if matches!(self, Self::PendingTitle) {
+        if self.pending() {
             let gold = |x, y| {
                 let rgb = pixel(pixels, x, y);
                 rgb[0] > 120 && rgb[1] > 80 && rgb[2] < 70
             };
-            return gold(550, 790)
-                && gold(1382, 410)
-                && gold(1340, 410)
-                && pixel(pixels, 550, 410).iter().all(|v| *v < 20)
+            let focused_title = matches!(self, Self::PendingDescending);
+            let direction_visible = if focused_title {
+                pixel(pixels, 1382, 410).iter().all(|v| *v > 220)
+                    && pixel(pixels, 1340, 410).iter().all(|v| *v > 220)
+                    && gold(550, 410)
+                    && pixel(pixels, 550, 790).iter().all(|v| *v < 40)
+            } else {
+                gold(550, 790)
+                    && gold(1382, 410)
+                    && gold(1340, 410)
+                    && pixel(pixels, 550, 410).iter().all(|v| *v < 20)
+            };
+            return direction_visible
                 && pixel(pixels, 480, 160)
                     .iter()
                     .all(|v| (24..=32).contains(v))
@@ -508,7 +533,7 @@ fn unchanged_reads(rendered: &mut Rendered<'_>, keys: &[(u32, i32)]) -> Result<(
     Ok(())
 }
 fn capture(rendered: &mut Rendered<'_>, stage: Capture) -> Result<(), &'static str> {
-    if !matches!(stage, Capture::PendingTitle) {
+    if !stage.pending() {
         admit_current_artwork(rendered.fixture)?;
     }
     rendered.capture(super::Capture::Sort(stage))
@@ -529,6 +554,7 @@ pub(super) fn journey(rendered: &mut Rendered<'_>) -> Result<(), &'static str> {
         ) && projection(rendered.fixture, true, Some(0.25)),
         "pending descending must not change applied order",
     )?;
+    capture(rendered, Capture::PendingDescending)?;
     unchanged_reads(rendered, &[BACK])?;
     require(
         sort_state(
@@ -557,12 +583,13 @@ pub(super) fn journey(rendered: &mut Rendered<'_>) -> Result<(), &'static str> {
         .consume(&rendered.fixture.runtime, rendered.fixture.clock.now());
     require(
         rendered.fixture.app.ui.focus() == Focus::DetailSortOption(Field::Title)
-            && rendered
-                .fixture
-                .app
-                .output
-                .as_ref()
-                .is_some_and(|output| modal_shapes(output, Focus::DetailSortOption(Field::Title))),
+            && rendered.fixture.app.output.as_ref().is_some_and(|output| {
+                modal_shapes(
+                    output,
+                    Focus::DetailSortOption(Field::Title),
+                    Direction::Ascending,
+                )
+            }),
         "reopened fresh modal must paint complete applied ascending choice and focus",
     )?;
     rendered.paint(None)?;
@@ -599,7 +626,7 @@ pub(super) fn journey(rendered: &mut Rendered<'_>) -> Result<(), &'static str> {
     )
 }
 
-fn title_direction_shapes(output: &egui::FullOutput, direction: Direction) -> bool {
+fn title_direction_shapes(output: &egui::FullOutput, direction: Direction, focus: Focus) -> bool {
     let (stem, head) = match direction {
         Direction::Ascending => (
             [egui::pos2(1340.0, 422.0), egui::pos2(1340.0, 398.0)],
@@ -618,18 +645,22 @@ fn title_direction_shapes(output: &egui::FullOutput, direction: Direction) -> bo
             ],
         ),
     };
-    let gold = egui::Color32::from_rgb(181, 138, 22);
+    let color = if focus == Focus::DetailSortOption(Field::Title) {
+        egui::Color32::from_rgb(239, 239, 239)
+    } else {
+        egui::Color32::from_rgb(181, 138, 22)
+    };
     output.shapes.iter().any(|shape| {
         matches!(&shape.shape,
         egui::Shape::LineSegment { points, stroke }
-        if *points == stem && stroke.color == gold && (stroke.width - 2.6666667).abs() < 0.00001
-            && stem.iter().all(|point| shape.clip_rect.contains(*point)))
+        if *points == stem && stroke.color == color && (stroke.width - 2.6666667).abs() < 0.00001
+            && shape.clip_rect.contains_rect(shape.shape.visual_bounding_rect()))
     }) && output.shapes.iter().any(|shape| {
         matches!(&shape.shape,
             egui::Shape::Path(path)
-            if path.points == head && path.stroke.color == egui::epaint::ColorMode::Solid(gold)
+            if path.points == head && path.stroke.color == egui::epaint::ColorMode::Solid(color)
                 && (path.stroke.width - 2.6666667).abs() < 0.00001
-                && head.iter().all(|point| shape.clip_rect.contains(*point)))
+                && shape.clip_rect.contains_rect(shape.shape.visual_bounding_rect()))
     })
 }
 
@@ -643,7 +674,11 @@ fn sort_direction_is_visible_vector_geometry_for_both_actual_choices() {
     }
     assert!(local_reads(&fixture));
     assert!(
-        title_direction_shapes(fixture.app.output.as_ref().unwrap(), Direction::Ascending),
+        title_direction_shapes(
+            fixture.app.output.as_ref().unwrap(),
+            Direction::Ascending,
+            fixture.app.ui.focus()
+        ),
         "current ascending direction must paint a complete unclipped vector arrow"
     );
     let mut missing = fixture.app.output.as_ref().unwrap().clone();
@@ -653,7 +688,7 @@ fn sort_direction_is_visible_vector_geometry_for_both_actual_choices() {
         if *points == [egui::pos2(1340.0, 422.0), egui::pos2(1340.0, 398.0)])
     });
     assert!(
-        !title_direction_shapes(&missing, Direction::Ascending),
+        !title_direction_shapes(&missing, Direction::Ascending, fixture.app.ui.focus()),
         "missing stem refuses"
     );
     let mut clipped = fixture.app.output.as_ref().unwrap().clone();
@@ -666,8 +701,21 @@ fn sort_direction_is_visible_vector_geometry_for_both_actual_choices() {
         }
     }
     assert!(
-        !title_direction_shapes(&clipped, Direction::Ascending),
+        !title_direction_shapes(&clipped, Direction::Ascending, fixture.app.ui.focus()),
         "clipped head refuses"
+    );
+    let mut partial = fixture.app.output.as_ref().unwrap().clone();
+    partial.textures_delta.clear();
+    for shape in &mut partial.shapes {
+        if matches!(&shape.shape, egui::Shape::LineSegment { points, .. }
+            if *points == [egui::pos2(1340.0, 422.0), egui::pos2(1340.0, 398.0)])
+        {
+            shape.clip_rect.min.x = 1340.0;
+        }
+    }
+    assert!(
+        !title_direction_shapes(&partial, Direction::Ascending, fixture.app.ui.focus()),
+        "a clip through the stem centre must refuse its partially erased stroke"
     );
     fixture.key(SELECT.0, SELECT.1);
     fixture.pump();
@@ -680,10 +728,14 @@ fn sort_direction_is_visible_vector_geometry_for_both_actual_choices() {
     assert!(local_reads(&fixture));
     let output = fixture.app.output.as_ref().unwrap();
     assert!(
-        title_direction_shapes(output, Direction::Descending),
+        title_direction_shapes(output, Direction::Descending, fixture.app.ui.focus()),
         "current descending direction must paint a complete unclipped vector arrow"
     );
-    assert!(!title_direction_shapes(output, Direction::Ascending));
+    assert!(!title_direction_shapes(
+        output,
+        Direction::Ascending,
+        fixture.app.ui.focus()
+    ));
 }
 
 #[test]
@@ -699,7 +751,7 @@ fn sort_capture_shapes_preserve_font_upload_and_match_actual_application_journey
         }
     };
     let fresh = |fixture: &mut Fixture, stage: Capture| {
-        if !matches!(stage, Capture::PendingTitle) {
+        if !stage.pending() {
             admit_current_artwork(fixture).unwrap();
         }
         // CPU has no painter. Retire its unused work after the separate factory
@@ -722,7 +774,7 @@ fn sort_capture_shapes_preserve_font_upload_and_match_actual_application_journey
         .unwrap();
     title.clip_rect = egui::Rect::ZERO;
     assert!(
-        !modal_shapes(&modal, Capture::PendingTitle.focus()),
+        !modal_shapes(&modal, Capture::PendingTitle.focus(), Direction::Ascending),
         "clipped modal text must refuse"
     );
     keys(&mut fixture, &[SELECT, DOWN]);
@@ -735,6 +787,7 @@ fn sort_capture_shapes_preserve_font_upload_and_match_actual_application_journey
         selection(Field::Title, Direction::Ascending)
     ));
     assert!(projection(&fixture, true, Some(0.25)));
+    fresh(&mut fixture, Capture::PendingDescending);
     keys(&mut fixture, &[BACK]);
     assert!(sort_state(
         &fixture,
@@ -762,7 +815,8 @@ fn sort_capture_shapes_preserve_font_upload_and_match_actual_application_journey
     );
     assert!(modal_shapes(
         fixture.app.output.as_ref().unwrap(),
-        Focus::DetailSortOption(Field::Title)
+        Focus::DetailSortOption(Field::Title),
+        Direction::Ascending
     ));
     keys(&mut fixture, &APPLY_DEFAULT);
     fresh(&mut fixture, Capture::DefaultRestored);
@@ -837,6 +891,17 @@ fn sort_pixel_admission_refuses_placeholders_wrong_order_and_private_progress() 
     set(&mut pixels, 1340, 410, [181, 138, 22]);
     set(&mut pixels, 1382, 410, [11, 11, 11]);
     assert!(!Capture::PendingTitle.pixels(&pixels));
+    set(&mut pixels, 1382, 410, [239, 239, 239]);
+    set(&mut pixels, 1340, 410, [239, 239, 239]);
+    set(&mut pixels, 550, 410, [181, 138, 22]);
+    set(&mut pixels, 550, 790, [11, 11, 11]);
+    assert!(Capture::PendingDescending.pixels(&pixels));
+    assert!(!Capture::PendingTitle.pixels(&pixels));
+    set(&mut pixels, 1340, 410, [181, 138, 22]);
+    assert!(
+        !Capture::PendingDescending.pixels(&pixels),
+        "gold-on-gold arrow refuses"
+    );
 }
 
 #[test]
