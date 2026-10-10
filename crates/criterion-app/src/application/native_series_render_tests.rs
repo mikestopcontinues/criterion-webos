@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Opt-in actual SDL/GLES journey. All HTTP, credentials and artwork are offline fixtures.
 use super::*;
+
+#[path = "native_featured_render_tests.rs"]
+mod native_featured_render_tests;
 use criterion_ui::{DetailKind, GlowRenderer, Target};
 use glow::HasContext;
 use std::{
@@ -36,12 +39,19 @@ fn require(condition: bool, message: &'static str) -> Result<(), &'static str> {
 }
 
 #[derive(Clone, Copy)]
+enum Journey {
+    Series,
+    Featured,
+}
+
+#[derive(Clone, Copy)]
 enum Capture {
     Resume,
     Information,
     Episode,
     RetiredEpisode,
     RetiredPrimary,
+    Featured(native_featured_render_tests::Capture),
 }
 const CAPTURES: [Capture; 5] = [
     Capture::Resume,
@@ -58,6 +68,7 @@ impl Capture {
             Self::Episode => "synthetic-series-episode-511.png",
             Self::RetiredEpisode => "synthetic-series-retired-episode.png",
             Self::RetiredPrimary => "synthetic-series-retired-primary.png",
+            Self::Featured(stage) => stage.name(),
         }
     }
     fn retired(self) -> bool {
@@ -72,6 +83,7 @@ impl Capture {
                 column: 509,
             },
             Self::RetiredEpisode => Focus::Card { row: 0, column: 0 },
+            Self::Featured(_) => Focus::FeaturedCard(0),
         }
     }
     fn focus_region(self) -> (Range<usize>, Range<usize>) {
@@ -80,36 +92,49 @@ impl Capture {
             Self::Information => (348..1572, 903..983),
             Self::Episode => (1384..1778, 527..756),
             Self::RetiredEpisode => (142..536, 527..756),
+            Self::Featured(_) => (142..536, 407..636),
         }
     }
 }
 
 // Admission requires a fresh directory; failure cleanup cannot erase prior evidence.
 struct Captures {
+    journey: Journey,
     directory: PathBuf,
     keep: bool,
 }
 impl Captures {
     fn new() -> Result<Self, &'static str> {
+        Self::for_journey(Journey::Series)
+    }
+    fn for_journey(journey: Journey) -> Result<Self, &'static str> {
         let parent = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/e2e");
         std::fs::create_dir_all(&parent).map_err(|_| "synthetic capture parent")?;
         let captured_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|_| "synthetic capture clock")?
             .as_nanos();
-        let directory = parent.join(format!(
-            "native-synthetic-series-{}-{captured_at}",
-            std::process::id()
-        ));
+        let prefix = match journey {
+            Journey::Series => "native-synthetic-series",
+            Journey::Featured => "native-synthetic-featured",
+        };
+        let directory = parent.join(format!("{prefix}-{}-{captured_at}", std::process::id()));
         std::fs::create_dir(&directory).map_err(|_| "fresh synthetic capture directory")?;
         Ok(Self {
+            journey,
             directory,
             keep: false,
         })
     }
     fn remove(&self) -> Result<(), &'static str> {
-        for capture in CAPTURES {
-            let path = self.directory.join(capture.name());
+        let names = match self.journey {
+            Journey::Series => CAPTURES.map(Capture::name).to_vec(),
+            Journey::Featured => native_featured_render_tests::CAPTURES
+                .map(native_featured_render_tests::Capture::name)
+                .to_vec(),
+        };
+        for name in names {
+            let path = self.directory.join(name);
             if path.exists() {
                 std::fs::remove_file(path).map_err(|_| "owned synthetic capture removal")?;
             }
@@ -173,12 +198,14 @@ fn frame_oracle(output: &egui::FullOutput, stage: Capture) -> Result<(), &'stati
         Capture::RetiredEpisode => {
             egui::Rect::from_min_size(egui::pos2(150.0, 756.0), egui::vec2(346.0, 44.0))
         }
+        Capture::Featured(_) => return Err("Feature stage cannot use Series shape oracle"),
     };
     let text = match stage {
         Capture::Resume | Capture::Information => RESUME,
         Capture::RetiredPrimary => FIRST,
         Capture::Episode => "Synthetic final Episode 511",
         Capture::RetiredEpisode => "First Episode",
+        Capture::Featured(_) => return Err("Feature stage cannot use Series text oracle"),
     };
     require(
         text_inside(output, text, area),
@@ -266,11 +293,14 @@ impl Rendered<'_> {
     fn bounded(&self) -> Result<(), &'static str> {
         require(
             self.start.elapsed() < Duration::from_secs(90),
-            "whole synthetic Series journey deadline",
+            "whole synthetic rendered journey deadline",
         )?;
         require(
             self.fixture.script.violation.lock().unwrap().is_none()
-                && self.fixture.script.calls.lock().unwrap().len() <= 3
+                && match self.captures.journey {
+                    Journey::Series => self.fixture.script.calls.lock().unwrap().len() <= 3,
+                    Journey::Featured => native_featured_render_tests::reads_bounded(self.fixture),
+                }
                 && self.fixture.script.bootstrap.load(Ordering::SeqCst) <= 1
                 && self.fixture.script.maximum.load(Ordering::SeqCst) <= 1
                 && self.fixture.issuer.tokens.load(Ordering::SeqCst) == 1
@@ -296,18 +326,24 @@ impl Rendered<'_> {
             return require(capture.is_none(), "fresh capture output absent");
         };
         if let Some(stage) = capture {
-            let admitted = require(
-                self.fixture.app.ui.page() == Page::Detail
-                    && exact_series(self.fixture, stage.retired()),
-                "exact current Series projection mismatch",
-            )
-            .and_then(|()| {
-                require(
-                    self.fixture.app.ui.focus() == stage.focus(),
-                    "canonical current focus mismatch",
+            let admitted = match (self.captures.journey, stage) {
+                (Journey::Featured, Capture::Featured(stage)) => stage.admit(self.fixture, &output),
+                (Journey::Series, Capture::Featured(_)) | (Journey::Featured, _) => {
+                    Err("capture journey mismatch")
+                }
+                (Journey::Series, _) => require(
+                    self.fixture.app.ui.page() == Page::Detail
+                        && exact_series(self.fixture, stage.retired()),
+                    "exact current Series projection mismatch",
                 )
-            })
-            .and_then(|()| frame_oracle(&output, stage));
+                .and_then(|()| {
+                    require(
+                        self.fixture.app.ui.focus() == stage.focus(),
+                        "canonical current focus mismatch",
+                    )
+                })
+                .and_then(|()| frame_oracle(&output, stage)),
+            };
             if let Err(error) = admitted {
                 // Failed admission disposes this journey; retire its unpainted
                 // texture delta before dropping the output and GL owner.
@@ -351,6 +387,12 @@ impl Rendered<'_> {
                 require(
                     progress_pixels(&pixels, stage.retired()),
                     "current Episode progress framebuffer mismatch",
+                )?;
+            }
+            if let Capture::Featured(stage) = stage {
+                require(
+                    stage.pixels(&pixels),
+                    "current Feature artwork/progress framebuffer mismatch",
                 )?;
             }
             let image = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(1920, 1080, pixels)
@@ -416,7 +458,7 @@ impl Rendered<'_> {
     }
     fn account(&mut self) -> Result<(), &'static str> {
         // Use the actual visible Account rail pointer target while retaining
-        // the selected Episode509 history snapshot for logout/Back.
+        // the selected card history snapshot for logout/Back.
         for pressed in [true, false] {
             let mut raw = [0_u8; 56];
             raw[..4].copy_from_slice(&(if pressed { 0x401_u32 } else { 0x402 }).to_le_bytes());
@@ -436,7 +478,10 @@ impl Rendered<'_> {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             self.tick()?;
-            require(Instant::now() < deadline, "synthetic Series stage deadline")?;
+            require(
+                Instant::now() < deadline,
+                "synthetic rendered stage deadline",
+            )?;
             if ready(self.fixture) {
                 return Ok(());
             }
@@ -588,10 +633,21 @@ fn series_progress_pixel_oracle_refuses_absent_fraction_and_retained_fraction() 
 #[test]
 #[ignore = "synthetic offline Series/CW/Session/artwork; serialized Root actual SDL/GLES executor"]
 fn native_synthetic_series_resume_information_and_logout_back_end_to_end() {
+    run(Journey::Series);
+}
+
+fn run(journey: Journey) {
     super::super::super::super::prepare_process();
-    let mut captures = Captures::new().unwrap();
-    let mut window =
-        criterion_platform::Window::open("Criterion Unofficial Synthetic Series E2E").unwrap();
+    let mut captures = match journey {
+        Journey::Series => Captures::new(),
+        Journey::Featured => Captures::for_journey(journey),
+    }
+    .unwrap();
+    let title = match journey {
+        Journey::Series => "Criterion Unofficial Synthetic Series E2E",
+        Journey::Featured => "Criterion Unofficial Synthetic Featured E2E",
+    };
+    let mut window = criterion_platform::Window::open(title).unwrap();
     // SAFETY: the current main-thread context outlives fixture disposal and painter destruction.
     let gl = Arc::new(unsafe {
         glow::Context::from_loader_function(|name| {
@@ -599,7 +655,10 @@ fn native_synthetic_series_resume_information_and_logout_back_end_to_end() {
         })
     });
     let mut painter = unsafe { GlowRenderer::new(gl.clone()) }.unwrap();
-    let mut fixture = match std::panic::catch_unwind(series_fixture) {
+    let mut fixture = match std::panic::catch_unwind(|| match journey {
+        Journey::Series => series_fixture(),
+        Journey::Featured => native_featured_render_tests::fixture(),
+    }) {
         Ok(fixture) => fixture,
         Err(panic) => {
             painter.destroy();
@@ -607,25 +666,36 @@ fn native_synthetic_series_resume_information_and_logout_back_end_to_end() {
         }
     };
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        Rendered {
+        let mut rendered = Rendered {
             fixture: &mut fixture,
             window: &mut window,
             painter: &mut painter,
             gl: &gl,
             captures: &captures,
             start: Instant::now(),
+        };
+        match journey {
+            Journey::Series => rendered.journey(),
+            Journey::Featured => native_featured_render_tests::journey(&mut rendered),
         }
-        .journey()
     }));
     // Fixture disposal joins the real worker and issuer on every outcome. A
     // cleanup assertion cannot skip GL destruction or owned-file retirement.
-    let disposed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(fixture)));
+    let failed = !matches!(outcome, Ok(Ok(())));
+    let disposed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if matches!(journey, Journey::Featured) && failed {
+            // Retire unissued synthetic steps on failure inside the protected
+            // disposal path, so even a fixture assertion cannot skip GL cleanup.
+            fixture.script.steps.lock().unwrap().clear();
+        }
+        drop(fixture);
+    }));
     painter.destroy();
     match (outcome, disposed) {
         (Ok(Ok(())), Ok(())) => {
             captures.keep = true;
             println!(
-                "actual SDL/GLES Series/CW/Information/Back/logout; all data, credentials and artwork synthetic/offline; full frames: {}",
+                "{title}; actual SDL/GLES journey; all data, credentials and decoded artwork synthetic/offline; full frames: {}",
                 captures.directory.display()
             );
         }
@@ -637,7 +707,7 @@ fn native_synthetic_series_resume_information_and_logout_back_end_to_end() {
                 std::panic::resume_unwind(panic);
             }
             match outcome {
-                Ok(result) => panic!("synthetic Series journey: {}", result.unwrap_err()),
+                Ok(result) => panic!("{title} journey: {}", result.unwrap_err()),
                 Err(panic) => std::panic::resume_unwind(panic),
             }
         }
