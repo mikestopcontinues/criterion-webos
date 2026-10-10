@@ -22,6 +22,20 @@ impl Observation {
     pub(super) fn is_issued(&self) -> bool {
         self.generation.is_some()
     }
+    pub(super) fn known(&self) -> Option<(MembershipScope, bool)> {
+        match self.state {
+            ListMembership::Known { present } => Some((self.scope.clone(), present)),
+            _ => None,
+        }
+    }
+    pub(super) fn set_state(&mut self, state: ListMembership) {
+        self.state = state;
+    }
+    pub(super) fn refresh_after_write(&mut self, deadline: Duration) {
+        self.deadline = Some(deadline);
+        self.generation = None;
+        self.state = ListMembership::Pending;
+    }
 }
 
 pub(super) fn overlay(data: &mut ViewData<'_>, membership: ListMembership) {
@@ -98,7 +112,8 @@ impl<
             }
             return;
         }
-        if observation.generation.is_some()
+        if self.accounts.write_active()
+            || observation.generation.is_some()
             || self.shelf_pending.is_some()
             || self.shelf_generation.is_some()
             || self.continue_watching_pending.is_some()
@@ -159,6 +174,7 @@ impl<
     }
 
     pub(super) fn retire_departed_membership(&mut self) {
+        self.retire_departed_list_write();
         if self.list_membership.as_ref().is_some_and(|observation| {
             !self.active
                 || self.exiting

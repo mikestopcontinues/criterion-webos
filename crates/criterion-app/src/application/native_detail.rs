@@ -41,7 +41,8 @@ impl<
         {
             self.native_detail_pending = self.controller.begin_native_detail(epoch);
         }
-        if let Some(read) = self.native_detail_pending.take()
+        if !self.accounts.write_active()
+            && let Some(read) = self.native_detail_pending.take()
             && self.controller.native_detail_owns(&read)
         {
             match self.accounts.request(

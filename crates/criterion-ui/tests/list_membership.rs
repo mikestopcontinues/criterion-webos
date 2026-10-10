@@ -81,12 +81,13 @@ fn click(ui: &mut AppUi, data: &ViewData<'_>, pos: egui::Pos2) -> Vec<Command> {
 }
 
 #[test]
-fn signed_in_membership_is_read_only_for_remote_and_pointer() {
+fn signed_in_without_write_admission_refuses_remote_and_pointer() {
     let target = Target::Native(MediaId::new("Film0001").unwrap());
     for login in [LoginView::SignedIn, LoginView::SigningOut] {
         for membership in [
             ListMembership::SignedOut,
             ListMembership::Pending,
+            ListMembership::Updating,
             ListMembership::Known { present: true },
             ListMembership::Known { present: false },
             ListMembership::Unavailable,
@@ -144,13 +145,21 @@ fn signed_out_ordinary_detail_keeps_exact_activation_command() {
             open_list_control(&mut remote, &data, &target);
             assert_eq!(
                 remote.handle(Action::Select, &data),
-                [Command::ToggleList(id.clone())]
+                [Command::ToggleList {
+                    root: id.clone(),
+                    from_visit: None,
+                    expected_present: None
+                }]
             );
             let mut pointer = AppUi::new();
             open_list_control(&mut pointer, &data, &target);
             assert_eq!(
                 click(&mut pointer, &data, egui::pos2(list_x, 661.0)),
-                [Command::ToggleList(id.clone())]
+                [Command::ToggleList {
+                    root: id.clone(),
+                    from_visit: None,
+                    expected_present: None
+                }]
             );
         }
     }
@@ -191,6 +200,7 @@ fn membership_states_paint_bounded_status_and_keep_original_action_geometry() {
     for primary in [true, false] {
         for (membership, expected, symbol) in [
             (ListMembership::SignedOut, "MY LIST", Some("+")),
+            (ListMembership::Updating, "UPDATING MY LIST", Some("...")),
             (ListMembership::Known { present: true }, "IN MY LIST", None),
             (
                 ListMembership::Known { present: false },
@@ -277,7 +287,11 @@ fn activation_restores_detail_origin_without_replaying_list_action() {
     open_list_control(&mut ui, &unsigned, &target);
     assert_eq!(
         ui.handle(Action::Select, &unsigned),
-        [Command::ToggleList(target.media_id().unwrap().clone())]
+        [Command::ToggleList {
+            root: target.media_id().unwrap().clone(),
+            from_visit: None,
+            expected_present: None
+        }]
     );
     assert_eq!(ui.begin_authentication(), [Command::Authenticate]);
     let signed = data(
@@ -294,4 +308,100 @@ fn activation_restores_detail_origin_without_replaying_list_action() {
     );
     assert_eq!(ui.focus(), Focus::DetailAction(2));
     assert!(ui.handle(Action::Select, &signed).is_empty());
+}
+
+#[test]
+fn admitted_remote_and_pointer_capture_current_root_visit_and_known_membership_only() {
+    let id = MediaId::new("Film0001").unwrap();
+    let target = Target::Native(id.clone());
+    for present in [false, true] {
+        let mut data = data(
+            &target,
+            ListMembership::Known { present },
+            LoginView::SignedIn,
+        );
+        data.list_write_ready = true;
+        data.detail_visit = Some(77);
+        let expected = Command::ToggleList {
+            root: id.clone(),
+            from_visit: Some(77),
+            expected_present: Some(present),
+        };
+        let mut remote = AppUi::new();
+        open_list_control(&mut remote, &data, &target);
+        assert_eq!(
+            remote.handle(Action::Select, &data).as_slice(),
+            std::slice::from_ref(&expected)
+        );
+        let mut pointer = AppUi::new();
+        open_list_control(&mut pointer, &data, &target);
+        assert_eq!(
+            click(&mut pointer, &data, egui::pos2(773.0, 661.0)),
+            [expected]
+        );
+    }
+    for (membership, login, visit, ready, live) in [
+        (
+            ListMembership::Known { present: true },
+            LoginView::SignedIn,
+            Some(77),
+            false,
+            false,
+        ),
+        (
+            ListMembership::Known { present: true },
+            LoginView::SignedIn,
+            None,
+            true,
+            false,
+        ),
+        (
+            ListMembership::Pending,
+            LoginView::SignedIn,
+            Some(77),
+            true,
+            false,
+        ),
+        (
+            ListMembership::Updating,
+            LoginView::SignedIn,
+            Some(77),
+            true,
+            false,
+        ),
+        (
+            ListMembership::Unavailable,
+            LoginView::SignedIn,
+            Some(77),
+            true,
+            false,
+        ),
+        (
+            ListMembership::Known { present: true },
+            LoginView::SigningOut,
+            Some(77),
+            true,
+            false,
+        ),
+        (
+            ListMembership::Known { present: true },
+            LoginView::SignedIn,
+            Some(77),
+            true,
+            true,
+        ),
+    ] {
+        let mut data = data(&target, membership, login);
+        data.detail_visit = visit;
+        data.list_write_ready = ready;
+        if live {
+            data.detail.as_mut().unwrap().kind = DetailKind::Live;
+        }
+        let mut remote = AppUi::new();
+        open_list_control(&mut remote, &data, &target);
+        let mut pointer = AppUi::new();
+        open_list_control(&mut pointer, &data, &target);
+        assert!(remote.handle(Action::Select, &data).is_empty());
+        assert!(click(&mut pointer, &data, egui::pos2(773.0, 661.0)).is_empty());
+    }
 }

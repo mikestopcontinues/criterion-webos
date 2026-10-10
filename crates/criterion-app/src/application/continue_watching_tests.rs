@@ -94,6 +94,8 @@ enum Kind {
     ContinueWatching,
     WatchList,
     NativeDetail(&'static str),
+    AddWatchList,
+    RemoveWatchList,
 }
 #[derive(Default)]
 struct Gate {
@@ -120,6 +122,8 @@ struct Middleware {
     continue_body: Arc<Mutex<Option<Vec<u8>>>>,
     detail_body: Arc<Mutex<Option<Vec<u8>>>>,
     ids_result: Arc<Mutex<Result<Vec<u8>, criterion_account::Error>>>,
+    write_result: Arc<Mutex<Result<Vec<u8>, criterion_account::Error>>>,
+    write_panics: Arc<AtomicBool>,
 }
 impl Middleware {
     fn new(steps: Vec<Step>) -> Self {
@@ -139,6 +143,8 @@ impl Middleware {
             ids_result: Arc::new(Mutex::new(Ok(
                 br#"{"watchlist":["Listed01"],"positions":[]}"#.to_vec(),
             ))),
+            write_result: Arc::new(Mutex::new(Ok(br#"{"sync":false}"#.to_vec()))),
+            write_panics: Arc::default(),
         }
     }
     fn refuse(&self, reason: &'static str) -> criterion_account::Error {
@@ -184,6 +190,44 @@ impl criterion_account::Transport for Middleware {
                 match target {
                     SubscriberTarget::MyListIds(Region::Ca) => Kind::MyListIds,
                     SubscriberTarget::ContinueWatching(Region::Ca) => Kind::ContinueWatching,
+                    SubscriberTarget::AddWatchList {
+                        region: Region::Ca,
+                        media_id,
+                        content_type,
+                    } if media_id.as_str() == "Listed01"
+                        && matches!(
+                            (*self.native_kind.lock().unwrap(), content_type),
+                            ("film", criterion_account::WatchListContentType::Film)
+                                | ("series", criterion_account::WatchListContentType::Series)
+                                | (
+                                    "collection",
+                                    criterion_account::WatchListContentType::Collection
+                                )
+                                | ("episode", criterion_account::WatchListContentType::Episode)
+                                | (
+                                    "supplement",
+                                    criterion_account::WatchListContentType::Supplement
+                                )
+                                | (
+                                    "category",
+                                    criterion_account::WatchListContentType::Category
+                                )
+                                | (
+                                    "franchise",
+                                    criterion_account::WatchListContentType::Franchise
+                                )
+                                | (
+                                    "original",
+                                    criterion_account::WatchListContentType::Original
+                                )
+                        ) =>
+                    {
+                        Kind::AddWatchList
+                    }
+                    SubscriberTarget::RemoveWatchList {
+                        region: Region::Ca,
+                        media_id,
+                    } if media_id.as_str() == "Listed01" => Kind::RemoveWatchList,
                     SubscriberTarget::WatchList {
                         region: Region::Ca,
                         request,
@@ -235,6 +279,10 @@ impl criterion_account::Transport for Middleware {
             gate.release.notified().await;
         }
         let body=match kind {
+            Kind::AddWatchList | Kind::RemoveWatchList=> {
+                assert!(!self.write_panics.load(Ordering::SeqCst), "synthetic write transport panic");
+                self.write_result.lock().unwrap().clone()?
+            },
             Kind::MyListIds=>self.ids_result.lock().unwrap().clone()?,
             Kind::ContinueWatching=>self.continue_body.lock().unwrap().clone().unwrap_or_else(||br#"{"playlist":[{"mediaid":"Private1","title":"Synthetic saved film","contentType":"film","duration":90.5},{"mediaid":"Private2","title":"Synthetic completed film","contentType":"film"}],"positions":[{"media_id":"Private1","pos":98,"dur":100},{"media_id":"Private2","pos":120,"dur":100}]}"#.to_vec()),
             Kind::WatchList=>self.watch_list_body.lock().unwrap().clone().unwrap_or_else(||br#"{"paging":{"page_limit":50},"type_counts":{"film":1},"playlist":[{"mediaid":"Listed01","title":"Synthetic listed film","contentType":"film"}]}"#.to_vec()),

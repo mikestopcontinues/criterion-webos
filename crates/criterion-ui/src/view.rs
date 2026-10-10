@@ -156,6 +156,7 @@ pub enum ListMembership {
     #[default]
     SignedOut,
     Pending,
+    Updating,
     Known {
         present: bool,
     },
@@ -205,6 +206,9 @@ pub struct CatalogWindow {
 pub struct ViewData<'a> {
     /// Lent by the foreground application, never cached in a projection/history.
     pub discovery_visit: Option<u64>,
+    /// Current native Detail action authority; never cached in presentation/history.
+    pub detail_visit: Option<u64>,
+    pub list_write_ready: bool,
     pub title: &'a str,
     pub hero: Option<Hero<'a>>,
     pub hero_carousel: Option<HeroCarousel<'a>>,
@@ -223,6 +227,8 @@ impl Default for ViewData<'_> {
     fn default() -> Self {
         Self {
             discovery_visit: None,
+            detail_visit: None,
+            list_write_ready: false,
             title: "",
             hero: None,
             hero_carousel: None,
@@ -1249,6 +1255,7 @@ impl AppUi {
         let (symbol, caption) = match detail.membership {
             ListMembership::SignedOut => ("+", "MY LIST"),
             ListMembership::Pending => ("...", "CHECKING MY LIST"),
+            ListMembership::Updating => ("...", "UPDATING MY LIST"),
             ListMembership::Known { present: true } => ("", "IN MY LIST"),
             ListMembership::Known { present: false } => ("+", "NOT IN MY LIST"),
             ListMembership::Unavailable => ("?", "MY LIST UNAVAILABLE"),

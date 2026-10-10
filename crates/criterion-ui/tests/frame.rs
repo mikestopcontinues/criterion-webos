@@ -26,6 +26,8 @@ fn cpu_frame_uses_observed_four_landscape_columns_and_visible_budget() {
     ];
     let data = ViewData {
         discovery_visit: None,
+        detail_visit: None,
+        list_write_ready: false,
         title: "All Films",
         hero: None,
         hero_carousel: None,

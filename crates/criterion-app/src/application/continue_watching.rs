@@ -37,6 +37,7 @@ impl<
             self.continue_watching_pending = self.controller.begin_continue_watching(epoch);
         }
         if self.authentication.access_ready()
+            && !self.accounts.write_active()
             && let Some(read) = self.continue_watching_pending.take()
             && self.controller.continue_watching_owns(&read)
         {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Typed native account reads. The application owns Session epochs and UI
-//! privacy; departed generations never publish or start replacement reads.
+//! Typed native account work. Reads retire on departure; an issued write joins
+//! independently under its durable fence. The application owns epochs and privacy.
 use crate::jobs::Jobs;
 use criterion_account::{
     AccountClient, ContinueWatching, Error, NativeDetail, NativeEntitlement, NativePlaybackRequest,
@@ -9,6 +9,9 @@ use criterion_account::{
 use criterion_session::{MonotonicClock, Session, SystemClock};
 use std::sync::Arc;
 use tokio::runtime::{Handle, Runtime};
+
+mod list_write;
+pub(crate) use list_write::{WriteOutcome, WriteRequest};
 
 pub(crate) enum Loaded {
     MyListIds(criterion_account::MyListIds),
@@ -134,6 +137,7 @@ pub(crate) struct Accounts<
     requested: Option<Intent>,
     foreground: bool,
     disposed: bool,
+    writes: list_write::Writes,
 }
 #[derive(Clone)]
 struct Intent {
@@ -170,6 +174,7 @@ impl<
             requested: None,
             foreground: false,
             disposed: false,
+            writes: list_write::Writes::new(),
         }
     }
     /// The application advances its monotonic Session epoch before new auth
@@ -184,6 +189,9 @@ impl<
     ) -> Result<u64, Error> {
         if self.disposed {
             return Err(Error::Disposed);
+        }
+        if self.writes.is_active() {
+            return Err(Error::Busy);
         }
         if self
             .session_generation
@@ -224,6 +232,8 @@ impl<
         if self.disposed {
             return None;
         }
+        self.writes.initialize(runtime.handle());
+        self.writes.poll_initialization(runtime);
         // A retiring Jobs may start its pending successor when drained. Clear
         // departed work before joining so no inactive/old-epoch read can start.
         if !active && self.foreground {
@@ -322,6 +332,7 @@ impl<
         self.pending = None;
         self.requested = None;
         self.jobs.cancel();
+        self.writes.retire();
     }
     /// Record every observed root epoch, including failed preflight and idle
     /// polling. An older input never lowers the retained high-water value.
@@ -341,8 +352,8 @@ impl<
         self.foreground = false;
         self.retire();
     }
-    /// Dispose read ownership without creating a runtime or changing Session.
-    /// Callers cannot use this owner as an issued-write settlement mechanism.
+    /// Read tasks cancel; an accepted write retains its bounded task and durable
+    /// completion before client disposal. Session revocation follows this join.
     pub(crate) fn dispose(&mut self, runtime: &Runtime) {
         self.disposed = true;
         self.foreground = false;
@@ -350,7 +361,51 @@ impl<
         if self.jobs.is_active() {
             let _ = runtime.block_on(self.jobs.finish());
         }
+        self.writes.finish(runtime);
         self.account.dispose();
+    }
+
+    pub(crate) fn write_ready(&self) -> bool {
+        !self.disposed && self.writes.is_ready()
+    }
+
+    pub(crate) fn write_active(&self) -> bool {
+        self.writes.is_active()
+    }
+
+    pub(crate) fn write(&mut self, runtime: &Handle, request: WriteRequest) -> Result<(), Error> {
+        if self.disposed {
+            return Err(Error::Disposed);
+        }
+        if !self.foreground || self.session_generation != Some(request.epoch) {
+            return Err(Error::Stale);
+        }
+        if self.jobs.is_active() || !self.write_ready() {
+            return Err(Error::Busy);
+        }
+        self.session
+            .with_access_token(|_| ())
+            .map_err(Error::Session)?;
+        self.account.region()?;
+        self.writes
+            .start(runtime, self.account.clone(), self.session.clone(), request)
+    }
+
+    pub(crate) fn retire_write(&mut self) {
+        self.writes.retire();
+    }
+
+    pub(crate) fn poll_write(&mut self, runtime: &Runtime) -> Option<WriteOutcome> {
+        self.writes.poll(runtime)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn use_write_fence(
+        &mut self,
+        fence: Arc<dyn criterion_platform::write_fence::IssuedWriteFence>,
+    ) {
+        assert!(!self.writes.is_active());
+        self.writes = list_write::Writes::with_fence(Some(fence));
     }
 }
 impl<A: criterion_account::Transport, S: criterion_session::Transport, C: MonotonicClock> Drop

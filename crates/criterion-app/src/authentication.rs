@@ -36,6 +36,7 @@ pub(crate) struct Authentication<T: Transport = HttpTransport, C: MonotonicClock
     generation: u64,
     logout_requested: bool,
     revocation_unconfirmed: bool,
+    account_write_pending: bool,
 }
 impl Authentication {
     pub(crate) fn new() -> Result<Self, Error> {
@@ -67,6 +68,7 @@ impl<T: Transport + 'static, C: MonotonicClock + Clone + 'static> Authentication
             generation: 0,
             logout_requested: false,
             revocation_unconfirmed: false,
+            account_write_pending: false,
         }
     }
     pub(crate) fn begin(&mut self, runtime: &Handle) {
@@ -136,7 +138,16 @@ impl<T: Transport + 'static, C: MonotonicClock + Clone + 'static> Authentication
     pub(crate) fn access_ready(&self) -> bool {
         self.signed_in() && self.session.with_access_token(|_| ()).is_ok()
     }
+    pub(crate) fn write_ready(&self) -> bool {
+        self.access_ready() && !self.jobs.is_active() && !self.account_write_pending
+    }
+    pub(crate) fn hold_for_account_write(&mut self, pending: bool) {
+        self.account_write_pending = pending;
+    }
     pub(crate) fn finish(&mut self, runtime: &Runtime) -> bool {
+        // The account owner has joined its held write before releasing this hold.
+        // A deferred explicit logout may therefore have no issued job yet.
+        self.issue_logout(runtime.handle());
         while self.logout_requested && self.jobs.is_active() {
             if let Some(result) = runtime.block_on(self.jobs.finish()) {
                 self.completed(result);
@@ -165,7 +176,7 @@ impl<T: Transport + 'static, C: MonotonicClock + Clone + 'static> Authentication
         {
             self.phase = Phase::Error;
         }
-        if self.jobs.is_active() || !active || self.logout_requested {
+        if self.jobs.is_active() || !active || self.logout_requested || self.account_write_pending {
             return;
         }
         if matches!(status, Status::RefreshRequired) {
@@ -181,7 +192,7 @@ impl<T: Transport + 'static, C: MonotonicClock + Clone + 'static> Authentication
         }
     }
     fn issue_logout(&mut self, runtime: &Handle) {
-        if !self.logout_requested || self.jobs.is_active() {
+        if !self.logout_requested || self.jobs.is_active() || self.account_write_pending {
             return;
         }
         let session = self.session.clone();

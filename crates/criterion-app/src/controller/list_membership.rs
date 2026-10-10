@@ -13,8 +13,8 @@ const DEADLINE: Duration = Duration::from_secs(60);
 pub(crate) struct MembershipScope {
     pub(crate) epoch: u64,
     pub(crate) root: MediaId,
-    kind: MediaKind,
-    visit: u64,
+    pub(crate) kind: MediaKind,
+    pub(crate) visit: u64,
 }
 
 impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<T, C> {

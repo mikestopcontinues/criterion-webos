@@ -120,6 +120,41 @@ impl Default for AppUi {
     }
 }
 impl AppUi {
+    /// Account mutation retires shelf anchors in both display histories.
+    /// Navigation destinations and selected group survive; old row positions do not.
+    pub fn dirty_my_list(&mut self) {
+        self.my_list.dirty();
+        for snapshot in &mut self.history {
+            snapshot.my_list.dirty();
+            if snapshot.page == Page::MyList {
+                let header = Focus::MyListGroup(snapshot.my_list.selected());
+                if matches!(snapshot.focus, Focus::Card { .. } | Focus::CatalogRetry) {
+                    snapshot.focus = header;
+                }
+                if matches!(
+                    snapshot.return_focus,
+                    Focus::Card { .. } | Focus::CatalogRetry
+                ) {
+                    snapshot.return_focus = header;
+                }
+                snapshot.scroll_y = 0.0;
+            }
+        }
+        if self.page == Page::MyList {
+            let header = Focus::MyListGroup(self.my_list.selected());
+            if matches!(self.focus, Focus::Card { .. } | Focus::CatalogRetry) {
+                self.focus = header;
+            }
+            if matches!(self.return_focus, Focus::Card { .. } | Focus::CatalogRetry) {
+                self.return_focus = header;
+            }
+            self.scroll_y = 0.0;
+            self.catalog_pending = None;
+            self.pointer_press = None;
+            self.pointer_layout_focus = None;
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             playback_feedback: crate::PlaybackFeedback::None,

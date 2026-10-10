@@ -12,6 +12,32 @@ use std::time::Duration;
 const DEMAND_DEADLINE: Duration = Duration::from_secs(60);
 
 impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<T, C> {
+    pub(crate) fn dirty_shelf(&mut self, epoch: u64) -> Option<Read> {
+        if self.account_session != Some(epoch) {
+            return None;
+        }
+        for snapshot in &mut self.history {
+            if snapshot.private_epoch == Some(epoch)
+                && let Some(state) = &mut snapshot.my_list
+            {
+                state.dirty();
+                snapshot.view = Some(Presentation::my_list(state));
+            }
+        }
+        self.shelf_read = None;
+        if self.private_epoch == Some(epoch)
+            && let Some(state) = &mut self.my_list
+        {
+            state.dirty();
+            if self.page == Page::MyList {
+                let filter = state.view().filter;
+                let result = state.select(filter);
+                return self.shelf_step(result, false);
+            }
+        }
+        None
+    }
+
     pub(crate) fn begin_shelf(&mut self, epoch: u64) -> Option<Read> {
         if self.page != Page::MyList || self.account_session != Some(epoch) {
             return None;

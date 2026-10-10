@@ -77,7 +77,11 @@ pub(crate) enum Effect {
     Logout,
     Play(MediaId),
     NativePlay(NativePlaySelection),
-    ToggleList(MediaId),
+    ToggleList {
+        root: MediaId,
+        from_visit: Option<u64>,
+        expected_present: Option<bool>,
+    },
     VoiceSearch,
     Exit,
 }
@@ -432,7 +436,17 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                     Effect::Play(id)
                 };
             }
-            Command::ToggleList(id) => return Effect::ToggleList(id),
+            Command::ToggleList {
+                root,
+                from_visit,
+                expected_present,
+            } => {
+                return Effect::ToggleList {
+                    root,
+                    from_visit,
+                    expected_present,
+                };
+            }
             Command::VoiceSearch => return Effect::VoiceSearch,
             Command::Exit => return Effect::Exit,
         }

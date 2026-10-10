@@ -398,6 +398,13 @@ impl MyListState {
             group.spans = Vec::new();
         }
     }
+    /// A possibly issued mutation invalidates every group and its replay chain.
+    /// Keep only selected group and monotonic operation identity.
+    pub(crate) fn dirty(&mut self) {
+        self.pending = None;
+        self.groups = std::array::from_fn(|_| GroupState::default());
+        self.counts = [0; 6];
+    }
     /// Terminal privacy disposal: this owner cannot be reused for another epoch.
     pub(crate) fn retire(&mut self) {
         self.pending = None;

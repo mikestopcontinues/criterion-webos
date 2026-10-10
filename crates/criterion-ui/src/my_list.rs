@@ -31,6 +31,16 @@ pub(crate) struct MyListState {
     pending: Option<MyListGroup>,
     anchors: [Option<(usize, f32)>; 6],
 }
+impl MyListState {
+    pub(crate) fn dirty(&mut self) {
+        self.active = false;
+        self.pending = None;
+        self.anchors = [None; 6];
+    }
+    pub(crate) fn selected(&self) -> MyListGroup {
+        self.selected
+    }
+}
 
 // Project wording/layout: native grouped filter identities are admitted, but
 // exact localized control labels and geometry have not been measured.

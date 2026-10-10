@@ -34,6 +34,7 @@ pub(crate) struct Application<
     native_detail_pending: Option<crate::controller::NativeDetailRead>,
     native_detail_generation: Option<NativeDetailRead>,
     list_membership: Option<list_membership::Observation>,
+    list_write: Option<list_write::Intent>,
     positions: Option<AccountPositions>,
     native_play_notice: Option<native_play::UnavailableNotice>,
     #[cfg(test)]
@@ -116,6 +117,7 @@ impl<
             native_detail_pending: None,
             native_detail_generation: None,
             list_membership: None,
+            list_write: None,
             positions: None,
             native_play_notice: None,
             #[cfg(test)]
@@ -160,18 +162,22 @@ impl<
         self.retire_departed_membership();
         self.sync_native_play_feedback();
         let frame_epoch = self.account_epoch;
+        let frame_write_active = self.accounts.write_active();
         let frame_membership_visit = self
             .list_membership
             .as_ref()
             .map(|_| self.controller.membership_visit());
         let membership = self.membership_view();
         let hero_visit = self.controller.membership_visit();
+        let list_write_ready = self.accounts.write_ready() && self.authentication.write_ready();
         let batch = self.input.take_frame(now);
         let mut frame = self
             .controller
             .view
             .with_view(self.authentication.view(), |mut data| {
                 data.discovery_visit = hero_visit;
+                data.detail_visit = hero_visit;
+                data.list_write_ready = list_write_ready;
                 list_membership::overlay(&mut data, membership);
                 if let Some(hero) = &mut data.hero_carousel {
                     hero.visit = hero_visit;
@@ -190,11 +196,14 @@ impl<
             }
             let membership = self.membership_view();
             let hero_visit = self.controller.membership_visit();
+            let list_write_ready = self.accounts.write_ready() && self.authentication.write_ready();
             let commands =
                 self.controller
                     .view
                     .with_view(self.authentication.view(), |mut data| {
                         data.discovery_visit = hero_visit;
+                        data.detail_visit = hero_visit;
+                        data.list_write_ready = list_write_ready;
                         list_membership::overlay(&mut data, membership);
                         if let Some(hero) = &mut data.hero_carousel {
                             hero.visit = hero_visit;
@@ -221,6 +230,7 @@ impl<
         if !self.active
             || self.exiting
             || frame_epoch != self.account_epoch
+            || frame_write_active != self.accounts.write_active()
             || frame_membership_visit
                 .is_some_and(|visit| visit != self.controller.membership_visit())
         {
@@ -314,7 +324,7 @@ impl<
                 self.invalidate_account();
                 self.authentication.logout(runtime);
             }
-            Effect::Play(_) | Effect::ToggleList(_) if !self.authentication.signed_in() => {
+            Effect::Play(_) | Effect::ToggleList { .. } if !self.authentication.signed_in() => {
                 for command in self.ui.begin_authentication() {
                     self.command(command, runtime);
                 }
@@ -325,9 +335,13 @@ impl<
                 drop(id);
                 self.controller.view.set_status(LoadState::Error);
             }
-            // Read-only membership cannot authorize an issued write. Keep
-            // this independent of UI refusal and preserve the current Detail.
-            Effect::ToggleList(id) => drop(id),
+            Effect::ToggleList {
+                root,
+                from_visit,
+                expected_present,
+            } => {
+                self.start_list_write(root, from_visit, expected_present, runtime);
+            }
             Effect::VoiceSearch => self.controller.view.set_status(LoadState::Error),
         }
         self.retire_departed_shelf();
@@ -342,6 +356,9 @@ impl<
         }
     }
     pub(crate) fn poll(&mut self, runtime: &Runtime, active: bool) {
+        self.complete_list_write(runtime);
+        self.authentication
+            .hold_for_account_write(self.accounts.write_active());
         let active = active && self.active && !self.exiting;
         if active {
             self.controller.poll(runtime);
@@ -373,6 +390,7 @@ impl<
         }
         if active
             && self.authentication.access_ready()
+            && !self.accounts.write_active()
             && let Some(epoch) = self.account_epoch
             && let Some(read) = self.shelf_pending.take()
             && self.controller.shelf_owns(epoch, &read)
@@ -549,6 +567,8 @@ impl<
     pub(crate) fn finish(&mut self, runtime: &Runtime) -> bool {
         self.background();
         self.accounts.dispose(runtime);
+        self.list_write = None;
+        self.authentication.hold_for_account_write(false);
         self.authentication.finish(runtime)
     }
     pub(crate) fn exiting(&self) -> bool {
@@ -573,6 +593,7 @@ mod continue_watching;
 #[cfg(test)]
 mod continue_watching_tests;
 mod list_membership;
+mod list_write;
 mod native_detail;
 mod native_play;
 

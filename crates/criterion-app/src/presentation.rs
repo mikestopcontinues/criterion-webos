@@ -725,6 +725,8 @@ impl Presentation {
             .map(|_| FilterMenu { groups: &groups });
         consume(ViewData {
             discovery_visit: None,
+            detail_visit: None,
+            list_write_ready: false,
             filters,
             detail,
             hero,

@@ -25,7 +25,11 @@ pub enum Command {
         focus: Focus,
     },
     Play(MediaId),
-    ToggleList(MediaId),
+    ToggleList {
+        root: MediaId,
+        from_visit: Option<u64>,
+        expected_present: Option<bool>,
+    },
     SelectPlaylist(usize),
     SelectSeason(usize),
     DetailSort {
@@ -385,15 +389,30 @@ impl AppUi {
                     .detail
                     .as_ref()
                     .filter(|detail| {
-                        // Membership is display-only; signed-in writes await durable admission.
                         detail.kind != crate::DetailKind::Live
-                            && !matches!(
-                                data.login,
-                                crate::LoginView::SignedIn | crate::LoginView::SigningOut
-                            )
+                            && match data.login {
+                                crate::LoginView::SignedIn => {
+                                    data.list_write_ready
+                                        && data.detail_visit.is_some()
+                                        && matches!(
+                                            detail.membership,
+                                            crate::ListMembership::Known { .. }
+                                        )
+                                }
+                                crate::LoginView::SigningOut => false,
+                                _ => true,
+                            }
                     })
-                    .and_then(|detail| detail.card.key.media_id())
-                    .map(|id| Command::ToggleList(id.clone())),
+                    .and_then(|detail| {
+                        Some(Command::ToggleList {
+                            root: detail.card.key.media_id()?.clone(),
+                            from_visit: data.detail_visit,
+                            expected_present: match detail.membership {
+                                crate::ListMembership::Known { present } => Some(present),
+                                _ => None,
+                            },
+                        })
+                    }),
                 Intent::SelectPlaylist(index) => Some(Command::SelectPlaylist(index)),
                 Intent::SelectSeason(index) => Some(Command::SelectSeason(index)),
                 Intent::DetailSort(action) => data

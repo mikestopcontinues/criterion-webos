@@ -7,5 +7,6 @@
   "appDescription": "Development build; TV behavior and playback are unverified.",
   "icon": "icon.png",
   "nativeLifeCycleInterfaceVersion": 2,
-  "handlesRelaunch": false
+  "handlesRelaunch": false,
+  "requiredPermissions": ["database.operation"]
 }

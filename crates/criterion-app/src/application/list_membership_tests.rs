@@ -2,6 +2,9 @@
 //! Real Application/input/worker composition with synthetic middleware bodies.
 use super::*;
 
+#[path = "list_write_tests.rs"]
+mod list_write_tests;
+
 fn ids(gate: Option<Arc<Gate>>) -> Step {
     Step {
         kind: Kind::MyListIds,
@@ -156,7 +159,11 @@ fn empty_and_unrelated_ids_are_known_absence_and_signed_in_controls_refuse_every
         fixture.key(40, 13);
         click_list(&mut fixture);
         fixture.app.command(
-            Command::ToggleList(criterion_provider::MediaId::new("Listed01").unwrap()),
+            Command::ToggleList {
+                root: criterion_provider::MediaId::new("Listed01").unwrap(),
+                from_visit: fixture.app.controller.membership_visit(),
+                expected_present: Some(false),
+            },
             fixture.runtime.handle(),
         );
         fixture.pump();

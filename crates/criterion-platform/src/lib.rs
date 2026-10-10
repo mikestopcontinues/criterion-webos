@@ -2,6 +2,7 @@
 //! The narrow native window and input seam. Rendering and playback belong to their owners.
 
 pub mod auxv;
+pub mod write_fence;
 
 mod event;
 pub use event::Activity;
