@@ -33,6 +33,7 @@ pub(crate) struct Application<
     continue_watching_generation: Option<ContinueWatchingRead>,
     native_detail_pending: Option<crate::controller::NativeDetailRead>,
     native_detail_generation: Option<NativeDetailRead>,
+    positions: Option<AccountPositions>,
     artwork: Artwork,
     input: InputAdapter,
     output: Option<egui::FullOutput>,
@@ -52,6 +53,10 @@ struct NativeDetailRead {
 struct ContinueWatchingRead {
     read: crate::controller::ContinueWatchingRead,
     generation: u64,
+}
+struct AccountPositions {
+    epoch: u64,
+    snapshot: crate::native_resume::PositionsSnapshot,
 }
 impl<P, T: Transport, C: MonotonicClock, A: criterion_account::Transport, D: MonotonicClock> Drop
     for Application<P, T, C, A, D>
@@ -106,6 +111,7 @@ impl<
             continue_watching_generation: None,
             native_detail_pending: None,
             native_detail_generation: None,
+            positions: None,
             artwork,
             input: InputAdapter::new(surface),
             output: None,
@@ -181,9 +187,9 @@ impl<
             self.artwork.poll(runtime, &mut self.ui);
         }
         self.sync_account_session();
-        if frame_epoch != self.account_epoch {
+        if !self.active || self.exiting || frame_epoch != self.account_epoch {
             // Preserve texture deltas for retirement, but never publish shapes
-            // painted before an activation/account scope was invalidated.
+            // painted before foreground or account scope was retired.
             frame.output.shapes.clear();
         }
         match &mut self.output {
@@ -216,7 +222,7 @@ impl<
                 }
             }
             Effect::AccountRead(read) => self.stage_shelf(read),
-            Effect::Exit => self.exiting = true,
+            Effect::Exit => self.exit(),
             Effect::Authenticate | Effect::RetryAuthentication => {
                 if !self.authentication.signed_in() {
                     self.invalidate_account();
@@ -405,6 +411,7 @@ impl<
         // permanently refuses another private generation rather than wrapping.
         self.account_epoch = self.account_epoch.and_then(|epoch| epoch.checked_add(1));
         self.account_signed_in = false;
+        self.positions = None;
         self.shelf_pending = None;
         self.shelf_generation = None;
         self.continue_watching_pending = None;
@@ -426,7 +433,11 @@ impl<
         }
     }
     pub(crate) fn background(&mut self) {
+        if let Some(output) = &mut self.output {
+            output.shapes.clear();
+        }
         self.active = false;
+        self.positions = None;
         self.artwork.clear();
         self.controller.background();
         self.shelf_pending = None;
@@ -439,6 +450,7 @@ impl<
         self.accounts.background();
     }
     pub(crate) fn finish(&mut self, runtime: &Runtime) -> bool {
+        self.background();
         self.accounts.dispose(runtime);
         self.authentication.finish(runtime)
     }
@@ -446,6 +458,7 @@ impl<
         self.exiting
     }
     pub(crate) fn exit(&mut self) {
+        self.background();
         self.exiting = true;
     }
     pub(crate) fn wants_text_input(&self) -> bool {

@@ -72,27 +72,30 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         &mut self,
         read: &ContinueWatchingRead,
         data: ContinueWatching,
-    ) {
+    ) -> Option<crate::native_resume::PositionsSnapshot> {
         if !self.continue_watching_owns(read) {
-            return;
+            return None;
         }
         if self.continue_watching_expired() {
             self.fail_continue_watching(read);
-            return;
+            return None;
         }
-        let admitted = ContinueWatchingShelf::from_admitted(data)
-            .ok()
-            .is_some_and(|shelf| {
-                self.view
-                    .admit_continue_watching(read.epoch, &shelf)
-                    .is_ok_and(|admitted| admitted)
-            });
-        if admitted {
+        let admitted =
+            ContinueWatchingShelf::from_admitted(data)
+                .ok()
+                .and_then(|(shelf, positions)| {
+                    self.view
+                        .admit_continue_watching(read.epoch, &shelf)
+                        .is_ok_and(|admitted| admitted)
+                        .then_some(positions)
+                });
+        if admitted.is_some() {
             self.continue_watching_demand = None;
             self.trim_history();
         } else {
             self.fail_continue_watching(read);
         }
+        admitted
     }
     pub(crate) fn fail_continue_watching(&mut self, read: &ContinueWatchingRead) {
         if self.continue_watching_owns(read) {

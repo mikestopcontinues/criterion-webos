@@ -116,6 +116,8 @@ struct Middleware {
     detail_response_id: Arc<Mutex<Option<&'static str>>>,
     watch_list_body: Arc<Mutex<Option<Vec<u8>>>>,
     native_kind: Arc<Mutex<&'static str>>,
+    continue_body: Arc<Mutex<Option<Vec<u8>>>>,
+    detail_body: Arc<Mutex<Option<Vec<u8>>>>,
 }
 impl Middleware {
     fn new(steps: Vec<Step>) -> Self {
@@ -130,6 +132,8 @@ impl Middleware {
             detail_response_id: Arc::default(),
             watch_list_body: Arc::default(),
             native_kind: Arc::new(Mutex::new("film")),
+            continue_body: Arc::default(),
+            detail_body: Arc::default(),
         }
     }
     fn refuse(&self, reason: &'static str) -> criterion_account::Error {
@@ -225,9 +229,12 @@ impl criterion_account::Transport for Middleware {
             gate.release.notified().await;
         }
         let body=match kind {
-            Kind::ContinueWatching=>br#"{"playlist":[{"mediaid":"Private1","title":"Synthetic saved film","contentType":"film","duration":90.5},{"mediaid":"Private2","title":"Synthetic completed film","contentType":"film"}],"positions":[{"media_id":"Private1","pos":98,"dur":100},{"media_id":"Private2","pos":120,"dur":100}]}"#.to_vec(),
+            Kind::ContinueWatching=>self.continue_body.lock().unwrap().clone().unwrap_or_else(||br#"{"playlist":[{"mediaid":"Private1","title":"Synthetic saved film","contentType":"film","duration":90.5},{"mediaid":"Private2","title":"Synthetic completed film","contentType":"film"}],"positions":[{"media_id":"Private1","pos":98,"dur":100},{"media_id":"Private2","pos":120,"dur":100}]}"#.to_vec()),
             Kind::WatchList=>self.watch_list_body.lock().unwrap().clone().unwrap_or_else(||br#"{"paging":{"page_limit":50},"type_counts":{"film":1},"playlist":[{"mediaid":"Listed01","title":"Synthetic listed film","contentType":"film"}]}"#.to_vec()),
             Kind::NativeDetail(requested) => {
+                if let Some(body) = self.detail_body.lock().unwrap().clone() {
+                    return Ok(criterion_account::Response { status: 200, body: SecretBody::new(body) });
+                }
                 let id = self.detail_response_id.lock().unwrap().unwrap_or(requested);
                 serde_json::to_vec(&serde_json::json!({
                     "contentType":*self.native_kind.lock().unwrap(), "mediaid":id, "title":format!("Native {id}"),

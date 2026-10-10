@@ -7,6 +7,7 @@ mod continue_watching;
 mod controller;
 mod jobs;
 mod my_list;
+mod native_resume;
 mod presentation;
 
 mod application;

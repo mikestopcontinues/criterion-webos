@@ -227,3 +227,52 @@ fn background_retires_pending_work_and_ready_rows_survive_without_refetch() {
         "near-complete saved films remain visible"
     );
 }
+
+#[test]
+fn positions_snapshot_is_returned_only_with_successful_current_gallery_publication() {
+    let (mut owner, runtime, _, _) = fixture();
+    let old = owner.begin_continue_watching(1).unwrap();
+    owner.command(
+        Command::Navigate(Page::Search),
+        Page::Search,
+        runtime.handle(),
+    );
+    assert!(
+        owner
+            .admit_continue_watching(&old, saved("Departed private title"))
+            .is_none()
+    );
+    assert!(private_titles(&owner).is_empty());
+    owner.command(Command::Restore(Page::Home), Page::Home, runtime.handle());
+    let current = owner.begin_continue_watching(1).unwrap();
+    let mut data = saved("Current private title");
+    data.positions.push(Position {
+        media_id: MediaId::new("Other001").unwrap(),
+        pos: i64::MAX,
+        dur: 100,
+        commentary_track: Some("Synthetic context".into()),
+        series_id: None,
+        series_title: None,
+    });
+    let snapshot = owner.admit_continue_watching(&current, data).unwrap();
+    assert_eq!(private_titles(&owner), ["Current private title"]);
+    assert_eq!(
+        snapshot
+            .position(&MediaId::new("Other001").unwrap())
+            .unwrap()
+            .pos,
+        i64::MAX
+    );
+    assert!(
+        snapshot
+            .position(&MediaId::new("Other002").unwrap())
+            .is_none(),
+        "exact lookup cannot choose a neighboring indexed row"
+    );
+    assert!(
+        owner
+            .admit_continue_watching(&current, saved("Replay private title"))
+            .is_none()
+    );
+    assert_eq!(private_titles(&owner), ["Current private title"]);
+}

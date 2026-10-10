@@ -486,6 +486,12 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
 
     pub(crate) fn background(&mut self) {
         self.foreground_active = false;
+        self.view.clear_native_resume();
+        for snapshot in &mut self.history {
+            if let Some(view) = &mut snapshot.view {
+                view.clear_native_resume();
+            }
+        }
         self.cancel_continue_watching();
         self.cancel_shelf();
         self.suspended |= self.jobs.is_active()
@@ -520,6 +526,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     fn remember(&mut self) {
+        self.view.clear_native_resume();
         let interrupted_native = self.native_detail_demand.is_some();
         self.cancel_native_detail();
         self.cancel_continue_watching();

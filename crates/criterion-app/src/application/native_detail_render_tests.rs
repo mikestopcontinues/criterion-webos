@@ -422,7 +422,7 @@ impl Live<'_> {
         })?;
         // Replace only the settled offline origin. This seed is never a live
         // My List/account/discovery response and makes no provider acceptance.
-        self.app.controller.view = Presentation::native_detail(synthetic_origin())
+        self.app.controller.view = Presentation::native_detail(synthetic_origin(), None)
             .map_err(|_| "synthetic origin projection")?;
         self.tick()?;
         self.key(81, 1_073_741_905)?;

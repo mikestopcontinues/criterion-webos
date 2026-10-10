@@ -3,6 +3,7 @@
 use super::{
     ImageSource, NativeActivation, OwnedCard, OwnedDetail, OwnedRail, Presentation, ProjectionLimit,
 };
+use crate::native_resume::{PositionsSnapshot, resolve_series};
 use criterion_account::{MediaKind, NativePlaylist};
 use criterion_artwork::ImageRole;
 use criterion_provider::ImageLabel;
@@ -17,6 +18,7 @@ pub(super) struct NativeDetailState {
     pub(super) seasons_tab: Option<usize>,
     pub(super) selected_season: usize,
     pub(super) seasons: Vec<OwnedSeason>,
+    private_resume: bool,
 }
 pub(super) struct OwnedSeason {
     pub(super) number: i32,
@@ -44,6 +46,7 @@ impl NativeDetailState {
 impl Presentation {
     pub(crate) fn native_detail(
         detail: criterion_account::NativeDetail,
+        positions: Option<&PositionsSnapshot>,
     ) -> Result<Self, ProjectionLimit> {
         if detail.estimated_bytes() > MAX_NATIVE_BYTES {
             return Err(ProjectionLimit::TooLarge);
@@ -51,22 +54,13 @@ impl Presentation {
         check_cardinality(&detail)?;
         let mut projection = Self::loading(detail.media.title.clone());
         let kind = detail_kind(detail.media.kind);
+        let resolution =
+            (detail.media.kind == MediaKind::Series).then(|| resolve_series(&detail, positions));
         let primary_playback_target = match detail.media.kind {
             MediaKind::Film | MediaKind::Original | MediaKind::Episode | MediaKind::Supplement => {
                 Some(detail.media.id.clone())
             }
-            MediaKind::Series => detail
-                .playlists
-                .iter()
-                .find_map(|playlist| match playlist {
-                    NativePlaylist::Seasons(value) => Some(value),
-                    NativePlaylist::Generic(_) => None,
-                })
-                .and_then(|playlist| playlist.seasons.first())
-                .and_then(|season| season.episodes.first())
-                // Native PlayClicked rejects a Series target equal to its root ID.
-                .filter(|episode| episode.id != detail.media.id)
-                .map(|episode| episode.id.clone()),
+            MediaKind::Series => resolution.as_ref().and_then(|value| value.target.clone()),
             MediaKind::Category
             | MediaKind::Collection
             | MediaKind::Franchise
@@ -74,13 +68,15 @@ impl Presentation {
         };
         let mut native = NativeDetailState {
             seasons_tab: None,
-            selected_season: 0,
+            selected_season: resolution.as_ref().map_or(0, |value| value.initial_season),
             seasons: Vec::new(),
+            private_resume: positions.is_some(),
         };
         for playlist in detail.playlists {
             match playlist {
                 NativePlaylist::Generic(value) => {
-                    let rail = projection.native_detail_rail(value.title, value.children);
+                    let rail =
+                        projection.native_detail_rail(value.title, value.children, positions);
                     projection.rails.push(rail);
                 }
                 NativePlaylist::Seasons(value)
@@ -91,7 +87,11 @@ impl Presentation {
                     for season in value.seasons {
                         native.seasons.push(OwnedSeason {
                             number: season.number,
-                            rail: projection.native_detail_rail(season.title, season.episodes),
+                            rail: projection.native_detail_rail(
+                                season.title,
+                                season.episodes,
+                                positions,
+                            ),
                         });
                     }
                 }
@@ -109,9 +109,10 @@ impl Presentation {
                 },
             );
         }
-        let card = projection.native_detail_card(detail.media, ImageRole::Backdrop);
+        let card = projection.native_detail_card(detail.media, ImageRole::Backdrop, None);
         projection.detail = Some(OwnedDetail {
             primary_playback_target,
+            primary_action: resolution.map_or_else(|| "WATCH NOW".into(), |value| value.action),
             native: Some(native),
             card,
             kind,
@@ -188,10 +189,11 @@ impl Presentation {
         &mut self,
         title: String,
         media: Vec<criterion_account::MediaSummary>,
+        positions: Option<&PositionsSnapshot>,
     ) -> OwnedRail {
         let mut cards = Vec::with_capacity(media.len());
         for child in media {
-            cards.push(self.native_detail_card(child, ImageRole::Card));
+            cards.push(self.native_detail_card(child, ImageRole::Card, positions));
         }
         OwnedRail {
             title,
@@ -204,6 +206,7 @@ impl Presentation {
         &mut self,
         media: criterion_account::MediaSummary,
         role: ImageRole,
+        positions: Option<&PositionsSnapshot>,
     ) -> OwnedCard {
         let artwork = self.bind_image(ImageSource::Media {
             id: media.id.clone(),
@@ -226,6 +229,7 @@ impl Presentation {
                 auto_play: false,
             },
         };
+        let saved_fraction = positions.and_then(|positions| positions.progress(&media));
         OwnedCard {
             target: Target::Native(media.id),
             kind: None,
@@ -236,9 +240,62 @@ impl Presentation {
                 .unwrap_or_default(),
             duration_seconds: 0,
             artwork: Some(artwork),
-            saved_fraction: None,
+            saved_fraction,
             native_activation: Some(native_activation),
         }
+    }
+    /// Drop derived private selection while preserving the anonymous metadata.
+    pub(crate) fn clear_native_resume(&mut self) {
+        let Some(detail) = self.detail.as_mut() else {
+            return;
+        };
+        let Some(native) = detail
+            .native
+            .as_mut()
+            .filter(|native| native.private_resume)
+        else {
+            return;
+        };
+        native.private_resume = false;
+        native.selected_season = 0;
+        if detail.kind == DetailKind::Series {
+            detail.primary_playback_target = native
+                .seasons
+                .first()
+                .and_then(|season| season.rail.cards.first())
+                .and_then(|card| card.target.media_id())
+                .filter(|id| Some(*id) != detail.card.target.media_id())
+                .cloned();
+            detail.primary_action = "WATCH FIRST EPISODE".into();
+        }
+        for card in self
+            .rails
+            .iter_mut()
+            .flat_map(|rail| &mut rail.cards)
+            .chain(
+                native
+                    .seasons
+                    .iter_mut()
+                    .flat_map(|season| &mut season.rail.cards),
+            )
+        {
+            card.saved_fraction = None;
+        }
+        self.total = u32::try_from(
+            self.rails
+                .iter()
+                .map(|rail| rail.cards.len())
+                .sum::<usize>()
+                + if self.selected_playlist == native.seasons_tab {
+                    native
+                        .seasons
+                        .first()
+                        .map_or(0, |season| season.rail.cards.len())
+                } else {
+                    0
+                },
+        )
+        .expect("bounded native detail");
     }
 }
 

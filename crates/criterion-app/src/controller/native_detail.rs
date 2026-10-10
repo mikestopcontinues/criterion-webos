@@ -70,7 +70,12 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             .as_ref()
             .is_some_and(|demand| self.clock.now() >= demand.deadline)
     }
-    pub(crate) fn admit_native_detail(&mut self, read: &NativeDetailRead, detail: NativeDetail) {
+    pub(crate) fn admit_native_detail(
+        &mut self,
+        read: &NativeDetailRead,
+        detail: NativeDetail,
+        positions: Option<&crate::native_resume::PositionsSnapshot>,
+    ) {
         if !self.native_detail_owns(read) {
             return;
         }
@@ -78,7 +83,8 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             self.fail_native_detail(read);
             return;
         }
-        match crate::presentation::Presentation::native_detail(detail) {
+        let positions = positions.filter(|_| self.account_session == Some(read.epoch));
+        match crate::presentation::Presentation::native_detail(detail, positions) {
             Ok(view) => {
                 self.view = view;
                 self.native_detail_demand = None;

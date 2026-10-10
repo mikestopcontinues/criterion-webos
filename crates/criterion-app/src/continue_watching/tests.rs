@@ -1,3 +1,8 @@
+fn shelf_from_admitted(
+    data: criterion_account::ContinueWatching,
+) -> Result<ContinueWatchingShelf, crate::continue_watching::ShelfLimit> {
+    ContinueWatchingShelf::from_admitted(data).map(|(shelf, _)| shelf)
+}
 use super::*;
 use criterion_account::{MediaKind, Position};
 use criterion_provider::MediaId;
@@ -34,7 +39,7 @@ fn received_order_keeps_the_first_exact_id_and_its_original_media() {
     first.duration = Some(95.25);
     first.release_date =
         Some(time::Date::from_calendar_date(2000, time::Month::February, 29).unwrap());
-    let shelf = ContinueWatchingShelf::from_admitted(ContinueWatching {
+    let shelf = shelf_from_admitted(ContinueWatching {
         playlist: vec![
             first,
             media("A0000001", "Synthetic second title", MediaKind::Episode),
@@ -111,7 +116,7 @@ fn saved_fraction_uses_the_last_exact_position_only_for_playable_native_kinds() 
     positions[0].commentary_track = Some("Synthetic private commentary".into());
     positions[0].series_id = Some(MediaId::new("Seri0002").unwrap());
     positions[0].series_title = Some("Synthetic private series".into());
-    let shelf = ContinueWatchingShelf::from_admitted(ContinueWatching {
+    let shelf = shelf_from_admitted(ContinueWatching {
         playlist,
         positions,
     })
@@ -148,7 +153,7 @@ fn raw_record_limits_apply_before_duplicate_or_unmatched_rows_are_discarded() {
         .map(|_| media("Film0001", "Synthetic duplicate", MediaKind::Film))
         .collect();
     assert!(matches!(
-        ContinueWatchingShelf::from_admitted(ContinueWatching {
+        shelf_from_admitted(ContinueWatching {
             playlist: duplicate_rows,
             positions: vec![],
         }),
@@ -156,7 +161,7 @@ fn raw_record_limits_apply_before_duplicate_or_unmatched_rows_are_discarded() {
     ));
     let unrelated_positions = (0..513).map(|_| position("Unkn0001", 1, 2)).collect();
     assert!(matches!(
-        ContinueWatchingShelf::from_admitted(ContinueWatching {
+        shelf_from_admitted(ContinueWatching {
             playlist: vec![],
             positions: unrelated_positions,
         }),
@@ -170,7 +175,7 @@ fn owned_title_capacity_is_bounded_even_when_visible_text_is_short() {
     oversized.title = String::with_capacity(65_529);
     oversized.title.push('x');
     assert!(matches!(
-        ContinueWatchingShelf::from_admitted(ContinueWatching {
+        shelf_from_admitted(ContinueWatching {
             playlist: vec![oversized],
             positions: vec![],
         }),
@@ -181,7 +186,7 @@ fn owned_title_capacity_is_bounded_even_when_visible_text_is_short() {
     let mut boundary = media("Film0001", "", MediaKind::Film);
     boundary.title = String::with_capacity(65_528);
     boundary.title.push('x');
-    let shelf = ContinueWatchingShelf::from_admitted(ContinueWatching {
+    let shelf = shelf_from_admitted(ContinueWatching {
         playlist: vec![boundary],
         positions: vec![],
     })
@@ -193,7 +198,7 @@ fn owned_title_capacity_is_bounded_even_when_visible_text_is_short() {
 
 #[test]
 fn saved_fraction_rounds_each_native_operand_to_float32_before_division() {
-    let shelf = ContinueWatchingShelf::from_admitted(ContinueWatching {
+    let shelf = shelf_from_admitted(ContinueWatching {
         playlist: vec![media("Film0001", "Synthetic precision", MediaKind::Film)],
         positions: vec![position("Film0001", 16_777_217, 16_777_219)],
     })
@@ -214,7 +219,7 @@ fn the_full_record_boundary_preserves_every_row_and_its_display_fraction() {
     let positions = (0..512)
         .map(|index| position(&format!("F{index:07}"), index, 512))
         .collect();
-    let shelf = ContinueWatchingShelf::from_admitted(ContinueWatching {
+    let shelf = shelf_from_admitted(ContinueWatching {
         playlist,
         positions,
     })
@@ -233,7 +238,7 @@ fn retained_storage_tracks_title_capacity_and_drops_unrelated_saved_metadata() {
         let mut item = media("Film0001", "", MediaKind::Film);
         item.title = String::with_capacity(capacity);
         item.title.push('x');
-        ContinueWatchingShelf::from_admitted(ContinueWatching {
+        shelf_from_admitted(ContinueWatching {
             playlist: vec![item],
             positions,
         })
@@ -255,7 +260,7 @@ fn retained_storage_tracks_title_capacity_and_drops_unrelated_saved_metadata() {
 
 #[test]
 fn empty_response_is_an_empty_immutable_shelf_with_bounded_storage() {
-    let shelf = ContinueWatchingShelf::from_admitted(ContinueWatching {
+    let shelf = shelf_from_admitted(ContinueWatching {
         playlist: vec![],
         positions: vec![],
     })
@@ -279,7 +284,7 @@ fn only_episode_rows_keep_the_last_exact_saved_series_id_without_remapping_media
     film.series_id = Some(MediaId::new("Seri0005").unwrap());
     let mut franchise = position("Fran0001", 50, 100);
     franchise.series_id = Some(MediaId::new("Seri0006").unwrap());
-    let shelf = ContinueWatchingShelf::from_admitted(ContinueWatching {
+    let shelf = shelf_from_admitted(ContinueWatching {
         playlist: vec![
             media("Epis0001", "Synthetic first episode", MediaKind::Episode),
             media("Epis0002", "Synthetic cleared series", MediaKind::Episode),
@@ -336,7 +341,7 @@ fn episode_series_ids_consume_text_budget_and_discarded_series_ids_do_not() {
         item.title.push('x');
         let mut saved = position("Item0001", 1, 2);
         saved.series_id = series_id;
-        ContinueWatchingShelf::from_admitted(ContinueWatching {
+        shelf_from_admitted(ContinueWatching {
             playlist: vec![item],
             positions: vec![saved],
         })
@@ -386,7 +391,7 @@ fn native_episode_metadata_counts_actual_text_capacity_and_both_retained_series_
     oversized.series_title.as_mut().unwrap().push('x');
     assert!(
         matches!(
-            ContinueWatchingShelf::from_admitted(ContinueWatching {
+            shelf_from_admitted(ContinueWatching {
                 playlist: vec![oversized],
                 positions: vec![],
             }),
@@ -400,7 +405,7 @@ fn native_episode_metadata_counts_actual_text_capacity_and_both_retained_series_
         item.series_id = Some(MediaId::new("Meta0001").unwrap());
         item.series_title = Some(String::with_capacity(capacity));
         item.series_title.as_mut().unwrap().push('x');
-        ContinueWatchingShelf::from_admitted(ContinueWatching {
+        shelf_from_admitted(ContinueWatching {
             playlist: vec![item],
             positions: vec![],
         })
@@ -427,7 +432,7 @@ fn native_episode_metadata_counts_actual_text_capacity_and_both_retained_series_
     boundary.series_title.as_mut().unwrap().push('x');
     let mut saved = position("Epis0001", 25, 100);
     saved.series_id = Some(MediaId::new("Save0001").unwrap());
-    let shelf = ContinueWatchingShelf::from_admitted(ContinueWatching {
+    let shelf = shelf_from_admitted(ContinueWatching {
         playlist: vec![boundary],
         positions: vec![saved],
     })

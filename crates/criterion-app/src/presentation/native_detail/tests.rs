@@ -93,7 +93,7 @@ fn film_lends_native_root_long_description_and_own_primary_target() {
     source.metadata.description_long = Some("Long description".into());
     source.metadata.description_medium = Some("Medium description".into());
     source.metadata.description = Some("Base description".into());
-    let presentation = Presentation::native_detail(source).unwrap();
+    let presentation = Presentation::native_detail(source, None).unwrap();
     presentation.with_view(LoginView::SignedOut, |view| {
         let native = view.detail.as_ref().expect("native Detail header");
         assert_eq!(native.kind, DetailKind::Film);
@@ -123,7 +123,7 @@ fn nine_native_root_kinds_keep_identity_and_only_proved_primary_targets() {
         (MediaKind::Franchise, DetailKind::Franchise, false),
         (MediaKind::Live, DetailKind::Live, false),
     ] {
-        let presentation = Presentation::native_detail(detail(kind)).unwrap();
+        let presentation = Presentation::native_detail(detail(kind), None).unwrap();
         presentation.with_view(LoginView::SignedOut, |view| {
             let native = view.detail.as_ref().unwrap();
             assert_eq!(native.kind, displayed);
@@ -151,7 +151,7 @@ fn description_uses_first_length_positive_variant_without_trimming_or_editorial_
         source.metadata.description = base.map(String::from);
         source.metadata.description_staff = Some("Staff description".into());
         source.metadata.description_pull_quote = Some("Pull quote".into());
-        let presentation = Presentation::native_detail(source).unwrap();
+        let presentation = Presentation::native_detail(source, None).unwrap();
         presentation.with_view(LoginView::SignedOut, |view| {
             assert_eq!(view.detail.as_ref().unwrap().description, expected);
         });
@@ -160,7 +160,7 @@ fn description_uses_first_length_positive_variant_without_trimming_or_editorial_
 
 #[test]
 fn series_displays_one_episodes_tab_from_first_seasons_before_ordered_generic_tabs() {
-    let presentation = Presentation::native_detail(series()).unwrap();
+    let presentation = Presentation::native_detail(series(), None).unwrap();
     presentation.with_view(LoginView::SignedOut, |view| {
         let native = view.detail.as_ref().unwrap();
         assert_eq!(native.kind, DetailKind::Series);
@@ -199,7 +199,7 @@ fn series_displays_one_episodes_tab_from_first_seasons_before_ordered_generic_ta
 
 #[test]
 fn season_selection_changes_only_active_episodes_and_survives_a_generic_tab_visit() {
-    let mut presentation = Presentation::native_detail(series()).unwrap();
+    let mut presentation = Presentation::native_detail(series(), None).unwrap();
     let bytes = presentation.estimated_bytes();
     presentation.select_native_season(1);
     presentation.with_view(LoginView::SignedOut, |view| {
@@ -272,7 +272,7 @@ fn native_child_activation_uses_exact_episode_id_and_never_public_target_meaning
         })
         .collect();
     source.playlists.push(generic("Native children", children));
-    let presentation = Presentation::native_detail(source).unwrap();
+    let presentation = Presentation::native_detail(source, None).unwrap();
     for (index, kind) in kinds.into_iter().enumerate() {
         let id = MediaId::new(&format!("Child{:03}", index + 1)).unwrap();
         let expected = match kind {
@@ -317,7 +317,7 @@ fn root_joins_only_full_metadata_and_binds_exact_landscape_backdrop_and_child_ca
     let mut child = media("Child001", "Summary title", MediaKind::Original);
     child.duration = Some(45.25);
     source.playlists.push(generic("Related", vec![child]));
-    let presentation = Presentation::native_detail(source).unwrap();
+    let presentation = Presentation::native_detail(source, None).unwrap();
     presentation.with_view(LoginView::SignedOut, |view| {
         let native = view.detail.as_ref().unwrap();
         assert_eq!(
@@ -367,7 +367,7 @@ fn raw_duplicate_cardinality_is_bounded_before_selecting_display_groups() {
     playlist.raw_child_count = 512;
     source.playlists.push(NativePlaylist::Generic(playlist));
     assert!(matches!(
-        Presentation::native_detail(source),
+        Presentation::native_detail(source, None),
         Err(super::super::ProjectionLimit::TooLarge)
     ));
 }
@@ -380,7 +380,7 @@ fn oversized_input_allocation_refuses_even_for_discarded_metadata() {
     source.metadata.deeplink = Some(oversized);
     assert!(source.estimated_bytes() > 512 * 1024);
     assert!(matches!(
-        Presentation::native_detail(source),
+        Presentation::native_detail(source, None),
         Err(super::super::ProjectionLimit::TooLarge)
     ));
 }
@@ -391,7 +391,7 @@ fn final_retained_projection_budget_includes_both_owned_root_title_uses() {
     source.media.title = "T".repeat(256 * 1024);
     assert!(source.estimated_bytes() < 512 * 1024);
     assert!(matches!(
-        Presentation::native_detail(source),
+        Presentation::native_detail(source, None),
         Err(super::super::ProjectionLimit::TooLarge)
     ));
 }
@@ -408,7 +408,7 @@ fn dormant_season_title_and_episode_allocations_remain_metered_without_view_clon
     let mut dormant_episode = String::with_capacity(256 * 1024);
     dormant_episode.push('e');
     first.seasons[1].episodes[0].title = dormant_episode;
-    let mut presentation = Presentation::native_detail(source).unwrap();
+    let mut presentation = Presentation::native_detail(source, None).unwrap();
     let bytes = presentation.estimated_bytes();
     assert!(bytes >= 288 * 1024);
     presentation.with_view(LoginView::SignedOut, |view| {
@@ -457,7 +457,7 @@ fn equal_native_ids_take_activation_only_from_the_active_group_and_season() {
             vec![media("Shared01", "Film with shared ID", MediaKind::Film)],
         ),
     ];
-    let mut presentation = Presentation::native_detail(source).unwrap();
+    let mut presentation = Presentation::native_detail(source, None).unwrap();
     let shared = Target::Native(MediaId::new("Shared01").unwrap());
     let unique = Target::Native(MediaId::new("Unique01").unwrap());
     assert_eq!(
@@ -498,12 +498,12 @@ fn cardinality_boundaries_include_root_all_groups_and_ignored_later_seasons() {
         };
         playlist.raw_child_count = raw_count;
         source.playlists.push(NativePlaylist::Generic(playlist));
-        assert_eq!(Presentation::native_detail(source).is_ok(), accepted);
+        assert_eq!(Presentation::native_detail(source, None).is_ok(), accepted);
     }
     for (group_count, accepted) in [(32, true), (33, false)] {
         let mut source = detail(MediaKind::Category);
         source.playlists = (0..group_count).map(|_| generic("", Vec::new())).collect();
-        assert_eq!(Presentation::native_detail(source).is_ok(), accepted);
+        assert_eq!(Presentation::native_detail(source, None).is_ok(), accepted);
     }
     for (season_count, accepted) in [(64, true), (65, false)] {
         let mut source = detail(MediaKind::Series);
@@ -517,7 +517,7 @@ fn cardinality_boundaries_include_root_all_groups_and_ignored_later_seasons() {
                 .playlists
                 .push(seasons(vec![season(65, "Ignored group", Vec::new())]));
         }
-        assert_eq!(Presentation::native_detail(source).is_ok(), accepted);
+        assert_eq!(Presentation::native_detail(source, None).is_ok(), accepted);
     }
 }
 
@@ -533,7 +533,7 @@ fn raw_count_cannot_hide_actual_children_or_discarded_featured_and_season_rows()
     playlist.raw_child_count = 0;
     source.playlists.push(NativePlaylist::Generic(playlist));
     assert!(matches!(
-        Presentation::native_detail(source),
+        Presentation::native_detail(source, None),
         Err(super::super::ProjectionLimit::TooLarge)
     ));
     let mut source = detail(MediaKind::Collection);
@@ -547,7 +547,7 @@ fn raw_count_cannot_hide_actual_children_or_discarded_featured_and_season_rows()
         vec![media("Child001", "Child", MediaKind::Film)],
     ));
     assert!(matches!(
-        Presentation::native_detail(source),
+        Presentation::native_detail(source, None),
         Err(super::super::ProjectionLimit::TooLarge)
     ));
     let mut source = detail(MediaKind::Series);
@@ -555,7 +555,7 @@ fn raw_count_cannot_hide_actual_children_or_discarded_featured_and_season_rows()
     ignored.raw_episode_count = 512;
     source.playlists = vec![seasons(Vec::new()), seasons(vec![ignored])];
     assert!(matches!(
-        Presentation::native_detail(source),
+        Presentation::native_detail(source, None),
         Err(super::super::ProjectionLimit::TooLarge)
     ));
 }
@@ -585,7 +585,7 @@ fn missing_series_entries_never_invent_primary_episode_or_consult_later_seasons(
     ] {
         let mut source = detail(MediaKind::Series);
         source.playlists = playlists;
-        let mut presentation = Presentation::native_detail(source).unwrap();
+        let mut presentation = Presentation::native_detail(source, None).unwrap();
         presentation.select_native_season(usize::MAX);
         presentation.with_view(LoginView::SignedOut, |view| {
             assert!(
@@ -622,7 +622,7 @@ fn franchise_generic_titles_and_children_keep_source_order_without_kind_coercion
             )],
         ),
     ];
-    let mut presentation = Presentation::native_detail(source).unwrap();
+    let mut presentation = Presentation::native_detail(source, None).unwrap();
     presentation.with_view(LoginView::SignedOut, |view| {
         assert_eq!(view.detail.as_ref().unwrap().kind, DetailKind::Franchise);
         assert!(
@@ -653,7 +653,7 @@ fn franchise_generic_titles_and_children_keep_source_order_without_kind_coercion
 
 #[test]
 fn retained_byte_limit_accepts_exactly_512_kib_and_refuses_one_byte_more() {
-    let baseline = Presentation::native_detail(detail(MediaKind::Film))
+    let baseline = Presentation::native_detail(detail(MediaKind::Film), None)
         .unwrap()
         .estimated_bytes();
     for (extra, accepted) in [(0, true), (1, false)] {
@@ -662,7 +662,7 @@ fn retained_byte_limit_accepts_exactly_512_kib_and_refuses_one_byte_more() {
         description.push('d');
         source.metadata.description_long = Some(description);
         assert!(source.estimated_bytes() < 512 * 1024);
-        let result = Presentation::native_detail(source);
+        let result = Presentation::native_detail(source, None);
         assert_eq!(result.is_ok(), accepted);
         if let Ok(presentation) = result {
             assert_eq!(presentation.estimated_bytes(), 512 * 1024);
@@ -684,7 +684,7 @@ fn series_primary_rejects_first_episode_id_equal_to_root_without_selecting_a_lat
             media("Ep000002", "Later episode", MediaKind::Episode),
         ],
     )])];
-    let presentation = Presentation::native_detail(source).unwrap();
+    let presentation = Presentation::native_detail(source, None).unwrap();
     presentation.with_view(LoginView::SignedOut, |view| {
         let native = view.detail.as_ref().unwrap();
         assert_eq!(native.kind, DetailKind::Series);
@@ -725,7 +725,7 @@ fn native_information_preserves_absence_and_present_empty_metadata() {
         source.metadata.country = items.clone();
         source.metadata.language = items;
         source.metadata.content_warnings = warnings.clone();
-        let presentation = Presentation::native_detail(source).unwrap();
+        let presentation = Presentation::native_detail(source, None).unwrap();
         presentation.with_view(LoginView::SignedOut, |view| {
             let native = view.detail.as_ref().unwrap();
             assert_eq!(native.starring, expected);
@@ -745,7 +745,7 @@ fn native_root_and_child_years_use_unpadded_calendar_years() {
         let mut child = media("Child001", "Native child", MediaKind::Original);
         child.release_date = Some(date);
         source.playlists.push(generic("Related", vec![child]));
-        let presentation = Presentation::native_detail(source).unwrap();
+        let presentation = Presentation::native_detail(source, None).unwrap();
         presentation.with_view(LoginView::SignedOut, |view| {
             assert_eq!(view.detail.as_ref().unwrap().card.year, expected);
             assert_eq!(view.rails[0].cards[0].year, expected);

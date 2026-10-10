@@ -70,8 +70,14 @@ impl<
                     && issued.read.epoch == loaded.session_generation()
                     && loaded.matches_request(&ReadRequest::ContinueWatching) =>
             {
-                if let Loaded::ContinueWatching(data) = loaded.data {
-                    self.controller.admit_continue_watching(&issued.read, data);
+                if let Loaded::ContinueWatching(data) = loaded.data
+                    && let Some(snapshot) =
+                        self.controller.admit_continue_watching(&issued.read, data)
+                {
+                    self.positions = Some(super::AccountPositions {
+                        epoch: issued.read.epoch,
+                        snapshot,
+                    });
                 }
             }
             Err(error) => self.retry_or_fail_continue_watching(issued.read, error),

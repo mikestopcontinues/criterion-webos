@@ -78,7 +78,13 @@ impl<
                     }) =>
             {
                 if let Loaded::NativeDetail(detail) = loaded.data {
-                    self.controller.admit_native_detail(&issued.read, *detail);
+                    let positions = self
+                        .positions
+                        .as_ref()
+                        .filter(|positions| positions.epoch == issued.read.epoch)
+                        .map(|positions| &positions.snapshot);
+                    self.controller
+                        .admit_native_detail(&issued.read, *detail, positions);
                 }
             }
             _ => self.controller.fail_native_detail(&issued.read),

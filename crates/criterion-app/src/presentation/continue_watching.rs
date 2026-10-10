@@ -230,6 +230,7 @@ impl Presentation {
     /// Drops owned private view references and retires the observed epoch. This
     /// does not claim allocator overwriting, GPU-cache erasure or issuer cleanup.
     pub(crate) fn clear_private_rows(&mut self) {
+        self.clear_native_resume();
         self.continue_watching.retired_through = self.continue_watching.max_epoch;
         self.continue_watching.read = ReadState::Unrequested;
         let mut cleared = false;
@@ -356,6 +357,11 @@ mod tests {
         block
     }
 
+    fn shelf_from_admitted(
+        data: criterion_account::ContinueWatching,
+    ) -> Result<ContinueWatchingShelf, crate::continue_watching::ShelfLimit> {
+        ContinueWatchingShelf::from_admitted(data).map(|(shelf, _)| shelf)
+    }
     fn shelf_all_kinds() -> ContinueWatchingShelf {
         use criterion_account::{ContinueWatching, MediaKind, Position};
         let items = [
@@ -369,7 +375,7 @@ mod tests {
             ("Fran0001", MediaKind::Franchise),
             ("Live0001", MediaKind::Live),
         ];
-        ContinueWatchingShelf::from_admitted(ContinueWatching {
+        shelf_from_admitted(ContinueWatching {
             playlist: items
                 .iter()
                 .map(|(id, kind)| native_media(id, "Private native title", *kind))
@@ -602,7 +608,7 @@ mod tests {
             .iter()
             .map(|b| b.key.clone())
             .collect::<Vec<_>>();
-        let shelf = ContinueWatchingShelf::from_admitted(criterion_account::ContinueWatching {
+        let shelf = shelf_from_admitted(criterion_account::ContinueWatching {
             playlist: vec![
                 native_media(
                     "PubF0001",
@@ -653,7 +659,7 @@ mod tests {
     #[test]
     fn repeated_slots_refuse_global_card_or_heap_overflow_atomically() {
         for (rows, slots, title_len) in [(512, 9, 8), (64, 10, 1000)] {
-            let shelf = ContinueWatchingShelf::from_admitted(criterion_account::ContinueWatching {
+            let shelf = shelf_from_admitted(criterion_account::ContinueWatching {
                 playlist: (0..rows)
                     .map(|index| {
                         native_media(
@@ -816,7 +822,7 @@ mod tests {
         assert!(view.continue_watching_needs_read(2));
         assert_eq!(view.admit_continue_watching(2, &shelf), Ok(false));
         view.mark_continue_watching_pending(2);
-        let empty = ContinueWatchingShelf::from_admitted(criterion_account::ContinueWatching {
+        let empty = shelf_from_admitted(criterion_account::ContinueWatching {
             playlist: vec![],
             positions: vec![],
         })
@@ -845,7 +851,7 @@ mod tests {
 
     #[test]
     fn replaced_slot_artwork_is_private_storage_even_when_its_source_was_already_bound() {
-        let shelf = ContinueWatchingShelf::from_admitted(criterion_account::ContinueWatching {
+        let shelf = shelf_from_admitted(criterion_account::ContinueWatching {
             playlist: (0..512)
                 .map(|index| {
                     native_media(
@@ -913,7 +919,7 @@ mod tests {
             series_id: series.map(|id| MediaId::new(id).unwrap()),
             series_title: None,
         };
-        let shelf = ContinueWatchingShelf::from_admitted(ContinueWatching {
+        let shelf = shelf_from_admitted(ContinueWatching {
             playlist: vec![
                 first,
                 second,

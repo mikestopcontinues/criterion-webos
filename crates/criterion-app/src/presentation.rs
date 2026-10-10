@@ -221,6 +221,7 @@ impl Presentation {
         });
         projection.detail = Some(OwnedDetail {
             primary_playback_target,
+            primary_action: "WATCH NOW".into(),
             native: None,
             card,
             kind,
@@ -322,10 +323,11 @@ impl Presentation {
                 + hero.logo.as_ref().map_or(0, String::capacity);
         }
         if let Some(detail) = &self.detail {
-            bytes += detail
-                .primary_playback_target
-                .as_ref()
-                .map_or(0, |id| id.as_str().len())
+            bytes += detail.primary_action.capacity()
+                + detail
+                    .primary_playback_target
+                    .as_ref()
+                    .map_or(0, |id| id.as_str().len())
                 + detail
                     .native
                     .as_ref()
@@ -660,11 +662,7 @@ impl Presentation {
             countries: detail.countries.as_deref(),
             languages: detail.languages.as_deref(),
             content_warnings: detail.content_warnings.as_deref(),
-            primary_action: if detail.kind == DetailKind::Series {
-                "WATCH FIRST EPISODE"
-            } else {
-                "WATCH NOW"
-            },
+            primary_action: &detail.primary_action,
             primary_playback_target: detail.primary_playback_target.as_ref(),
             selected_playlist: self.selected_playlist,
             seasons: detail
@@ -744,6 +742,7 @@ struct OwnedFilter {
 }
 struct OwnedDetail {
     primary_playback_target: Option<MediaId>,
+    primary_action: String,
     native: Option<native_detail::NativeDetailState>,
     card: OwnedCard,
     kind: DetailKind,

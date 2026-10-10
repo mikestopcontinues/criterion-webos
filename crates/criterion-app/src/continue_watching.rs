@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Immutable saved-progress display from one admitted native response.
+use crate::native_resume::PositionsSnapshot;
 use criterion_account::{ContinueWatching, MediaKind, MediaSummary};
 use criterion_provider::MediaId;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 pub(crate) const MAX_ROWS: usize = 512;
 pub(crate) const MAX_OWNED_TEXT_BYTES: usize = 64 * 1024;
@@ -29,7 +30,9 @@ impl ContinueWatchingShelf {
     /// and series-title capacities plus validated media/series ID lengths must
     /// fit 64 KiB before join scratch. Retained text, including Episode saved
     /// series IDs in addition to native metadata, also fits 64 KiB.
-    pub(crate) fn from_admitted(data: ContinueWatching) -> Result<Self, ShelfLimit> {
+    pub(crate) fn from_admitted(
+        data: ContinueWatching,
+    ) -> Result<(Self, PositionsSnapshot), ShelfLimit> {
         if data.playlist.len() > MAX_ROWS || data.positions.len() > MAX_ROWS {
             return Err(ShelfLimit::TooLarge);
         }
@@ -43,35 +46,18 @@ impl ContinueWatchingShelf {
 
         let mut rows = Vec::with_capacity(data.playlist.len());
         let mut seen = HashSet::with_capacity(data.playlist.len());
-        let mut positions: HashMap<_, _> = data
-            .positions
-            .into_iter()
-            .map(|position| {
-                (
-                    position.media_id,
-                    (position.pos, position.dur, position.series_id),
-                )
-            })
-            .collect();
+        let positions =
+            PositionsSnapshot::from_admitted(data.positions).map_err(|_| ShelfLimit::TooLarge)?;
         for media in data.playlist {
             if seen.insert(media.id.clone()) {
-                let (saved_fraction, series_id) =
+                let saved_fraction = positions.progress(&media);
+                let series_id = if media.kind == MediaKind::Episode {
                     positions
-                        .remove(&media.id)
-                        .map_or((None, None), |(pos, dur, series_id)| {
-                            (
-                                (matches!(
-                                    media.kind,
-                                    MediaKind::Film | MediaKind::Supplement | MediaKind::Episode
-                                ) && dur > 0)
-                                    .then(|| ((pos as f32) / (dur as f32)).clamp(0.0, 1.0)),
-                                if media.kind == MediaKind::Episode {
-                                    series_id
-                                } else {
-                                    None
-                                },
-                            )
-                        });
+                        .position(&media.id)
+                        .and_then(|position| position.series_id.clone())
+                } else {
+                    None
+                };
                 rows.push(ContinueWatchingRow {
                     media,
                     saved_fraction,
@@ -83,7 +69,7 @@ impl ContinueWatchingShelf {
         if shelf.storage_bytes()? > MAX_RETAINED_BYTES {
             return Err(ShelfLimit::TooLarge);
         }
-        Ok(shelf)
+        Ok((shelf, positions))
     }
     fn storage_bytes(&self) -> Result<usize, ShelfLimit> {
         let row_bytes = self
