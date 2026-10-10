@@ -23,6 +23,30 @@ jobs:
           persist-credentials: false
       - name: Build pinned development environment
         run: ./dev image
+      - name: Audit locked Rust dependencies
+        shell: bash
+        run: |
+          mkdir -p .local/checks/dependency-audit
+          set +e
+          docker run --rm --init --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=256m \
+            --mount type=volume,src=criterion-webos-audit-cargo,dst=/cargo \
+            --mount type=volume,src=criterion-webos-audit-target,dst=/target \
+            --mount "type=bind,src=$PWD/Cargo.lock,dst=/workspace/Cargo.lock,readonly" \
+            --workdir /tmp --env CARGO_BUILD_JOBS=2 \
+            criterion-webos-development:20261009 sh -ec '
+              cargo +nightly-2026-07-02 install cargo-audit --version 0.22.2 \
+                --locked --no-default-features --root /cargo/audit-tools --jobs 2 >&2
+              /cargo/audit-tools/bin/cargo-audit --version >&2
+              /cargo/audit-tools/bin/cargo-audit audit --file /workspace/Cargo.lock \
+                --db /cargo/advisory-db --json --deny warnings
+            ' > .local/checks/dependency-audit/report.json
+          task_audit_exit=$?
+          set -e
+          cat .local/checks/dependency-audit/report.json
+          sha256sum Cargo.lock .local/checks/dependency-audit/report.json
+          printf 'Dependency audit exit: %s\n' "$task_audit_exit"
+          exit "$task_audit_exit"
       - name: Format
         run: ./dev cargo fmt --all -- --check
       - name: Behavior and ownership tests
