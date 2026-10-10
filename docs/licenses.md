@@ -1,12 +1,18 @@
 # Binary licenses and corresponding source
 
-The GPL-3.0-or-later application and disposable caller can be published as source. A public IPK also needs the licenses and notices for its embedded dependencies, an exact corresponding-source distribution, and a resolved grant for every redistributed SDK object. Both package sources admit the shared [NOTICES.md](../NOTICES.md) compendium alongside the project and copied-code notices. [Native packaging](native-package.md) and the [caller package](native-caller.md#disposable-package) own the actual payload and release attestation; final notice bytes, runtime attribution and matching source publication remain separate admissions.
+The GPL-3.0-or-later application and disposable caller can be published as source. A public IPK also needs the licenses and notices for its embedded dependencies, an exact corresponding-source distribution, and a resolved grant for every redistributed SDK object. Both package sources admit the shared [NOTICES.md](../NOTICES.md) compendium alongside the project and copied-code notices. [Native packaging](native-package.md) and the [caller package](native-caller.md#disposable-package) own the actual payload and release attestation; development byte matching, complete runtime attribution and matching source publication are separate admissions.
 
 ## Inventory boundary
 
 The inventory is the conservative union of the selected `criterion-app` and `criterion-native-caller-probe` ARM32 graphs with `webos` enabled, including the account graph selected by the application. It uses normal and build edges and excludes development-only edges. The caller adds its original GPL package record; its dependency records are already covered by the app inventory. Build tools and procedural macros are retained conservatively; their presence does not mean their executable code is embedded. Cargo features, object dead stripping and `-Z build-std` prevent `Cargo.lock` alone from being an ELF inventory. The final release must reconcile this inventory with its own clean source, admitted workspace/lock, selected features, compiler, link inputs and output bytes.
 
-The inspected development ELF's exact source and lock are recorded by its build receipt. Its hashes, font byte matches, SDK archive symbols, dependency graph and source-pin chain are retained in the primary journal and ignored licensing receipts. They establish the inspected artifact, rather than future binaries. The canonical Cargo cache and target volume were mounted read-only in the pinned native Docker image; only metadata and object inspection tools ran. No target executable, compiler build, GPU, account, provider or TV operation ran for this inventory.
+## Development reconciliation
+
+For the [inspected carousel development candidate](native-package.md#development-verification-scope), the normalized MAIN and native caller IPKs contain exact current copies of the project GPL text, full notice compendium and their copied-code notices. The app, caller and broker source/feature graphs, matching ELF/maps and retained GNU source grants were reconciled. The selected external package records match the notice index; the broker adds its original GPL package record. These bounded checks establish artifact and notice correspondence, while complete incorporated-runtime attribution and final grant applicability remain release admissions.
+
+The matching development source candidate contains the complete committed project revision, modified vendors, locked registry archives and embedded resources. Its pinned Rust source, runtime lock, license records and compiler identity match the inspected build inputs. Archive member hashes, sizes and modes match its manifest, and project members match the clean revision. Required build inputs, individual SDK source-exclusion eligibility and public access to the exact source still need final release verification under [the corresponding-source contract](#corresponding-source-and-release-completion).
+
+Exact artifact hashes, source/notice/font checks and preserved failures live in [the primary journal](../logs/2026-10-10.md) and ignored receipts. The reconciliation reads completed artifacts and source without target execution; it does not establish reproducibility, C4 behavior or licensed playback. [SDK provenance limits](#sdk-source-provenance-and-its-limits) remain explicit.
 
 ## Code and embedded data
 
@@ -26,7 +32,7 @@ The remaining terms include Unicode-3.0 data, CDLA-Permissive-2.0 certificate ro
 
 ## Embedded fonts
 
-The UI application's four TTF files are the unmodified files selected by `epaint_default_fonts`. Their font bytes and source licenses must remain in the corresponding-source dependency archive. UI icon changes do not remove these fallback fonts. The disposable caller does not select this font package or AWS-LC.
+The UI application's four TTF files are the unmodified files selected by `epaint_default_fonts`. Each complete source font buffer occurs once in the inspected development app ELF and is absent from the caller and broker; their packaged ELF bytes match the SDK outputs. The matching source candidate retains the full font buffers and individual licenses; the notice compendium retains their full license texts. UI icon changes do not remove these fallback fonts. The disposable caller does not select this font package or AWS-LC.
 
 | File | Actual copyright and license source |
 | --- | --- |
@@ -36,6 +42,10 @@ The UI application's four TTF files are the unmodified files selected by `epaint
 | `emoji-icon-font.ttf` | John Slegers 2014 in `fonts/emoji-icon-font-mit-license.txt`, MIT. |
 
 OFL and UFL allow embedding, with the copyright/license preservation and naming conditions in their retained text. Hack's component grant includes conditions not represented by the crate's top-level SPDX expression. Preserve the original notices and font names; any future font modification needs a new license/name review.
+
+## Disposable UI and player probes
+
+The [packaged lifetime probe](probe-player.md) UI and player IPKs retain the webOSTV vendor license but omit the project GPL text and full notice compendium. The player package includes the original GPL Rust broker. These disposable development probes are not public binary candidates in this pass; any public distribution needs separate project, dependency and copied-code notices plus exact corresponding-source admission. This gap is separate from the MAIN and native caller packages' verified notice copies and does not change their development byte matching or unresolved release obligations.
 
 ## SDK and stock runtime libraries
 
