@@ -75,13 +75,13 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         read: &NativeDetailRead,
         detail: NativeDetail,
         positions: Option<&crate::native_resume::PositionsSnapshot>,
-    ) {
+    ) -> Option<super::NativePlaySelection> {
         if !self.native_detail_owns(read) {
-            return;
+            return None;
         }
         if self.native_detail_expired() || detail.media.id != read.id {
             self.fail_native_detail(read);
-            return;
+            return None;
         }
         let positions = positions.filter(|_| self.account_session == Some(read.epoch));
         match crate::presentation::Presentation::native_detail(detail, positions) {
@@ -89,18 +89,32 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                 self.view = view;
                 self.native_detail_demand = None;
                 self.trim_history();
+                self.retire_native_auto_play();
+                if read.auto_play {
+                    let selected = self.view.with_view(LoginView::SignedOut, |view| {
+                        view.detail
+                            .as_ref()
+                            .and_then(|detail| detail.primary_playback_target.cloned())
+                    });
+                    return selected.and_then(|id| {
+                        self.native_primary_play(&id, super::NativePlayTrigger::DetailAutoPlay)
+                    });
+                }
             }
             Err(_) => self.fail_native_detail(read),
         }
+        None
     }
     pub(crate) fn fail_native_detail(&mut self, read: &NativeDetailRead) {
         if self.native_detail_owns(read) {
             self.view.set_status(LoadState::Error);
             self.native_detail_demand = None;
+            self.retire_native_auto_play();
         }
     }
     pub(crate) fn cancel_native_detail(&mut self) {
         self.native_detail_demand = None;
+        self.retire_native_auto_play();
     }
     pub(crate) fn abandon_native_detail(&mut self) {
         if self.native_detail_demand.is_some() {

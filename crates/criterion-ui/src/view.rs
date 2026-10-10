@@ -4,6 +4,13 @@ use egui::{Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 pub const LOGICAL_SIZE: [f32; 2] = [1920.0, 1080.0];
 pub const MAX_VISIBLE_CARDS: usize = 15;
+/// Fixed, nonprivate runtime feedback; never part of navigation history.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlaybackFeedback {
+    #[default]
+    None,
+    Unavailable,
+}
 pub(crate) const GOLD: Color32 = Color32::from_rgb(181, 138, 22);
 pub(crate) const WHITE: Color32 = Color32::from_rgb(239, 239, 239);
 pub(crate) const MUTED: Color32 = Color32::from_rgb(151, 151, 151);
@@ -163,6 +170,9 @@ pub struct UiFrame {
 }
 
 impl AppUi {
+    pub fn set_playback_feedback(&mut self, feedback: PlaybackFeedback) {
+        self.playback_feedback = feedback;
+    }
     pub fn render(&mut self, mut input: egui::RawInput, data: &ViewData<'_>) -> UiFrame {
         self.sync_login(data.login);
         self.sync_rail(data.login);
@@ -499,6 +509,20 @@ impl AppUi {
                 && let Some(detail) = &data.detail
             {
                 self.paint_information(&p, detail);
+            }
+            if self.page() == Page::Detail
+                && data.status == LoadState::Ready
+                && data.detail.is_some()
+                && self.playback_feedback == PlaybackFeedback::Unavailable
+            {
+                label(
+                    &p,
+                    [150.0, 20.0],
+                    "Playback unavailable",
+                    24.0,
+                    WHITE,
+                    1620.0,
+                );
             }
         });
         for card in &visible_cards {

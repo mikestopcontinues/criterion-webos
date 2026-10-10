@@ -901,6 +901,8 @@ fn cached_anonymous_series_reset_keeps_a_visible_canonical_card_focus() {
 mod list_membership_tests;
 #[path = "native_featured_tests.rs"]
 mod native_featured_tests;
+#[path = "native_play_tests.rs"]
+mod native_play_tests;
 #[path = "native_runtime_tests.rs"]
 mod native_runtime_tests;
 #[path = "native_sort_tests.rs"]

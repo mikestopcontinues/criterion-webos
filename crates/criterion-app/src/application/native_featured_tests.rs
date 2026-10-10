@@ -158,7 +158,9 @@ fn feature_film_and_tab_episode_with_same_id_keep_their_selected_actions() {
         Page::Detail,
         fixture.runtime.handle(),
     );
-    assert!(matches!(effect, Effect::Play(id) if id.as_str() == "Related1"));
+    assert!(
+        matches!(effect, Effect::NativePlay(selection) if selection.selected.as_str() == "Related1" && selection.trigger == crate::controller::NativePlayTrigger::EpisodeCard(Focus::Card { row: 0, column: 0 }))
+    );
     assert!(
         fixture.native_ready("Listed01"),
         "Episode Play leaves its origin unchanged"

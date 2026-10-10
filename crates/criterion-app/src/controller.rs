@@ -4,6 +4,9 @@ mod catalog;
 mod continue_watching;
 mod list_membership;
 mod native_detail;
+mod native_play;
+pub(crate) use native_play::saved_start_ms;
+pub(crate) use native_play::{NativePlaySelection, NativePlayTrigger};
 mod native_sort;
 pub(crate) use list_membership::MembershipScope;
 pub(crate) use native_detail::NativeDetailRead;
@@ -71,6 +74,7 @@ pub(crate) enum Effect {
     CancelAuthentication,
     Logout,
     Play(MediaId),
+    NativePlay(NativePlaySelection),
     ToggleList(MediaId),
     VoiceSearch,
     Exit,
@@ -141,6 +145,10 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     pub(crate) fn command(&mut self, command: Command, page: Page, runtime: &Handle) -> Effect {
+        let card_focus = match &command {
+            Command::ActivateCard { focus, .. } => Some(*focus),
+            _ => None,
+        };
         let card_action = if let Command::ActivateCard { target, focus } = &command {
             let Some(action) = self.view.selected_card_action(self.page, *focus, target) else {
                 return Effect::None;
@@ -170,7 +178,11 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             Command::Open(target) | Command::ActivateCard { target, .. } => {
                 let native = card_action.unwrap_or_else(|| self.view.native_activation(&target));
                 if let Some(crate::presentation::NativeActivation::Play { id }) = &native {
-                    return Effect::Play(id.clone());
+                    return card_focus
+                        .and_then(|focus| {
+                            self.native_play_selection(id, NativePlayTrigger::EpisodeCard(focus))
+                        })
+                        .map_or(Effect::None, Effect::NativePlay);
                 }
                 self.remember();
                 self.page = page;
@@ -400,7 +412,14 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             Command::RetryAuthentication => return Effect::RetryAuthentication,
             Command::CancelAuthentication => return Effect::CancelAuthentication,
             Command::Logout => return Effect::Logout,
-            Command::Play(id) => return Effect::Play(id),
+            Command::Play(id) => {
+                return if matches!(self.query, Some(Query::NativeDetail { .. })) {
+                    self.native_primary_play(&id, NativePlayTrigger::Primary)
+                        .map_or(Effect::None, Effect::NativePlay)
+                } else {
+                    Effect::Play(id)
+                };
+            }
             Command::ToggleList(id) => return Effect::ToggleList(id),
             Command::VoiceSearch => return Effect::VoiceSearch,
             Command::Exit => return Effect::Exit,
@@ -482,6 +501,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         }
         self.retire_membership_visit();
         self.cancel_continue_watching();
+        self.retire_native_auto_play();
         for snapshot in &mut self.history {
             if let Some(view) = &mut snapshot.view {
                 view.clear_private_rows();

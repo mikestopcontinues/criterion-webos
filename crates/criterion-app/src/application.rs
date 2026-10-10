@@ -35,6 +35,9 @@ pub(crate) struct Application<
     native_detail_generation: Option<NativeDetailRead>,
     list_membership: Option<list_membership::Observation>,
     positions: Option<AccountPositions>,
+    native_play_notice: Option<native_play::UnavailableNotice>,
+    #[cfg(test)]
+    native_attempt: Option<native_play::AttemptObservation>,
     artwork: Artwork,
     input: InputAdapter,
     output: Option<egui::FullOutput>,
@@ -114,6 +117,9 @@ impl<
             native_detail_generation: None,
             list_membership: None,
             positions: None,
+            native_play_notice: None,
+            #[cfg(test)]
+            native_attempt: None,
             artwork,
             input: InputAdapter::new(surface),
             output: None,
@@ -152,6 +158,7 @@ impl<
         self.authentication.poll(runtime, false);
         self.sync_account_session();
         self.retire_departed_membership();
+        self.sync_native_play_feedback();
         let frame_epoch = self.account_epoch;
         let frame_membership_visit = self
             .list_membership
@@ -222,6 +229,7 @@ impl<
             group: self.ui.search_group(),
         });
         match self.controller.command(command, self.ui.page(), runtime) {
+            Effect::NativePlay(selection) => self.consume_native_play(selection, runtime),
             Effect::None => (),
             Effect::AccountShelf => {
                 if self.authentication.signed_in() {
@@ -273,6 +281,7 @@ impl<
         self.retire_departed_continue_watching();
         self.retire_departed_native_detail();
         self.retire_departed_membership();
+        self.sync_native_play_feedback();
         if let Some(search) = retained_search {
             // A fresh rail visit keeps the visible query/group. Only Navigate
             // pushes history; replay its typed request without another snapshot.
@@ -348,7 +357,7 @@ impl<
                 return;
             }
             if self.native_detail_generation.is_some() {
-                self.complete_native_detail(result);
+                self.complete_native_detail(result, runtime.handle());
                 return;
             }
             let Some(issued) = self.shelf_generation.take() else {
@@ -438,6 +447,7 @@ impl<
             .set_account_session(if signed_in { self.account_epoch } else { None });
     }
     fn invalidate_account(&mut self) {
+        self.clear_native_play_feedback();
         // Root intent, not credential bytes, scopes private publication. Exhaustion
         // permanently refuses another private generation rather than wrapping.
         self.account_epoch = self.account_epoch.and_then(|epoch| epoch.checked_add(1));
@@ -465,6 +475,7 @@ impl<
         }
     }
     pub(crate) fn background(&mut self) {
+        self.clear_native_play_feedback();
         if let Some(output) = &mut self.output {
             output.shapes.clear();
         }
@@ -510,6 +521,7 @@ mod continue_watching;
 mod continue_watching_tests;
 mod list_membership;
 mod native_detail;
+mod native_play;
 
 #[cfg(test)]
 #[path = "account_tests.rs"]

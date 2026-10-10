@@ -94,6 +94,7 @@ struct Snapshot {
     my_list: crate::my_list::MyListState,
 }
 pub struct AppUi {
+    pub(crate) playback_feedback: crate::PlaybackFeedback,
     pub(crate) detail_state: crate::detail::DetailState,
     pub(crate) filters: crate::filter::FilterState,
     history: Vec<Snapshot>,
@@ -118,6 +119,7 @@ impl Default for AppUi {
 impl AppUi {
     pub fn new() -> Self {
         Self {
+            playback_feedback: crate::PlaybackFeedback::None,
             detail_state: crate::detail::DetailState::default(),
             filters: crate::filter::FilterState::default(),
             history: Vec::new(),

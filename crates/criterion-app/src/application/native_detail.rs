@@ -58,7 +58,11 @@ impl<
             }
         }
     }
-    pub(super) fn complete_native_detail(&mut self, result: Result<LoadedAccount, Error>) {
+    pub(super) fn complete_native_detail(
+        &mut self,
+        result: Result<LoadedAccount, Error>,
+        runtime: &tokio::runtime::Handle,
+    ) {
         let Some(issued) = self.native_detail_generation.take() else {
             return;
         };
@@ -83,8 +87,12 @@ impl<
                         .as_ref()
                         .filter(|positions| positions.epoch == issued.read.epoch)
                         .map(|positions| &positions.snapshot);
-                    self.controller
-                        .admit_native_detail(&issued.read, *detail, positions);
+                    if let Some(selection) =
+                        self.controller
+                            .admit_native_detail(&issued.read, *detail, positions)
+                    {
+                        self.consume_native_play(selection, runtime);
+                    }
                 }
             }
             _ => self.controller.fail_native_detail(&issued.read),
