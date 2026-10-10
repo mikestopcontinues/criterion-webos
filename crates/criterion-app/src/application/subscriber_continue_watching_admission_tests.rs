@@ -88,8 +88,8 @@ impl ContinueWatchingTrace {
             return;
         };
         self.region = match value.get("country").and_then(serde_json::Value::as_str) {
-            Some("US") => Some(Region::Us),
-            Some("CA") => Some(Region::Ca),
+            Some("US" | "us") => Some(Region::Us),
+            Some("CA" | "ca") => Some(Region::Ca),
             _ => None,
         };
         self.bootstrap_returned = Some(self.region.is_some());
@@ -1298,6 +1298,161 @@ fn synthetic_credentials() -> criterion_account::Credentials {
     let account = criterion_account::AccountClient::with_transport(Bootstrap);
     runtime.block_on(account.bootstrap()).unwrap();
     account.credentials(&session).unwrap()
+}
+
+#[test]
+fn bootstrap_country_oracle_matches_production_client_exact_cases_before_one_cw_read() {
+    use criterion_account::{AccountClient, Request, SubscriberTarget, Transport};
+    use criterion_session::{Endpoint, SecretBody};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+    };
+    #[derive(Clone)]
+    struct Clock(Arc<AtomicU64>);
+    impl MonotonicClock for Clock {
+        fn now(&self) -> Duration {
+            Duration::from_secs(self.0.load(Ordering::SeqCst))
+        }
+    }
+    struct Issuer;
+    impl criterion_session::Transport for Issuer {
+        async fn post(
+            &self,
+            request: criterion_session::Request,
+        ) -> Result<criterion_session::Response, criterion_session::Error> {
+            let body = match request.endpoint {
+                Endpoint::DeviceCode => br#"{"device_code":"synthetic","user_code":"ABCD","verification_uri_complete":"https://login.criterion.com/activate?user_code=ABCD","expires_in":900,"interval":5}"#.as_slice(),
+                Endpoint::Token => br#"{"access_token":"synthetic-access","refresh_token":"synthetic-refresh","expires_in":3600}"#.as_slice(),
+                Endpoint::Revoke => b"{}".as_slice(),
+            };
+            Ok(criterion_session::Response {
+                status: 200,
+                body: SecretBody::new(body.to_vec()),
+            })
+        }
+    }
+    struct Receiver {
+        country: &'static str,
+        region: Option<Region>,
+        calls: Arc<AtomicUsize>,
+    }
+    impl Transport for Receiver {
+        async fn send(&self, request: Request) -> Result<Response, criterion_account::Error> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let body = match request {
+                Request::Bootstrap => serde_json::to_vec(&serde_json::json!({
+                    "country": self.country,
+                    "token": "synthetic-bootstrap",
+                    "baseUrl": {
+                        "us": "https://mw.criterion.com/api/us",
+                        "ca": "https://mw.criterion.com/api/ca"
+                    }
+                }))
+                .unwrap(),
+                Request::Subscriber {
+                    target: SubscriberTarget::ContinueWatching(region),
+                    ..
+                } if self.region == Some(region) => br#"{"playlist":[],"positions":[]}"#.to_vec(),
+                _ => return Err(criterion_account::Error::InvalidRequest),
+            };
+            Ok(Response {
+                status: 200,
+                body: SecretBody::new(body),
+            })
+        }
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let time = Arc::new(AtomicU64::new(0));
+    let session = criterion_session::Session::with_transport(
+        criterion_session::Configuration::production(),
+        Issuer,
+        Clock(time.clone()),
+    );
+    assert!(runtime.block_on(session.start_link()).is_ok());
+    time.store(5, Ordering::SeqCst);
+    assert!(runtime.block_on(session.poll_once()).is_ok());
+
+    let mut supported_witnesses = Vec::new();
+    for (country, region) in [
+        ("US", Region::Us),
+        ("us", Region::Us),
+        ("CA", Region::Ca),
+        ("ca", Region::Ca),
+    ] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let trace = Arc::new(Mutex::new(ReadTrace {
+            continue_watching: Some(ContinueWatchingTrace {
+                armed: true,
+                ..ContinueWatchingTrace::default()
+            }),
+            ..ReadTrace::default()
+        }));
+        let client = AccountClient::with_transport(TracedAccount {
+            inner: Receiver {
+                country,
+                region: Some(region),
+                calls: calls.clone(),
+            },
+            trace: trace.clone(),
+        });
+        assert!(runtime.block_on(client.bootstrap()) == Ok(region));
+        let read_ok = runtime.block_on(client.continue_watching(&session)).is_ok();
+        let guarded = trace.lock().unwrap();
+        let watching = guarded.continue_watching.as_ref().unwrap();
+        supported_witnesses.push(
+            read_ok
+                && calls.load(Ordering::SeqCst) == 2
+                && !guarded.refused
+                && watching.bootstrap_started
+                && watching.bootstrap_returned == Some(true)
+                && watching.region == Some(region)
+                && watching.read_started
+                && watching.read_returned == Some(true)
+                && watching.completed()
+                && failure_phase(&guarded).is_none(),
+        );
+    }
+    for country in ["Us", "uS", "Ca", "cA", "ZZ"] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let trace = Arc::new(Mutex::new(ReadTrace {
+            continue_watching: Some(ContinueWatchingTrace {
+                armed: true,
+                ..ContinueWatchingTrace::default()
+            }),
+            ..ReadTrace::default()
+        }));
+        let client = AccountClient::with_transport(TracedAccount {
+            inner: Receiver {
+                country,
+                region: None,
+                calls: calls.clone(),
+            },
+            trace: trace.clone(),
+        });
+        assert!(matches!(
+            runtime.block_on(client.bootstrap()),
+            Err(criterion_account::Error::UnsupportedRegion)
+        ));
+        assert!(matches!(
+            runtime.block_on(client.continue_watching(&session)),
+            Err(criterion_account::Error::NoBootstrap)
+        ));
+        let guarded = trace.lock().unwrap();
+        let watching = guarded.continue_watching.as_ref().unwrap();
+        assert!(calls.load(Ordering::SeqCst) == 1 && !guarded.refused);
+        assert!(watching.bootstrap_started && watching.bootstrap_returned == Some(false));
+        assert!(watching.region.is_none() && !watching.read_started);
+        assert!(watching.read_returned.is_none() && !watching.completed());
+        assert!(failure_phase(&guarded) == Some("Continue Watching bootstrap region"));
+    }
+    assert!(
+        supported_witnesses == [true, true, true, true],
+        "four supported Bootstrap literals must admit exactly one production CW read"
+    );
 }
 
 #[test]
