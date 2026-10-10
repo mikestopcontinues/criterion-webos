@@ -8,6 +8,12 @@ use std::time::Instant;
 mod subscriber_membership_admission_tests;
 use subscriber_membership_admission_tests::{MembershipTrace, PaintObserver};
 
+#[path = "subscriber_continue_watching_admission_tests.rs"]
+mod subscriber_continue_watching_admission_tests;
+use subscriber_continue_watching_admission_tests::{
+    ContinueWatchingJourney, ContinueWatchingTrace,
+};
+
 fn finish_admission<P, T, C, A>(
     app: &mut Application<P, T, C, A>,
     runtime: &Runtime,
@@ -192,6 +198,17 @@ fn frame(
             return Err(error);
         }
     };
+    let watching_admission = match journey
+        .continue_watching
+        .as_mut()
+        .map_or(Ok(false), |watching| watching.prepare(app, &output))
+    {
+        Ok(admission) => admission,
+        Err(error) => {
+            output.textures_delta.clear();
+            return Err(error);
+        }
+    };
     if painter
         .paint(
             [drawable.width, drawable.height],
@@ -206,6 +223,9 @@ fn frame(
     window.present().map_err(|_| "native presentation")?;
     if admission && let Some(observer) = &mut journey.membership {
         observer.painted = true;
+    }
+    if watching_admission && let Some(watching) = &mut journey.continue_watching {
+        watching.presented(app)?;
     }
     journey.check()
 }
@@ -334,11 +354,14 @@ struct ReadTrace {
     reads: Vec<ReadAttempt>,
     refused: bool,
     membership: Option<MembershipTrace>,
+    continue_watching: Option<ContinueWatchingTrace>,
 }
 enum ReadReceipt {
     Shelf(usize),
     Detail,
     Ids,
+    ContinueWatchingBootstrap,
+    ContinueWatching,
 }
 struct TracedAccount<A> {
     inner: A,
@@ -352,50 +375,67 @@ impl<A: criterion_account::Transport> criterion_account::Transport for TracedAcc
         use criterion_account::{Error, Request, SubscriberTarget};
         let index = {
             let mut trace = self.trace.lock().map_err(|_| Error::Unavailable)?;
-            match &request {
-                Request::Bootstrap => None,
-                Request::Subscriber {
-                    target: SubscriberTarget::WatchList { request, .. },
-                    ..
-                } if trace.reads.len() < MAX_READS
-                    && trace.membership.as_ref().is_none_or(|membership| {
-                        membership.admit_shelf(trace.reads.len(), request)
-                    }) =>
-                {
-                    let index = trace.reads.len();
-                    trace.reads.push(ReadAttempt {
-                        request: request.clone(),
-                        returned: None,
-                    });
-                    Some(ReadReceipt::Shelf(index))
+            if let Some(watching) = &mut trace.continue_watching {
+                match &request {
+                    Request::Bootstrap if watching.admit_bootstrap() => {
+                        Some(ReadReceipt::ContinueWatchingBootstrap)
+                    }
+                    Request::Subscriber {
+                        target: SubscriberTarget::ContinueWatching(region),
+                        ..
+                    } if watching.admit_read(*region) => Some(ReadReceipt::ContinueWatching),
+                    _ => {
+                        trace.refused = true;
+                        return Err(Error::InvalidRequest);
+                    }
                 }
-                Request::Detail {
-                    region, media_id, ..
-                } if trace
-                    .membership
-                    .as_mut()
-                    .is_some_and(|membership| membership.admit_detail(*region, media_id)) =>
-                {
-                    Some(ReadReceipt::Detail)
-                }
-                Request::Subscriber {
-                    target: SubscriberTarget::MyListIds(region),
-                    ..
-                } if trace
-                    .membership
-                    .as_mut()
-                    .is_some_and(|membership| membership.admit_ids(*region)) =>
-                {
-                    Some(ReadReceipt::Ids)
-                }
-                Request::Detail { .. } | Request::Subscriber { .. } => {
-                    trace.refused = true;
-                    return Err(Error::InvalidRequest);
+            } else {
+                match &request {
+                    Request::Bootstrap => None,
+                    Request::Subscriber {
+                        target: SubscriberTarget::WatchList { request, .. },
+                        ..
+                    } if trace.reads.len() < MAX_READS
+                        && trace.membership.as_ref().is_none_or(|membership| {
+                            membership.admit_shelf(trace.reads.len(), request)
+                        }) =>
+                    {
+                        let index = trace.reads.len();
+                        trace.reads.push(ReadAttempt {
+                            request: request.clone(),
+                            returned: None,
+                        });
+                        Some(ReadReceipt::Shelf(index))
+                    }
+                    Request::Detail {
+                        region, media_id, ..
+                    } if trace
+                        .membership
+                        .as_mut()
+                        .is_some_and(|membership| membership.admit_detail(*region, media_id)) =>
+                    {
+                        Some(ReadReceipt::Detail)
+                    }
+                    Request::Subscriber {
+                        target: SubscriberTarget::MyListIds(region),
+                        ..
+                    } if trace
+                        .membership
+                        .as_mut()
+                        .is_some_and(|membership| membership.admit_ids(*region)) =>
+                    {
+                        Some(ReadReceipt::Ids)
+                    }
+                    Request::Detail { .. } | Request::Subscriber { .. } => {
+                        trace.refused = true;
+                        return Err(Error::InvalidRequest);
+                    }
                 }
             }
         };
         // Preserve the real transport's credential/TLS/body/URL owner intact.
-        // Never parse or retain the returned body, inspect headers, or retry.
+        // Only the new Continue Watching oracle borrows the returned body in
+        // memory. Existing modes do not inspect it; no mode inspects headers or retries.
         let result = self.inner.send(request).await;
         if let Some(receipt) = index {
             let mut trace = self.trace.lock().map_err(|_| Error::Unavailable)?;
@@ -416,6 +456,20 @@ impl<A: criterion_account::Transport> criterion_account::Transport for TracedAcc
                         .ok_or(Error::Unavailable)?
                         .ids_returned = returned;
                 }
+                ReadReceipt::ContinueWatchingBootstrap => {
+                    trace
+                        .continue_watching
+                        .as_mut()
+                        .ok_or(Error::Unavailable)?
+                        .complete_bootstrap(&result);
+                }
+                ReadReceipt::ContinueWatching => {
+                    trace
+                        .continue_watching
+                        .as_mut()
+                        .ok_or(Error::Unavailable)?
+                        .complete_read(&result);
+                }
             }
         }
         result
@@ -427,6 +481,7 @@ enum AdmissionMode {
     Initial,
     Grouped,
     Membership,
+    ContinueWatching,
 }
 type SubscriberApp = Application<
     HttpTransport,
@@ -448,6 +503,7 @@ struct Journey {
     reads: Vec<ObservedRead>,
     membership: Option<PaintObserver>,
     membership_retired: bool,
+    continue_watching: Option<ContinueWatchingJourney>,
 }
 impl Journey {
     fn new() -> Self {
@@ -459,6 +515,7 @@ impl Journey {
             reads: Vec::new(),
             membership: None,
             membership_retired: false,
+            continue_watching: None,
         }
     }
     fn check(&self) -> Result<(), &'static str> {
@@ -472,6 +529,9 @@ impl Journey {
         self.deadline.min(Instant::now() + duration)
     }
     fn observe(&mut self, app: &SubscriberApp) -> Result<(), &'static str> {
+        if let Some(watching) = &mut self.continue_watching {
+            watching.observe(app)?;
+        }
         let Some(read) = app
             .shelf_pending
             .as_ref()
@@ -537,6 +597,9 @@ impl Journey {
     }
 }
 fn verify_trace(trace: &SharedTrace, journey: &Journey) -> Result<(), &'static str> {
+    if journey.continue_watching.is_some() {
+        return subscriber_continue_watching_admission_tests::verify_trace(trace);
+    }
     let trace = trace.lock().map_err(|_| "private request trace")?;
     if trace.refused || trace.reads.is_empty() || trace.reads.len() != journey.reads.len() {
         return Err("read-only exact request trace");
@@ -810,6 +873,8 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
         .map_err(|_| "request runtime")?;
     let trace = Arc::new(std::sync::Mutex::new(ReadTrace {
         membership: (mode == AdmissionMode::Membership).then(MembershipTrace::default),
+        continue_watching: (mode == AdmissionMode::ContinueWatching)
+            .then(ContinueWatchingTrace::default),
         ..ReadTrace::default()
     }));
     let authentication = Authentication::new().map_err(|_| "the subscriber session")?;
@@ -826,6 +891,9 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
         Artwork::new().map_err(|_| "the artwork client")?,
     );
     let mut journey_state = Journey::new();
+    if mode == AdmissionMode::ContinueWatching {
+        journey_state.continue_watching = Some(ContinueWatchingJourney::new(trace.clone()));
+    }
     let mut grant_seen = false;
     let mut admitted_reads = None;
     let journey = catch_unwind(AssertUnwindSafe(|| -> Result<(), &'static str> {
@@ -836,6 +904,15 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
             &runtime,
             &mut journey_state,
         )?;
+        if mode == AdmissionMode::ContinueWatching {
+            subscriber_continue_watching_admission_tests::settle_original_home(
+                &mut app,
+                &mut window,
+                &mut painter,
+                &runtime,
+                &mut journey_state,
+            )?;
+        }
         // Actual SDL rail input: Home → Account activates the production issuer.
         for remote in [
             (80, 1_073_741_904),
@@ -922,94 +999,102 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
             std::thread::sleep(Duration::from_millis(16));
         }
         println!("subscriber admission: signed in");
-        // The observed subscriber rail owns My List independently of optional
-        // anonymous Home content: Account → All Films → My List.
-        for remote in [
-            (80, 1_073_741_904),
-            (82, 1_073_741_906),
-            (82, 1_073_741_906),
-            (40, 13),
-        ] {
-            key(
-                &mut app,
-                &mut window,
-                &mut painter,
-                &runtime,
-                &mut journey_state,
-                remote,
-            )?;
-        }
-        if app.ui.page() != Page::MyList || !app.controller.is_shelf() {
-            return Err("My List navigation");
-        }
-        let deadline = journey_state.stage(Duration::from_secs(45));
-        loop {
-            frame(
+        if mode == AdmissionMode::ContinueWatching {
+            subscriber_continue_watching_admission_tests::admit_home(
                 &mut app,
                 &mut window,
                 &mut painter,
                 &runtime,
                 &mut journey_state,
             )?;
-            if Instant::now() >= deadline {
-                return Err("subscriber My List deadline");
+        } else {
+            // The observed subscriber rail owns My List independently of optional
+            // anonymous Home content: Account → All Films → My List.
+            for remote in [
+                (80, 1_073_741_904),
+                (82, 1_073_741_906),
+                (82, 1_073_741_906),
+                (40, 13),
+            ] {
+                key(
+                    &mut app,
+                    &mut window,
+                    &mut painter,
+                    &runtime,
+                    &mut journey_state,
+                    remote,
+                )?;
             }
-            if !app.authentication.signed_in() {
-                return Err("subscriber session departed");
+            if app.ui.page() != Page::MyList || !app.controller.is_shelf() {
+                return Err("My List navigation");
             }
-            let status = app
-                .controller
-                .view
-                .with_view(app.authentication.view(), |view| view.status);
-            if matches!(status, LoadState::Error | LoadState::Offline) {
-                return Err("subscriber My List admission");
+            let deadline = journey_state.stage(Duration::from_secs(45));
+            loop {
+                frame(
+                    &mut app,
+                    &mut window,
+                    &mut painter,
+                    &runtime,
+                    &mut journey_state,
+                )?;
+                if Instant::now() >= deadline {
+                    return Err("subscriber My List deadline");
+                }
+                if !app.authentication.signed_in() {
+                    return Err("subscriber session departed");
+                }
+                let status = app
+                    .controller
+                    .view
+                    .with_view(app.authentication.view(), |view| view.status);
+                if matches!(status, LoadState::Error | LoadState::Offline) {
+                    return Err("subscriber My List admission");
+                }
+                if matches!(status, LoadState::Ready | LoadState::Empty)
+                    && app.shelf_pending.is_none()
+                    && app.shelf_generation.is_none()
+                {
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    return Err("subscriber My List deadline");
+                }
+                std::thread::sleep(Duration::from_millis(16));
             }
-            if matches!(status, LoadState::Ready | LoadState::Empty)
-                && app.shelf_pending.is_none()
-                && app.shelf_generation.is_none()
+            verify_trace(&trace, &journey_state)?;
             {
-                break;
-            }
-            if Instant::now() >= deadline {
-                return Err("subscriber My List deadline");
-            }
-            std::thread::sleep(Duration::from_millis(16));
-        }
-        verify_trace(&trace, &journey_state)?;
-        {
-            let trace = trace.lock().map_err(|_| "private request trace")?;
-            if trace
-                .reads
-                .first()
-                .is_none_or(|read| read.request != criterion_account::WatchListRequest::default())
-                || trace
+                let trace = trace.lock().map_err(|_| "private request trace")?;
+                if trace.reads.first().is_none_or(|read| {
+                    read.request != criterion_account::WatchListRequest::default()
+                }) || trace
                     .reads
                     .iter()
                     .any(|read| read.request.filter != criterion_account::WatchListFilter::All)
-            {
-                return Err("initial All request admission");
+                {
+                    return Err("initial All request admission");
+                }
             }
-        }
-        println!("subscriber admission: My List admitted");
-        if mode == AdmissionMode::Grouped {
-            admit_grouped(
-                &mut app,
-                &mut window,
-                &mut painter,
-                &runtime,
-                &mut journey_state,
-                &trace,
-            )?;
-        }
-        if mode == AdmissionMode::Membership {
-            subscriber_membership_admission_tests::admit_membership(
-                &mut app,
-                &mut window,
-                &mut painter,
-                &runtime,
-                &mut journey_state,
-                &trace,
-            )?;
+            println!("subscriber admission: My List admitted");
+            if mode == AdmissionMode::Grouped {
+                admit_grouped(
+                    &mut app,
+                    &mut window,
+                    &mut painter,
+                    &runtime,
+                    &mut journey_state,
+                    &trace,
+                )?;
+            }
+            if mode == AdmissionMode::Membership {
+                subscriber_membership_admission_tests::admit_membership(
+                    &mut app,
+                    &mut window,
+                    &mut painter,
+                    &runtime,
+                    &mut journey_state,
+                    &trace,
+                )?;
+            }
         }
         admitted_reads = Some(
             trace
@@ -1020,20 +1105,30 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
         );
         // Return to Account, then actual SDL Select
         // executes the UI's explicit Logout command. Cleanup never replays it.
-        for remote in [
-            (80, 1_073_741_904),
-            (81, 1_073_741_905),
-            (81, 1_073_741_905),
-            (40, 13),
-        ] {
-            key(
+        if mode == AdmissionMode::ContinueWatching {
+            subscriber_continue_watching_admission_tests::return_to_account(
                 &mut app,
                 &mut window,
                 &mut painter,
                 &runtime,
                 &mut journey_state,
-                remote,
             )?;
+        } else {
+            for remote in [
+                (80, 1_073_741_904),
+                (81, 1_073_741_905),
+                (81, 1_073_741_905),
+                (40, 13),
+            ] {
+                key(
+                    &mut app,
+                    &mut window,
+                    &mut painter,
+                    &runtime,
+                    &mut journey_state,
+                    remote,
+                )?;
+            }
         }
         if app.ui.page() != Page::Login || app.ui.focus() != Focus::LoginPrimary {
             return Err("logout native focus");
@@ -1053,11 +1148,23 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
     }))
     .unwrap_or(Err("interrupted journey"));
     let cleanup = catch_unwind(AssertUnwindSafe(|| {
-        finish_admission(&mut app, &runtime, grant_seen, journey_state.logout_issued)
+        finish_admission(&mut app, &runtime, grant_seen, journey_state.logout_issued).and_then(
+            |()| {
+                if mode == AdmissionMode::ContinueWatching {
+                    subscriber_continue_watching_admission_tests::verify_cleanup(&app)
+                } else {
+                    Ok(())
+                }
+            },
+        )
     }))
     .unwrap_or(Err("interrupted cleanup (remote state unconfirmed)"));
     let text_cleanup = window.text_input(false).map_err(|_| "native text disposal");
     journey_state.membership = None;
+    let watching_cleanup = journey_state
+        .continue_watching
+        .as_mut()
+        .map_or(Ok(()), ContinueWatchingJourney::retire);
     drop(app); // Retained private projections and unpainted frames lose their owner.
     runtime.shutdown_timeout(Duration::from_secs(2));
     painter.destroy();
@@ -1087,6 +1194,7 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
     if let Ok(mut trace) = trace.lock() {
         trace.reads.clear();
         trace.membership = None;
+        trace.continue_watching = None;
     }
     if let Err(phase) = journey {
         println!("subscriber admission: stopped during {phase}");
@@ -1096,6 +1204,7 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
     }
     cleanup?;
     text_cleanup?;
+    watching_cleanup?;
     journey?;
     final_trace?;
     println!("subscriber admission: journey passed");
@@ -1445,6 +1554,7 @@ mod admission_oracle_tests {
             }],
             refused: false,
             membership: None,
+            continue_watching: None,
         }));
         let mut journey = Journey::new();
         journey.reads.push(ObservedRead {
