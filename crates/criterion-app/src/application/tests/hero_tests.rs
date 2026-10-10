@@ -178,6 +178,58 @@ fn cursor(app: &Application<Public, Offline>) -> criterion_ui::HeroCursor {
         .hero_cursor(app.controller.membership_visit().unwrap())
         .unwrap()
 }
+#[test]
+fn website_upper_bound_identity_survives_move_activation_and_warm_back() {
+    let runtime = runtime();
+    let public = Public::default();
+    {
+        let mut payload = public.payload.lock().unwrap();
+        let slides = payload["blocks"][0]["slides"].as_array_mut().unwrap();
+        slides.truncate(2);
+        for slide in slides {
+            slide["id"] = 4_294_967_295_u32.into();
+        }
+    }
+    let mut app = fixture_app(&runtime, public.clone());
+    settle(&mut app, &runtime);
+    let from = cursor(&app);
+    assert_eq!((from.index, from.slide), (0, 4_294_967_295));
+    key(&mut app, &runtime, 79);
+    key(&mut app, &runtime, 79);
+    key(&mut app, &runtime, 40);
+    assert_eq!((cursor(&app).index, cursor(&app).slide), (1, 4_294_967_295));
+    let target = app.controller.view.hero_target().unwrap().clone();
+    app.command(
+        Command::ActivateHero {
+            origin: Page::Home,
+            from,
+            target,
+        },
+        runtime.handle(),
+    );
+    assert_eq!(app.ui.page(), Page::Home);
+    assert_eq!(&*public.calls.lock().unwrap(), &["/"]);
+    key(&mut app, &runtime, 80);
+    key(&mut app, &runtime, 80);
+    key(&mut app, &runtime, 40);
+    assert_eq!(app.ui.page(), Page::Detail);
+    for _ in 0..1000 {
+        if public.calls.lock().unwrap().len() == 2 {
+            break;
+        }
+        runtime.block_on(async { tokio::time::sleep(Duration::from_millis(1)).await });
+    }
+    assert_eq!(
+        &*public.calls.lock().unwrap(),
+        &["/", "/api/media/p753ts71"]
+    );
+    key(&mut app, &runtime, 41);
+    assert_eq!(app.ui.page(), Page::Home);
+    assert_eq!(app.ui.focus(), Focus::Hero);
+    assert_eq!((cursor(&app).index, cursor(&app).slide), (1, 4_294_967_295));
+    assert_eq!(public.calls.lock().unwrap().len(), 2);
+    assert!(app.finish(&runtime));
+}
 fn unavailable(public: &Public, count: usize) {
     let mut data = public.payload.lock().unwrap();
     let mut first = data["blocks"][0].clone();

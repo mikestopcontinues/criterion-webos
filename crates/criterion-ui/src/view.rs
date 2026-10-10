@@ -112,13 +112,13 @@ pub struct HeroCursor {
     pub visit: u64,
     pub block: u32,
     pub index: usize,
-    pub slide: u32,
+    pub slide: i64,
 }
 #[derive(Clone, Copy)]
 pub struct HeroCarousel<'a> {
     pub block: u32,
     pub index: usize,
-    pub slide: u32,
+    pub slide: i64,
     pub total: usize,
     pub caption: &'a str,
     /// Lent by the current application, never retained in a history projection.

@@ -1,6 +1,6 @@
 use criterion_ui::{
-    Action, AppUi, Card, Command, Focus, Hero, HeroAction, HeroCarousel, HeroDirection, LoadState,
-    Page, Target, ViewData,
+    Action, AppUi, Card, Command, Focus, Hero, HeroAction, HeroCarousel, HeroCursor, HeroDirection,
+    LoadState, Page, Target, ViewData,
 };
 
 fn data(target: &Target) -> ViewData<'_> {
@@ -32,6 +32,86 @@ fn data(target: &Target) -> ViewData<'_> {
         }),
         ..Default::default()
     }
+}
+#[test]
+fn remote_move_and_activation_preserve_the_signed_slide_identity() {
+    let target = Target::Content(criterion_provider::ContentTarget::parse("/new").unwrap());
+    let mut data = data(&target);
+    data.hero_carousel.as_mut().unwrap().slide = -2_147_483_648;
+    let mut ui = AppUi::new();
+    ui.handle(Action::Right, &data);
+    ui.handle(Action::Right, &data);
+    assert_eq!(
+        ui.handle(Action::Select, &data),
+        [Command::MoveHero {
+            page: Page::Home,
+            from: HeroCursor {
+                visit: 12,
+                block: 493,
+                index: 1,
+                slide: -2_147_483_648,
+            },
+            direction: HeroDirection::Next,
+        }]
+    );
+    ui.handle(Action::Left, &data);
+    ui.handle(Action::Left, &data);
+    assert_eq!(
+        ui.handle(Action::Select, &data),
+        [Command::ActivateHero {
+            origin: Page::Home,
+            from: HeroCursor {
+                visit: 12,
+                block: 493,
+                index: 1,
+                slide: -2_147_483_648,
+            },
+            target,
+        }]
+    );
+    assert_eq!(ui.page(), Page::Home);
+    assert_eq!(ui.focus(), Focus::Hero);
+}
+#[test]
+fn signed_pointer_identity_is_exact_and_stale_release_cannot_move() {
+    let target = Target::Content(criterion_provider::ContentTarget::parse("/new").unwrap());
+    let mut data = data(&target);
+    data.hero_carousel.as_mut().unwrap().slide = -2_147_483_648;
+    let mut ui = AppUi::new();
+    let pointer = |pressed| egui::RawInput {
+        events: vec![egui::Event::PointerButton {
+            pos: egui::pos2(561.0, 780.0),
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        }],
+        ..Default::default()
+    };
+    let mut pressed = ui.render(pointer(true), &data);
+    pressed.output.textures_delta.clear();
+    assert!(pressed.commands.is_empty());
+    data.hero_carousel.as_mut().unwrap().slide = -2_147_483_647;
+    let mut stale = ui.render(pointer(false), &data);
+    stale.output.textures_delta.clear();
+    assert!(stale.commands.is_empty());
+    data.hero_carousel.as_mut().unwrap().slide = -2_147_483_648;
+    let mut pressed = ui.render(pointer(true), &data);
+    pressed.output.textures_delta.clear();
+    let mut current = ui.render(pointer(false), &data);
+    current.output.textures_delta.clear();
+    assert_eq!(
+        current.commands,
+        [Command::MoveHero {
+            page: Page::Home,
+            from: HeroCursor {
+                visit: 12,
+                block: 493,
+                index: 1,
+                slide: -2_147_483_648,
+            },
+            direction: HeroDirection::Next,
+        }]
+    );
 }
 #[test]
 fn explicit_arrows_preserve_rail_and_prepare_activation_before_navigation() {

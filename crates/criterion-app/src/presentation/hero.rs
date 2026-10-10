@@ -10,7 +10,7 @@ pub(super) struct OwnedSlideshow {
     selected: usize,
 }
 struct Slot {
-    id: u32,
+    id: i64,
     hero: Option<OwnedHero>,
     caption: String,
 }
@@ -66,7 +66,7 @@ impl Presentation {
         let mut slots = Vec::with_capacity(total);
         for (index, slide) in slides.into_iter().enumerate() {
             slots.push(Slot {
-                id: slide.id,
+                id: i64::from(slide.id),
                 hero: self.admit_hero(slide),
                 caption: format!("Slide {} of {total}", index + 1),
             });
