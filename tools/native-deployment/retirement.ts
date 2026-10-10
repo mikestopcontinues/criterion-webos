@@ -10,7 +10,9 @@ interface Owned {
 /** Same-boot owned PID gone and no MAIN in two stable bounded process censuses.
  * Reused PID, newer/foreign MAIN, inaccessible process or drift is uncertainty.
  * This observes process absence, not close ACK, foreground, other resources, or
- * future absence. The canonical phase owns its admitted positive input/authority.
+ * future absence. Exe-less groups need a pinned task census containing only the
+ * leader before/after empty-map and exe-absence checks; missing tasks refuse.
+ * The canonical phase owns its admitted positive input/authority.
  */
 export interface NativeRetirementFacts extends Owned { readonly schemaVersion: 1; readonly appId: typeof MAIN_APP_ID }
 export type NativeRetirementRead = { readonly outcome: ActualReadOutcome | null; readonly response:
@@ -146,8 +148,22 @@ function stockRetirement(request: { owned: Owned; installedMain: string; budgetM
           try { exe = fs.readlinkSync(name + "/exe"); }
           catch (error) { check(error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT"); }
           if (exe === null) {
-            check(read(name + "/maps", 1024 * 1024).length === 0);
-            missing(name + "/exe");
+            const tasks = open(name + "/task", true, false), taskPath = `/proc/self/fd/${tasks.fd}`;
+            const leader = open(taskPath + "/" + pid, true, false);
+            try {
+              const onlyLeader = () => {
+                bound(); const directory = fs.opendirSync(taskPath); let entries = 0;
+                try { for (;;) {
+                  bound(); const entry = directory.readSync(); if (!entry) break;
+                  check(++entries <= 64 && entry.name === String(pid) && entry.isDirectory());
+                } } finally { directory.closeSync(); }
+                check(entries === 1); verify(tasks); verify(leader);
+              };
+              onlyLeader();
+              check(read(name + "/maps", 1024 * 1024).length === 0);
+              missing(name + "/exe");
+              onlyLeader();
+            } finally { close(leader); close(tasks); }
           } else {
             canonical(exe); check(exe !== request.owned.executable.path && !/\/criterion-unofficial(?: \(deleted\))?$/.test(exe));
             bound(); const fd = fs.openSync(name + "/exe", fs.constants.O_RDONLY | fs.constants.O_NONBLOCK); handles.push(fd);

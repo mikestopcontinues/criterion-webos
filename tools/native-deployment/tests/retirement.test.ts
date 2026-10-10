@@ -41,7 +41,7 @@ class RetirementFixture extends RuntimeFixture {
   process(pid: number, start: string, path: string | null): void {
     fs.mkdirSync(this.local("/proc/" + pid));
     this.write(`/proc/${pid}/stat`, `${pid} (unrelated-private-name) S ` + Array(18).fill("0").join(" ") + ` ${start} 0\n`);
-    if (path) fs.symlinkSync(path, this.local(`/proc/${pid}/exe`)); else this.write(`/proc/${pid}/maps`, "");
+    if (path) fs.symlinkSync(path, this.local(`/proc/${pid}/exe`)); else { this.write(`/proc/${pid}/maps`, ""); fs.mkdirSync(this.local(`/proc/${pid}/task/${pid}`), { recursive: true }); }
   }
   gone(): void { fs.rmSync(this.local("/proc/42"), { recursive: true }); }
 }
@@ -85,6 +85,32 @@ async function run(): Promise<void> {
     const result = await retire(device, admitted); assert.equal(result.response.kind, "retired");
     assert.ok(!JSON.stringify(result.response).includes("unrelated-private-name") && !JSON.stringify(result.response).includes("libfixture"));
   });
+  await fixture("exe-less leader with another surviving TID cannot certify MAIN absence", async (device, admitted) => {
+    device.gone(); device.process(90, "900", null);
+    fs.mkdirSync(device.local("/proc/90/task/91"));
+    uncertain(await retire(device, admitted));
+  });
+  await fixture("unavailable or symlinked task directory is uncertainty", async (device, admitted) => {
+    device.gone(); device.process(90, "900", null);
+    fs.renameSync(device.local("/proc/90/task"), device.local("/proc/90/task-hidden"));
+    uncertain(await retire(device, admitted));
+    fs.symlinkSync("task-hidden", device.local("/proc/90/task")); uncertain(await retire(device, admitted));
+  });
+  for (const mode of ["another-tid", "replacement", "missing-leader"] as const) {
+    await fixture("exe-less task " + mode + " drift around map observation is uncertainty", async (device, admitted) => {
+      device.gone(); device.process(90, "900", null); let fired = false;
+      device.beforeFs = (operation, path) => {
+        if (fired || operation !== "lstatSync" || !path.endsWith("/maps")) return; fired = true;
+        if (mode === "another-tid") fs.mkdirSync(device.local("/proc/90/task/91"));
+        if (mode === "replacement") {
+          fs.renameSync(device.local("/proc/90/task"), device.local("/proc/90/task-old"));
+          fs.mkdirSync(device.local("/proc/90/task/90"), { recursive: true });
+        }
+        if (mode === "missing-leader") fs.rmSync(device.local("/proc/90/task/90"), { recursive: true });
+      };
+      uncertain(await retire(device, admitted)); assert.ok(fired);
+    });
+  }
   await fixture("exeless process with mappings or unreadable metadata is uncertainty", async (device, admitted) => {
     device.gone(); device.process(90, "900", null); device.write("/proc/90/maps", "1000-2000 r-xp 00000000 00:00 1 /unknown\n"); uncertain(await retire(device, admitted));
     device.write("/proc/90/maps", ""); fs.unlinkSync(device.local("/proc/90/stat")); uncertain(await retire(device, admitted));
@@ -124,7 +150,7 @@ async function run(): Promise<void> {
     await fixture("proc census " + mode + " drift refuses publication", async (device, admitted) => {
       device.gone(); device.process(90, "900", "/usr/lib/libfixture.so.1.2"); let reads = 0;
       device.beforeFs = (operation, path) => {
-        if (operation !== "opendirSync" || !/^\/proc\/self\/fd\//.test(path) || ++reads !== 2) return;
+        if (operation !== "opendirSync" || !/^\/proc\/self\/fd\//.test(path) || fs.readlinkSync(path) !== device.local("/proc") || ++reads !== 2) return;
         if (mode === "start") device.write("/proc/90/stat", "90 (unrelated) S " + Array(18).fill("0").join(" ") + " 999 0\n");
         if (mode === "exe") { fs.unlinkSync(device.local("/proc/90/exe")); fs.symlinkSync(executable, device.local("/proc/90/exe")); }
         if (mode === "gone") fs.rmSync(device.local("/proc/90"), { recursive: true });
