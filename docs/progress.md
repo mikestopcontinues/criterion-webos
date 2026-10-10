@@ -22,6 +22,14 @@ This distinction comes from `e5.m`/`iv.b` → `oz4.u` for converter selection, `
 
 A Unit completion reports client HTTP completion, not an `Applied` mutation. A progress adapter needs its own bounded transport and the account owner's issued-write lifetime and uncertainty contract. It must not require the list-write `sync` object, automatically replay an unconfirmed report, or infer remote settlement from a later read.
 
+## Series resume selection
+
+[The native selector](../crates/criterion-app/src/native_resume.rs) derives Series actions and the initial displayed season from one successfully admitted current Continue Watching response. The application retains its bounded immutable position snapshot under the root account epoch. Exact duplicate IDs use the last supplied row within that response; this preserves existing project behavior without inferring chronology or merging separate responses. Missing positions do not establish complete account coverage. Displayed fractions use the proved Film, Supplement and Episode slots; Original does not acquire an inferred fraction.
+
+The first Seasons group owns episode selection. The primary action requires its first season's first Episode, while the initial displayed season is selected independently and can show a saved later season when the first season is empty. The traced chooser prioritizes incomplete episode index, then season index, then saved fraction, preserving the first exact tie. With no incomplete candidate, it advances after the last completed episode in supplied order or returns Watch Again at the end. The completion cutoff uses the Episode's truncated catalog duration, separately from the saved-position ratio. The primary progress map includes all supplied playlist groups; the displayed-season map includes only the first Seasons group. Supplied season numbers remain label operands rather than sort keys.
+
+Actual application tests cover selection, completed-to-next and terminal behavior, empty seasons, failed/stale reads, same-token relinking and account/frame retirement. Navigation caches anonymous Detail defaults rather than private derived actions and fractions. Background, logout and disposal erase the snapshot and derived state while retaining anonymous metadata. The offline host SDL/GLES journey uses actual input to reach the last child in a 511-Episode synthetic fixture, checks the complete boundary resume caption and progress pixels, then checks cached Back after logout with default primary action, visible first-card focus and no saved fraction. English action captions are project wording, not verified reference localization. These selections do not execute autoplay, establish a player clock, convert saved seconds into a licensed start position, or report progress; those require the admitted player and write owners.
+
 ## Native catalog duration
 
 The traced Float32 catalog durations are seconds for these subtypes:
@@ -29,7 +37,15 @@ The traced Float32 catalog durations are seconds for these subtypes:
 | Subtype | Source interpretation |
 | --- | --- |
 | Film, Supplement, Episode | `sy6.W` truncates Float to Int fields labeled `durationSeconds`. `xe2.o` forwards them to `v84.p`; `v84.l` divides by 3,600 and 60 for hour/minute display. Fractional and remaining seconds are discarded for that display. |
-| Original | `x27.F` truncates Float to Long and passes it unchanged into `h21.k`, labeled `durationSeconds`. A separate progress-ratio denominator multiplies it by 1,000. Original details formatting was not established. |
+| Original | `x27.F` truncates Float to Long and passes it unchanged into `h21.k`, labeled `durationSeconds`. A separate progress-ratio denominator multiplies it by 1,000. Root Detail formatting follows the separate Header and Information consumers below. |
 | Live | No nongenerated duration consumer was established by the bounded trace; units and formatting remain unadmitted. |
 
 The hour/minute formatter's public resources independently resolve to `%d min` and `%1$d h %2$d min`. These subtype-specific consumer traces do not make absent metadata zero, establish accepted server ranges, or replace the admitted player clock for progress reporting. [Native DTO admission](account.md#subscriber-method-admission) continues to preserve an optional Float32 value; any UI conversion must select a proved subtype and apply explicit bounds.
+
+## Root Detail runtime display
+
+[The native projection](../crates/criterion-app/src/presentation/native_detail.rs) consumes the admitted optional finite, nonnegative Float32 duration as seconds and truncates/saturates it to signed Int64. Header formatting divides the Int64 into hours/minutes before narrowing each part to signed Int32; Information narrows seconds to signed Int32 before its positive guard and division. Keeping these consumers separate preserves their distinct overflow behavior. Nonpositive admitted values display `0m`; absent values remain omitted.
+
+Film, Original and Supplement expose runtime in both surfaces. Episode exposes it only in Information. Series exposes its supplied year without an aggregate runtime; Category, Collection, Franchise and Live expose neither runtime nor year in these lines. Header and Information each own one final metadata string, charged by retained capacity before projection admission and borrowed during painting. Public website Detail keeps its existing unsigned formatting. Native child cards remain a separate formatting gap; this root implementation does not claim child-runtime or localized-label parity.
+
+Synthetic projection and actual Application tests cover subtype/absence gates, ordinary and wrapping arithmetic, both painted surfaces, navigation restoration and allocation limits. They establish source and host behavior separately from official-app pixels, provider delivery and C4 rendering.
