@@ -64,7 +64,7 @@ pub(crate) struct View<'a> {
 }
 pub(crate) struct Group {
     pub(crate) filter: WatchListFilter,
-    pub(crate) count: i64,
+    pub(crate) count: Option<i64>,
     pub(crate) available: bool,
 }
 // Vector order is the first admitted ordinal. Only a compact first-value digest
@@ -205,7 +205,7 @@ pub(crate) struct MyListState {
     filter: WatchListFilter,
     pending: Option<Work>,
     groups: [GroupState; 6],
-    counts: [i64; 6],
+    counts: Option<[i64; 6]>,
     retired: bool,
 }
 impl MyListState {
@@ -215,7 +215,7 @@ impl MyListState {
             filter: WatchListFilter::All,
             pending: None,
             groups: std::array::from_fn(|_| GroupState::default()),
-            counts: [0; 6],
+            counts: Some([0; 6]),
             retired: false,
         }
     }
@@ -399,17 +399,17 @@ impl MyListState {
         }
     }
     /// A possibly issued mutation invalidates every group and its replay chain.
-    /// Keep only selected group and monotonic operation identity.
+    /// Keep selected group and operation identity; global counts become unknown.
     pub(crate) fn dirty(&mut self) {
         self.pending = None;
         self.groups = std::array::from_fn(|_| GroupState::default());
-        self.counts = [0; 6];
+        self.counts = None;
     }
     /// Terminal privacy disposal: this owner cannot be reused for another epoch.
     pub(crate) fn retire(&mut self) {
         self.pending = None;
         self.groups = std::array::from_fn(|_| GroupState::default());
-        self.counts = [0; 6];
+        self.counts = Some([0; 6]);
         self.retired = true;
     }
     fn refusal(&mut self, read: &Read, failure: Failure) -> Result<Option<Read>, Failure> {
@@ -612,7 +612,7 @@ impl MyListState {
             }
         }
         let counts = if self.filter == WatchListFilter::All && !group.loaded {
-            grouped_counts(&page.type_counts)
+            Some(grouped_counts(&page.type_counts))
         } else {
             self.counts
         };
@@ -677,8 +677,8 @@ impl MyListState {
     pub(crate) fn groups(&self) -> [Group; 6] {
         std::array::from_fn(|i| Group {
             filter: FILTERS[i],
-            count: self.counts[i],
-            available: i == 0 || self.counts[i] > 0,
+            count: self.counts.map(|counts| counts[i]),
+            available: i == 0 || self.counts.is_none_or(|counts| counts[i] > 0),
         })
     }
     /// Charges retained capacities and conservative validated cursor allocations.
@@ -1091,7 +1091,10 @@ mod tests {
         ]);
         state.admit(&first, response).unwrap();
         let groups = state.groups();
-        assert_eq!(groups.map(|g| g.count), [38, -1, 4, 11, 7, 8]);
+        assert_eq!(
+            groups.map(|g| g.count),
+            [Some(38), Some(-1), Some(4), Some(11), Some(7), Some(8)]
+        );
         let groups = state.groups();
         assert_eq!(groups.map(|g| g.filter), FILTERS);
         assert_eq!(
@@ -1102,18 +1105,24 @@ mod tests {
         let mut response = page(Vec::new(), None);
         response.type_counts = counts(&[("film", 999)]);
         state.admit(&next, response).unwrap();
-        assert_eq!(state.groups().map(|g| g.count), [38, -1, 4, 11, 7, 8]);
+        assert_eq!(
+            state.groups().map(|g| g.count),
+            [Some(38), Some(-1), Some(4), Some(11), Some(7), Some(8)]
+        );
         let filtered = state.select(WatchListFilter::Collection).unwrap().unwrap();
         let mut response = page(Vec::new(), None);
         response.type_counts = counts(&[("collection", 123)]);
         state.admit(&filtered, response).unwrap();
-        assert_eq!(state.groups().map(|g| g.count), [38, -1, 4, 11, 7, 8]);
+        assert_eq!(
+            state.groups().map(|g| g.count),
+            [Some(38), Some(-1), Some(4), Some(11), Some(7), Some(8)]
+        );
         let mut negative = MyListState::new();
         let read = negative.select(WatchListFilter::All).unwrap().unwrap();
         let mut response = page(Vec::new(), None);
         response.type_counts = counts(&[("film", -1)]);
         negative.admit(&read, response).unwrap();
-        assert_eq!(negative.groups()[0].count, -1);
+        assert_eq!(negative.groups()[0].count, Some(-1));
         assert!(negative.groups()[0].available);
     }
 
@@ -1170,7 +1179,7 @@ mod tests {
         ));
         assert_eq!(state.view().rows.len(), 1);
         assert_eq!(state.view().tail, Tail::Error(Failure::CursorCycle));
-        assert_eq!(state.groups()[0].count, 0);
+        assert_eq!(state.groups()[0].count, Some(0));
         let retry = state.retry().unwrap().unwrap();
         assert_eq!(retry.request, repeat.request);
         state.admit(&retry, page(films(1, 1), None)).unwrap();

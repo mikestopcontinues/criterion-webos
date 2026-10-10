@@ -278,6 +278,228 @@ fn possibly_issued_write_dirties_retained_shelf_and_back_fetches_a_new_first_pag
     );
 }
 
+fn choose_group(fixture: &mut Fixture, group: criterion_ui::MyListGroup) {
+    use criterion_ui::{Focus, MyListGroup};
+    const ORDER: [MyListGroup; 6] = [
+        MyListGroup::All,
+        MyListGroup::FilmsAndSeries,
+        MyListGroup::Collections,
+        MyListGroup::OriginalsAndFranchises,
+        MyListGroup::Supplements,
+        MyListGroup::Categories,
+    ];
+    if matches!(fixture.app.ui.focus(), Focus::Card { row: 0, .. }) {
+        fixture.key(82, 1_073_741_906);
+    }
+    for _ in 0..6 {
+        let Focus::MyListGroup(current) = fixture.app.ui.focus() else {
+            panic!("actual My List group header must own focus");
+        };
+        if current == group {
+            fixture.key(40, 13);
+            return;
+        }
+        let current = ORDER.iter().position(|value| *value == current).unwrap();
+        let target = ORDER.iter().position(|value| *value == group).unwrap();
+        if current < target {
+            fixture.key(79, 1_073_741_903);
+        } else {
+            fixture.key(80, 1_073_741_904);
+        }
+    }
+    panic!("actual My List group was unavailable within six choices");
+}
+
+fn filtered_write_back_preserves_unknown_groups(write_kind: Kind) {
+    use criterion_ui::MyListGroup;
+    let write = Arc::new(Gate::default());
+    let reload = Arc::new(Gate::default());
+    let supplement = Arc::new(Gate::default());
+    let all = Arc::new(Gate::default());
+    let mut fixture = Fixture::new(
+        false,
+        vec![
+            list(),
+            Step {
+                kind: Kind::CollectionWatchList,
+                gate: None,
+            },
+            detail("Listed01", None),
+            ids(None),
+            Step {
+                kind: write_kind,
+                gate: Some(write.clone()),
+            },
+            ids(None),
+            Step {
+                kind: Kind::CollectionWatchList,
+                gate: Some(reload.clone()),
+            },
+            Step {
+                kind: Kind::SupplementWatchList,
+                gate: Some(supplement.clone()),
+            },
+            Step {
+                kind: Kind::WatchList,
+                gate: Some(all.clone()),
+            },
+        ],
+        5,
+    );
+    *fixture.script.native_kind.lock().unwrap() = "collection";
+    *fixture.script.watch_list_body.lock().unwrap() = Some(br#"{"paging":{"page_limit":50},"type_counts":{"collection":2,"supplement":1},"playlist":[{"mediaid":"Listed01","title":"Synthetic listed film","contentType":"collection"}]}"#.to_vec());
+    let (before, after, before_caption, after_caption) = match write_kind {
+        Kind::AddWatchList => (
+            br#"{"watchlist":[],"positions":[]}"#.as_slice(),
+            br#"{"watchlist":["Listed01"],"positions":[]}"#.as_slice(),
+            "NOT IN MY LIST",
+            "IN MY LIST",
+        ),
+        Kind::RemoveWatchList => (
+            br#"{"watchlist":["Listed01"],"positions":[]}"#.as_slice(),
+            br#"{"watchlist":[],"positions":[]}"#.as_slice(),
+            "IN MY LIST",
+            "NOT IN MY LIST",
+        ),
+        _ => panic!("fixture requires one explicit Add or Remove"),
+    };
+    *fixture.script.ids_result.lock().unwrap() = Ok(before.to_vec());
+    fixture.open_list();
+    *fixture.script.watch_list_body.lock().unwrap() = Some(br#"{"paging":{"page_limit":50},"type_counts":{"collection":99},"playlist":[{"mediaid":"Listed01","title":"Synthetic listed film","contentType":"collection"}]}"#.to_vec());
+    choose_group(&mut fixture, MyListGroup::Collections);
+    fixture.wait(|fixture| status(fixture) == criterion_ui::LoadState::Ready);
+    fixture
+        .app
+        .controller
+        .view
+        .with_view(fixture.app.authentication.view(), |view| {
+            let list = view.my_list.unwrap();
+            assert_eq!(list.selected, MyListGroup::Collections);
+            assert_eq!(
+                list.choices
+                    .iter()
+                    .map(|choice| (choice.group, choice.count))
+                    .collect::<Vec<_>>(),
+                [
+                    (MyListGroup::All, Some(3)),
+                    (MyListGroup::Collections, Some(2)),
+                    (MyListGroup::Supplements, Some(1)),
+                ],
+                "a filtered count map is not a global count authority"
+            );
+        });
+    select_listed(&mut fixture);
+    fixture.wait(|fixture| {
+        fixture.native_ready("Listed01") && has_membership_caption(fixture, before_caption)
+    });
+    let record = enable_writes(&mut fixture);
+    toggle(&mut fixture);
+    fixture.wait(|_| write.entered.load(Ordering::SeqCst));
+    *fixture.script.ids_result.lock().unwrap() = Ok(after.to_vec());
+    *fixture.script.watch_list_body.lock().unwrap() = Some(br#"{"paging":{"page_limit":50},"type_counts":{"collection":77},"playlist":[{"mediaid":"Related1","title":"Remaining collection","contentType":"collection"}]}"#.to_vec());
+    write.release.notify_one();
+    fixture.wait(|fixture| has_membership_caption(fixture, after_caption));
+    assert!(!record.lock().unwrap().1);
+    fixture.key(41, 27);
+    fixture.wait(|_| reload.entered.load(Ordering::SeqCst));
+    assert_eq!(fixture.app.ui.page(), Page::MyList);
+    assert_eq!(
+        fixture.app.ui.focus(),
+        criterion_ui::Focus::MyListGroup(MyListGroup::Collections)
+    );
+    reload.release.notify_one();
+    fixture.wait(|fixture| status(fixture) == criterion_ui::LoadState::Ready);
+    fixture
+        .app
+        .controller
+        .view
+        .with_view(fixture.app.authentication.view(), |view| {
+            let list = view.my_list.unwrap();
+            assert_eq!(list.selected, MyListGroup::Collections);
+            assert_eq!(view.cards[0].title, "Remaining collection");
+            assert_eq!(
+                list.choices
+                    .iter()
+                    .map(|choice| (choice.group, choice.count))
+                    .collect::<Vec<_>>(),
+                [
+                    (MyListGroup::All, None),
+                    (MyListGroup::FilmsAndSeries, None),
+                    (MyListGroup::Collections, None),
+                    (MyListGroup::OriginalsAndFranchises, None),
+                    (MyListGroup::Supplements, None),
+                    (MyListGroup::Categories, None),
+                ],
+                "Back must preserve access to groups whose current counts are unknown"
+            );
+        });
+    *fixture.script.watch_list_body.lock().unwrap() = Some(br#"{"paging":{"page_limit":50},"type_counts":{"supplement":88},"playlist":[{"mediaid":"Related1","title":"Still populated supplement","contentType":"supplement"}]}"#.to_vec());
+    choose_group(&mut fixture, MyListGroup::Supplements);
+    fixture.wait(|_| supplement.entered.load(Ordering::SeqCst));
+    supplement.release.notify_one();
+    fixture.wait(|fixture| status(fixture) == criterion_ui::LoadState::Ready);
+    fixture
+        .app
+        .controller
+        .view
+        .with_view(fixture.app.authentication.view(), |view| {
+            let list = view.my_list.unwrap();
+            assert_eq!(list.selected, MyListGroup::Supplements);
+            assert_eq!(view.cards[0].title, "Still populated supplement");
+            assert!(list.choices.iter().all(|choice| choice.count.is_none()));
+        });
+    *fixture.script.watch_list_body.lock().unwrap() = Some(br#"{"paging":{"page_limit":50},"type_counts":{"collection":1,"supplement":0},"playlist":[{"mediaid":"Related1","title":"Remaining collection","contentType":"collection"}]}"#.to_vec());
+    choose_group(&mut fixture, MyListGroup::All);
+    fixture.wait(|_| all.entered.load(Ordering::SeqCst));
+    all.release.notify_one();
+    fixture.wait(|fixture| status(fixture) == criterion_ui::LoadState::Ready);
+    fixture
+        .app
+        .controller
+        .view
+        .with_view(fixture.app.authentication.view(), |view| {
+            let list = view.my_list.unwrap();
+            assert_eq!(list.selected, MyListGroup::All);
+            assert_eq!(
+                list.choices
+                    .iter()
+                    .map(|choice| (choice.group, choice.count))
+                    .collect::<Vec<_>>(),
+                [
+                    (MyListGroup::All, Some(1)),
+                    (MyListGroup::Collections, Some(1)),
+                ],
+                "fresh All restores global counts and hides known-empty groups"
+            );
+        });
+    assert_eq!(
+        *fixture.script.calls.lock().unwrap(),
+        [
+            Kind::WatchList,
+            Kind::CollectionWatchList,
+            Kind::NativeDetail("Listed01"),
+            Kind::MyListIds,
+            write_kind,
+            Kind::MyListIds,
+            Kind::CollectionWatchList,
+            Kind::SupplementWatchList,
+            Kind::WatchList,
+        ]
+    );
+    assert_eq!(fixture.script.bootstrap.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.script.maximum.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn filtered_collection_add_back_keeps_other_groups_accessible_until_fresh_all_counts() {
+    filtered_write_back_preserves_unknown_groups(Kind::AddWatchList);
+}
+
+#[test]
+fn filtered_collection_remove_back_keeps_other_groups_accessible_until_fresh_all_counts() {
+    filtered_write_back_preserves_unknown_groups(Kind::RemoveWatchList);
+}
+
 #[test]
 fn departure_defers_new_detail_until_issued_write_settles_and_refuses_old_visit_publication() {
     let write = Arc::new(Gate::default());

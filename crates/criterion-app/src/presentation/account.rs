@@ -42,7 +42,10 @@ impl Presentation {
             .filter(|group| group.available || group.filter == view.filter)
             .map(|group| MyListChoice {
                 group: group_for(group.filter),
-                count: u64::try_from(group.count).ok().filter(|count| *count > 0),
+                count: group
+                    .count
+                    .and_then(|count| u64::try_from(count).ok())
+                    .filter(|count| *count > 0),
             })
             .collect();
         presentation.catalog_window = Some(CatalogWindow {

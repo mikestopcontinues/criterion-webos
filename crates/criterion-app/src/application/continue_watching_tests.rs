@@ -93,6 +93,8 @@ enum Kind {
     MyListIds,
     ContinueWatching,
     WatchList,
+    CollectionWatchList,
+    SupplementWatchList,
     NativeDetail(&'static str),
     AddWatchList,
     RemoveWatchList,
@@ -232,6 +234,28 @@ impl criterion_account::Transport for Middleware {
                         region: Region::Ca,
                         request,
                     } if request == WatchListRequest::default() => Kind::WatchList,
+                    SubscriberTarget::WatchList {
+                        region: Region::Ca,
+                        request,
+                    } if request
+                        == (WatchListRequest {
+                            filter: criterion_account::WatchListFilter::Collection,
+                            ..WatchListRequest::default()
+                        }) =>
+                    {
+                        Kind::CollectionWatchList
+                    }
+                    SubscriberTarget::WatchList {
+                        region: Region::Ca,
+                        request,
+                    } if request
+                        == (WatchListRequest {
+                            filter: criterion_account::WatchListFilter::Supplement,
+                            ..WatchListRequest::default()
+                        }) =>
+                    {
+                        Kind::SupplementWatchList
+                    }
                     _ => {
                         return Err(
                             self.refuse("unexpected subscriber operation, region or request")
@@ -285,7 +309,7 @@ impl criterion_account::Transport for Middleware {
             },
             Kind::MyListIds=>self.ids_result.lock().unwrap().clone()?,
             Kind::ContinueWatching=>self.continue_body.lock().unwrap().clone().unwrap_or_else(||br#"{"playlist":[{"mediaid":"Private1","title":"Synthetic saved film","contentType":"film","duration":90.5},{"mediaid":"Private2","title":"Synthetic completed film","contentType":"film"}],"positions":[{"media_id":"Private1","pos":98,"dur":100},{"media_id":"Private2","pos":120,"dur":100}]}"#.to_vec()),
-            Kind::WatchList=>self.watch_list_body.lock().unwrap().clone().unwrap_or_else(||br#"{"paging":{"page_limit":50},"type_counts":{"film":1},"playlist":[{"mediaid":"Listed01","title":"Synthetic listed film","contentType":"film"}]}"#.to_vec()),
+            Kind::WatchList | Kind::CollectionWatchList | Kind::SupplementWatchList=>self.watch_list_body.lock().unwrap().clone().unwrap_or_else(||br#"{"paging":{"page_limit":50},"type_counts":{"film":1},"playlist":[{"mediaid":"Listed01","title":"Synthetic listed film","contentType":"film"}]}"#.to_vec()),
             Kind::NativeDetail(requested) => {
                 if let Some(body) = self.detail_body.lock().unwrap().clone() {
                     return Ok(criterion_account::Response { status: 200, body: SecretBody::new(body) });
