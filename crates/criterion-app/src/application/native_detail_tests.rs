@@ -57,9 +57,9 @@ fn native_input_opens_exact_listed_detail_and_signed_out_related_detail_anonymou
             assert_eq!(detail.card.title, "Native Listed01");
             assert_eq!(detail.description, "Native long description");
             assert_eq!(detail.directors, "Synthetic native director");
-            assert_eq!(detail.starring, "Synthetic native actor");
-            assert_eq!(detail.countries, "CA");
-            assert_eq!(detail.languages, "English");
+            assert_eq!(detail.starring, Some("Synthetic native actor"));
+            assert_eq!(detail.countries, Some("CA"));
+            assert_eq!(detail.languages, Some("English"));
             assert_eq!(detail.primary_playback_target.unwrap().as_str(), "Listed01");
             assert_eq!(view.rails[0].title, "Related");
             assert_eq!(

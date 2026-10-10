@@ -125,9 +125,10 @@ impl Presentation {
             .find(|text| !text.is_empty())
             .unwrap_or_default(),
             directors: detail.metadata.director.unwrap_or_default().join(", "),
-            starring: detail.metadata.starring.unwrap_or_default().join(", "),
-            countries: detail.metadata.country.unwrap_or_default().join(", "),
-            languages: detail.metadata.language.unwrap_or_default().join(", "),
+            starring: detail.metadata.starring.and_then(super::joined),
+            countries: detail.metadata.country.and_then(super::joined),
+            languages: detail.metadata.language.and_then(super::joined),
+            content_warnings: detail.metadata.content_warnings,
         });
         projection.selected_playlist = (!projection.rails.is_empty()).then_some(0);
         projection.total = u32::try_from(
@@ -231,7 +232,7 @@ impl Presentation {
             title: media.title,
             year: media
                 .release_date
-                .map(|date| format!("{:04}", date.year()))
+                .map(|date| date.year().to_string())
                 .unwrap_or_default(),
             duration_seconds: 0,
             artwork: Some(artwork),

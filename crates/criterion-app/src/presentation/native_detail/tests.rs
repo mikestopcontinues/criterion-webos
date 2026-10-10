@@ -329,9 +329,9 @@ fn root_joins_only_full_metadata_and_binds_exact_landscape_backdrop_and_child_ca
             ),
             (
                 "Director A, Director B",
-                "Actor A, Actor B",
-                "Country A, Country B",
-                "Language A, Language B"
+                Some("Actor A, Actor B"),
+                Some("Country A, Country B"),
+                Some("Language A, Language B")
             )
         );
         assert_eq!(native.card.year, "1980");
@@ -706,4 +706,49 @@ fn series_primary_rejects_first_episode_id_equal_to_root_without_selecting_a_lat
             id: MediaId::new("Root0001").unwrap()
         })
     );
+}
+
+#[test]
+fn native_information_preserves_absence_and_present_empty_metadata() {
+    for (items, warnings, expected) in [
+        (None, None, None),
+        (Some(Vec::new()), None, None),
+        (Some(vec![String::new()]), Some(String::new()), Some("")),
+        (
+            Some(vec!["First".into(), "Second".into()]),
+            Some("Flashing lights".into()),
+            Some("First, Second"),
+        ),
+    ] {
+        let mut source = detail(MediaKind::Film);
+        source.metadata.starring = items.clone();
+        source.metadata.country = items.clone();
+        source.metadata.language = items;
+        source.metadata.content_warnings = warnings.clone();
+        let presentation = Presentation::native_detail(source).unwrap();
+        presentation.with_view(LoginView::SignedOut, |view| {
+            let native = view.detail.as_ref().unwrap();
+            assert_eq!(native.starring, expected);
+            assert_eq!(native.countries, expected);
+            assert_eq!(native.languages, expected);
+            assert_eq!(native.content_warnings, warnings.as_deref());
+        });
+    }
+}
+
+#[test]
+fn native_root_and_child_years_use_unpadded_calendar_years() {
+    for (year, expected) in [(85, "85"), (0, "0"), (-5, "-5"), (1986, "1986")] {
+        let mut source = detail(MediaKind::Film);
+        let date = time::Date::from_calendar_date(year, time::Month::January, 1).unwrap();
+        source.media.release_date = Some(date);
+        let mut child = media("Child001", "Native child", MediaKind::Original);
+        child.release_date = Some(date);
+        source.playlists.push(generic("Related", vec![child]));
+        let presentation = Presentation::native_detail(source).unwrap();
+        presentation.with_view(LoginView::SignedOut, |view| {
+            assert_eq!(view.detail.as_ref().unwrap().card.year, expected);
+            assert_eq!(view.rails[0].cards[0].year, expected);
+        });
+    }
 }

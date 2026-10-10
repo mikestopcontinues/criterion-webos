@@ -112,7 +112,7 @@ impl Presentation {
                     title: media.title.clone(),
                     year: media
                         .release_date
-                        .map(|date| format!("{:04}", date.year()))
+                        .map(|date| date.year().to_string())
                         .unwrap_or_default(),
                     duration_seconds: 0,
                     artwork: Some(artwork),

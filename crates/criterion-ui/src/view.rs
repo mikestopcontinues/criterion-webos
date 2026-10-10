@@ -63,9 +63,10 @@ pub struct Detail<'a> {
     pub card: Card<'a>,
     pub directors: &'a str,
     pub description: &'a str,
-    pub starring: &'a str,
-    pub countries: &'a str,
-    pub languages: &'a str,
+    pub starring: Option<&'a str>,
+    pub countries: Option<&'a str>,
+    pub languages: Option<&'a str>,
+    pub content_warnings: Option<&'a str>,
     pub primary_action: &'a str,
     pub primary_playback_target: Option<&'a criterion_provider::MediaId>,
     pub selected_playlist: Option<usize>,
@@ -1035,13 +1036,15 @@ impl AppUi {
             1250.0,
             (2, 360),
         );
-        if !detail.starring.is_empty() {
+        if let Some(starring) = detail.starring
+            && !starring.is_empty()
+        {
             label(
                 p,
                 [150.0, y + 895.0],
                 &format!(
                     "Starring: {}",
-                    detail.starring.chars().take(128).collect::<String>()
+                    starring.chars().take(128).collect::<String>()
                 ),
                 25.0,
                 WHITE,
@@ -1176,17 +1179,31 @@ impl AppUi {
             1220.0,
             (10, 420),
         );
-        for (index, (name, value)) in [
+        let metadata = [
             ("Starring", detail.starring),
             ("Countries", detail.countries),
             ("Languages", detail.languages),
-        ]
-        .iter()
-        .enumerate()
+            ("Content Warnings", detail.content_warnings),
+        ];
+        let four_fields = metadata.iter().filter(|(_, value)| value.is_some()).count() == 4;
+        let spacing = if four_fields { 58.0 } else { 75.0 };
+        let value_offset = if four_fields { 27.0 } else { 34.0 };
+        let font = if four_fields { 22.0 } else { 25.0 };
+        for (index, (name, value)) in metadata
+            .into_iter()
+            .filter_map(|(name, value)| value.map(|value| (name, value)))
+            .enumerate()
         {
-            let y = 588.0 + index as f32 * 75.0;
-            label(&content, [348.0, y], name, 25.0, GOLD, 1200.0);
-            label(&content, [348.0, y + 34.0], value, 25.0, WHITE, 1200.0);
+            let y = 588.0 + index as f32 * spacing;
+            label(&content, [348.0, y], name, font, GOLD, 1200.0);
+            label(
+                &content,
+                [348.0, y + value_offset],
+                value,
+                font,
+                WHITE,
+                1200.0,
+            );
         }
         label(
             &content,

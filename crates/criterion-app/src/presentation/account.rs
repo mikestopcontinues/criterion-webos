@@ -78,7 +78,7 @@ impl Presentation {
                 title: media.title.clone(),
                 year: media
                     .release_date
-                    .map(|date| format!("{:04}", date.year()))
+                    .map(|date| date.year().to_string())
                     .unwrap_or_default(),
                 duration_seconds: 0,
                 artwork: Some(artwork),
@@ -209,7 +209,7 @@ mod tests {
             );
             assert_eq!(
                 view.cards.iter().map(|card| card.year).collect::<Vec<_>>(),
-                ["2000", "0007", "", "", "", "", "", "", ""]
+                ["2000", "7", "", "", "", "", "", "", ""]
             );
             assert!(view.cards.iter().all(|card| card.duration_seconds == 0));
             assert!(view.filters.is_none());

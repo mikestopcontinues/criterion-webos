@@ -226,9 +226,10 @@ impl Presentation {
             kind,
             description: detail.description.unwrap_or_default(),
             directors: detail.directors.join(", "),
-            starring: detail.starring.join(", "),
-            countries: detail.countries.join(", "),
-            languages: detail.languages.join(", "),
+            starring: joined(detail.starring),
+            countries: joined(detail.countries),
+            languages: joined(detail.languages),
+            content_warnings: detail.content_warnings,
         });
         for playlist in detail.playlists {
             let mut cards = Vec::with_capacity(playlist.items.len());
@@ -332,9 +333,10 @@ impl Presentation {
                 + detail.card.heap_bytes()
                 + detail.description.capacity()
                 + detail.directors.capacity()
-                + detail.starring.capacity()
-                + detail.countries.capacity()
-                + detail.languages.capacity();
+                + detail.starring.as_ref().map_or(0, String::capacity)
+                + detail.countries.as_ref().map_or(0, String::capacity)
+                + detail.languages.as_ref().map_or(0, String::capacity)
+                + detail.content_warnings.as_ref().map_or(0, String::capacity);
         }
         bytes += vec_bytes(&self.my_list_choices);
         bytes += vec_bytes(&self.live_schedule);
@@ -654,9 +656,10 @@ impl Presentation {
             card: detail.card.view(),
             directors: &detail.directors,
             description: &detail.description,
-            starring: &detail.starring,
-            countries: &detail.countries,
-            languages: &detail.languages,
+            starring: detail.starring.as_deref(),
+            countries: detail.countries.as_deref(),
+            languages: detail.languages.as_deref(),
+            content_warnings: detail.content_warnings.as_deref(),
             primary_action: if detail.kind == DetailKind::Series {
                 "WATCH FIRST EPISODE"
             } else {
@@ -731,6 +734,10 @@ fn desktop_image(artwork: &DiscoveryArtwork) -> Option<&EditorialImage> {
         .or_else(|| artwork.desktop.iter().max_by_key(|image| image.width))
         .map(|image| &image.image)
 }
+fn joined(values: Vec<String>) -> Option<String> {
+    (!values.is_empty()).then(|| values.join(", "))
+}
+
 struct OwnedFilter {
     label: String,
     options: Vec<String>,
@@ -742,9 +749,10 @@ struct OwnedDetail {
     kind: DetailKind,
     description: String,
     directors: String,
-    starring: String,
-    countries: String,
-    languages: String,
+    starring: Option<String>,
+    countries: Option<String>,
+    languages: Option<String>,
+    content_warnings: Option<String>,
 }
 struct OwnedHero {
     card: OwnedCard,
@@ -1278,9 +1286,9 @@ mod tests {
             );
             assert_eq!(detail.description, "Fixture synopsis");
             assert_eq!(detail.directors, "Director One, Director Two");
-            assert_eq!(detail.starring, "Actor One, Actor Two");
-            assert_eq!(detail.countries, "US, FR");
-            assert_eq!(detail.languages, "English");
+            assert_eq!(detail.starring, Some("Actor One, Actor Two"));
+            assert_eq!(detail.countries, Some("US, FR"));
+            assert_eq!(detail.languages, Some("English"));
             assert_eq!(detail.primary_action, "WATCH NOW");
             assert_eq!(
                 view.rails.iter().map(|rail| rail.title).collect::<Vec<_>>(),
