@@ -165,7 +165,7 @@ async function run(): Promise<void> {
   assert.equal(unresolved.outcome, unknown); assert.deepEqual(unresolved.response, { kind: "unavailable", reason: "closure" });
   console.log("PASS closure acknowledgement is distinct from exit and response quality");
 
-  const sources = new Map(["index.js", "contract.js", "prerequisites.js"].map(name => ["./" + name, fs.readFileSync(join(__dirname, "..", name), "utf8")]));
+  const sources = new Map(["index.js", "contract.js", "prerequisites.js", "runtime.js"].map(name => ["./" + name, fs.readFileSync(join(__dirname, "..", name), "utf8")]));
   const cache = new Map<string, object>();
   const load = (name: string): object => {
     const existing = cache.get(name); if (existing) return existing;
