@@ -1,63 +1,50 @@
 # Native development package
 
-`tools/package-native` packages the root-verified Rust executable as `com.mikestopcontinues.criterion.unofficial`, titled **Criterion Unofficial**, version `0.1.0`. The descriptor marks a development build. It declares a native app, fixed `criterion-unofficial` main, lifecycle interface V2 and no relaunch handling or unproved service permissions. [LG's application descriptor reference](https://webostv.developer.lge.com/develop/references/appinfo-json) owns the standard fields; the native lifecycle convention follows the source-verified Plx manifest and [native application guidance](https://www.webosose.org/docs/tutorials/native-apps/developing-built-in-native-apps/). Actual C4 lifecycle behavior remains device admission.
+The inert [`packageNativeMain` API](../tools/package-native/index.ts) packages an already checked Rust executable into an audited, unsigned MAIN development IPK. Importing the module performs no work; the caller supplies the inputs and execution adapter explicitly. It does not compile or execute the application, contact a device or provide an operational CLI.
+
+The [fixed descriptor](../tools/package-native/src/manifest.ts) identifies **Criterion Unofficial** as a native development app with the `criterion-unofficial` main, lifecycle interface V2 and no relaunch handling or service permissions. [LG's application descriptor reference](https://webostv.developer.lge.com/develop/references/appinfo-json) owns the standard fields; the native lifecycle convention follows the source-verified Plx manifest and [native application guidance](https://www.webosose.org/docs/tutorials/native-apps/developing-built-in-native-apps/). Actual C4 lifecycle behavior requires device admission.
 
 ## Input and source admission
 
-Root stages exactly `.local/native-package/input/criterion-unofficial` and `build-receipt.json`. The packager takes no command-line arguments, never compiles or executes that binary, and performs no network or device operation. [Development tooling](development.md) owns the SDK, target, link flags and compiler. Root verifies a clean source commit, freezes the complete release compile-input hash map before and after the SDK build, and inspects dynamic libraries and required symbol versions.
+[`NativeMainInput`](../tools/package-native/src/contract.ts) supplies four values:
 
-The JSON receipt has exactly these fields:
+| Input | Required custody |
+| --- | --- |
+| `sourceRoot` | Absolute, canonical source directory containing the matching receipt inputs, lockfile, packaging sources, assets and locked official CLI. The caller keeps it immutable throughout packaging. |
+| `executable` | Checked ARM executable bytes, copied before the first await. |
+| `buildReceipt` | Matching schema-1 receipt bytes, also copied before the first await. |
+| `outputDirectory` | Fresh `/workspace/.local/native-package/exports/<run>` directory, where `<run>` is a unique lowercase alphabetic name of 1–64 characters. The canonical `/workspace/.local/native-package` mount must already exist. |
 
-```json
-{
-  "schemaVersion": 1,
-  "appId": "com.mikestopcontinues.criterion.unofficial",
-  "version": "0.1.0",
-  "target": "arm-unknown-linux-gnueabi",
-  "profile": "release",
-  "sourceCommit": "40 lowercase hexadecimal characters",
-  "cargoLockSha256": "64 lowercase hexadecimal characters",
-  "executableSha256": "64 lowercase hexadecimal characters",
-  "sourceSha256": { "repository/relative/input": "64 lowercase hexadecimal characters" }
-}
-```
+The [receipt validator](../tools/package-native/src/receipt.ts) admits the fixed application, version, ARM target and release profile, then checks the executable, `Cargo.lock` and every supplied source hash before staging and after packaging. It admits bounded repository-relative paths and requires its minimum source map. `sourceCommit` is checked for its hexadecimal format; the API does not inspect Git or prove that this is the compile-source commit, that the checkout is clean or that the map contains every build input. Its identity scope is exactly **`build-receipt-content-only`**. SDK/compiler provenance, complete source capture, runtime inputs and reproducibility require separate producer evidence. [Development tooling](development.md) owns the native compiler and target contracts; [current work](../TASKS.md) owns producer and deployment readiness.
 
-`sourceCommit` is the clean compile-source commit attested by root. `sourceSha256` admits bounded repository-relative crate Rust/C/header/shader/TOML paths and fixed root configuration inputs. The minimum required map includes root `Cargo.toml`, `Dockerfile`, `rust-toolchain.toml`, `.cargo/config.toml`, and the app's manifest and entry point. Root supplies the conservative complete compile-input map, including vendored source and build scripts. The packager verifies every admitted source hash, the locked dependencies and executable bytes against the current checkout before staging and after packaging. This checks the attestation's known inputs; it does not independently establish compiler provenance or reproducibility.
+The [executable admission](../tools/package-native/src/admission.ts) checks bounded ELF32 little-endian ARM EABI5 metadata, explicit soft-float ABI, an executable load segment, the fixed dynamic interpreter and one read/write, nonexecutable GNU stack. Regular input reads reject followed symlinks and overbound files. These checks establish admitted bytes and metadata; they do not establish SDK library compatibility or successful TV execution.
 
-The executable limit is 32MiB. Admission requires ELF32 little-endian ARM EABI5 with explicit soft-float ABI, an executable load segment, exactly one `/lib/ld-linux.so.3` interpreter and exactly one read/write, nonexecutable GNU stack. Program-header counts, spans and segment file bounds are checked. Files are bounded regular inputs without followed symlinks. The receipt limit is 256KiB, with at most 1,024 source paths. Metadata admission cannot prove SDK library compatibility or successful TV execution.
+## Execution and output ownership
+
+[`PackagingExecution`](../tools/package-native/src/contract.ts) requires the fixed packaging image and Node 24.20.0 runtime checked by [the implementation](../tools/package-native/build.ts), an original absolute deadline, a monotonic clock and an injected settled executor. Each issued command carries that same deadline, a timeout bounded by its remaining budget, fixed arguments/environment and bounded output. The executor returns explicit process closure with status and streams; an unresolved outcome, nonzero exit, signal or timeout stops packaging. A bounded acknowledged command result remains available through `PackagingCommandError` when deadline refusal prevents log custody.
+
+The API must run **inside a caller-bounded, joined packaging process or container**. The caller enforces the original deadline across its entire lifetime, including the unchanged normalizer's synchronous GNU children. Cooperative checks before and after awaited work cannot interrupt a blocked synchronous child. No command receives a renewed outer budget.
+
+The sole ELF metadata command is GNU `readelf -d` against the byte-matching staged executable. Its bounded report yields 1–10 safe, unique `DT_NEEDED` SONAMEs in their observed order. The tool and executable hashes enter the seal. This is a requirements observation, not a platform library allowlist, symbol-version check or ABI admission; the executable is never loaded or run.
+
+The fixed official CLI runs with an explicit TV profile and a fresh, isolated home directory. The tool reuses [the player probe's pinned image and dependency lock](probe-player.md#local-build-and-verification); its dependency-audit limitation is owned there. No tooling dependencies enter the app. Fresh staging, CLI output, logs and final outputs use exclusive creation. Existing output directories and artifacts are never overwritten. The unchanged GNU normalizer receives only a newly reserved empty sibling under `/workspace/.local/native-package/normalization/<run>`; failure leaves earned outputs as evidence.
+
+The sole intended operational consumer is [Elgee's canonical deployment entry point](/Users/mike/Code/elgee-tv/TASKS.md#deployment-pipeline); its owner tracks readiness. Packaging does not acquire TV custody or create a parallel deployment command; [the shared TV policy](../AGENTS.md#shared-tv) owns that boundary.
 
 ## Archive construction
 
-The tool reuses [the player probe's pinned Docker image and dependency lock](probe-player.md#local-build-and-verification). It adds host-only [Debian binutils `2.40-2`](https://packages.debian.org/bookworm/binutils) for GNU ar and uses the base image's GNU tar. Compiler declarations and CPU tests use Node 16; Node 24 runs the pinned official CLI `3.2.6` with an explicit TV profile and isolated, build-local home directory. The CLI dependency-audit limitation remains owned by [the probe tooling topic](probe-player.md#local-build-and-verification). No tooling dependencies enter the application.
+The fixed payload contains the executable, descriptor, original geometric icon, GPL license, exact [full notice compendium](../NOTICES.md) and retained platform, egui_glow and image-webp attribution/license texts. The CLI adds one package descriptor. The app contains no service, WAM SDK, JavaScript, account data or credentials. [The payload manifest](../tools/package-native/src/manifest.ts) owns its exact inventory; [the licensing inventory](licenses.md) owns the notices' scope and unresolved release obligations.
 
-The app payload contains only the fixed executable, descriptor, original geometric icon, GPL license, exact [full notice compendium](../NOTICES.md) and retained platform, egui_glow and image-webp attribution/license texts. The compendium is a bounded regular input under the existing 1MiB per-asset limit; its exact bytes and `0644` mode enter the fixed payload inventory and seal. The CLI adds one fixed package descriptor. It packages no service, WAM SDK, JavaScript, source, account data or credentials.
+The packager preserves the original unsigned CLI artifact, admits its known generated modes and compares every regular member with build-owned buffers. The unchanged normalizer reconstructs a fresh tree from those buffers without extracting archive paths to disk. Fixed GNU tar/ar operations produce an unsigned USTAR archive with root numeric ownership, fixed timestamps, directories `0755`, nonexecutables `0644` and the binary `0755`.
 
-The pinned CLI creates writable generated metadata and directories. Both native and probe packagers preserve its original unsigned artifact, admit only its known generated modes, and compare every regular member with build-owned buffers. They reconstruct a fresh tree from those buffers without extracting archive paths to disk. Fixed GNU tar and ar commands produce an unsigned USTAR archive with root numeric ownership, fixed timestamps, directories `0755`, nonexecutables `0644` and the binary `0755`. Final admission requires those exact modes.
+The [archive audit](../tools/package-native/src/archive.ts) bounds archive/decompressed sizes, requires exactly three ordered ar members and the fixed control fields, and verifies every payload byte and mode. It rejects hooks, extra or duplicate members, changed bytes, links, special files, unexpected directories, traversal, corrupted gzip and content hidden after tar end markers. GNU reads inspect permitted PAX metadata before reconstruction using fixed executables, bounded streams and an environment excluding inherited tar options.
 
-The archive limit is 34MiB, including bounded decompression; control expansion is limited to 16KiB. Exactly three ordered ar members are allowed: `debian-binary`, `control.tar.gz`, `data.tar.gz`. Control has the exact ten fields emitted by the pinned CLI, fixed ID/version/ARM architecture and bounded positive installed size. The CLI reports filesystem bytes including directories in that field. Installer hooks, extra or duplicate members, changed bytes, links, special files, unexpected directories, traversal, corrupted gzip and content hidden after tar end markers are rejected. Normal PAX metadata is inspected by GNU tar before reconstruction. Subprocesses use fixed executables/arguments, `shell:false`, bounded output/deadlines and an explicit environment that excludes inherited tar options; member reads go only to stdout.
-
-The package carries the project's license, copied-code notices and the current full notice compendium. [The licensing inventory](licenses.md) owns its scope and unresolved release obligations; the exact compiled artifact, complete runtime grants and corresponding source distribution remain root's publication gate.
-
-## Canonical local commands
-
-Run from the actual checkout after root supplies its verified input and matching source revision:
-
-```sh
-docker build -t criterion-player-probe-tools:20261009 tools/player-probe
-docker run --rm --mount type=bind,src="$PWD",dst=/workspace \
-  --workdir /workspace/tools/player-probe criterion-player-probe-tools:20261009 \
-  npm ci --ignore-scripts --no-audit --no-fund
-docker run --rm --network none --mount type=bind,src="$PWD",dst=/workspace \
-  --workdir /workspace criterion-player-probe-tools:20261009 \
-  sh -c 'node tools/player-probe/node_modules/typescript/bin/tsc -p tools/package-native/tsconfig.json && /opt/node16/bin/node .local/native-package/compiled/tools/package-native/tests/run.js && node .local/native-package/compiled/tools/package-native/build.js'
-```
-
-The shared probe regression/package gate uses its existing canonical `npm run compile && npm test && npm run package` Docker command. Tests exercise public admission behavior and actual CPU GNU tar/ar subprocesses using explicitly identified metadata fixtures. They never run a fixture executable. Root separately checks the exact SDK-produced app artifact and the resulting package.
-
-Ignored output lives under `.local/native-package`: original CLI archive/log, staging, normalization tree, `ipks/com.mikestopcontinues.criterion.unofficial_0.1.0_arm.ipk`, raw check receipts and `package-seal.json`. The seal records the build attestation, source/tooling hashes, actual tool versions, original and normalized IPK hashes, exact payload byte hashes and modes. It identifies a specific development artifact; installation, native rendering, physical input, account behavior and licensed playback remain separate root-owned gates.
+The returned [`NativeMainExport`](../tools/package-native/src/contract.ts) contains the admitted build receipt and its hash; normalized IPK and package-seal paths, hashes and sizes; the exact archive audit; and executable requirements containing the app ID, executable hash and observed SONAMEs. Both the report and seal declare `status: "development"` and `identityScope: "build-receipt-content-only"`. The seal records source/tooling hashes, actual tool versions, original CLI artifact identity, normalized payload identity and the dynamic metadata report. It is written last, after source/tool rechecks and an audit of the exact final IPK bytes.
 
 ## Development verification scope
 
-The inspected carousel development candidate matches clean published source revision `a0ed502e`. Its actual SDK app, caller and broker ELFs match the executable bytes in the normalized development packages. Source, build receipts, archive members, descriptors, modes and payload bytes were checked together; these checks establish the specific development artifacts without executing their target binaries. Exact source/artifact hashes and retained checks are recorded in [the primary journal](../logs/2026-10-10.md).
+[Canonical CI](../.github/workflows/ci.yml) compiles the tooling and runs the unchanged 61 admission/archive cases on the stock Node 16 runtime, then the 33-case export runner on the required Node 24 runtime. The export runner comprises 22 API cases and 11 reused ELF admission cases. Controlled clocks cover deadline refusal and acknowledged command evidence; injected settled executors cover closure, source drift, fresh-directory ownership, malformed metadata and failed packaging. Actual CPU GNU normalization and archive auditing operate on explicitly synthetic ELF metadata and injected readelf/CLI outputs. These fixtures do not establish an actual SDK build, real executable metadata, official producer execution or TV behavior.
 
-[The licensing reconciliation](licenses.md#development-reconciliation) owns the matching source candidate, actual packaged notices, embedded fonts and release limits. Public binary distribution, complete runtime attribution, source-exclusion eligibility and reproducibility remain unadmitted. C4 execution and licensed playback require their own device and provider evidence; development packaging establishes neither.
+Separate development reconciliation binds the actual SDK app, caller and broker artifacts to their matching packages and corresponding-source candidate. [The licensing reconciliation](licenses.md#development-reconciliation) owns the current notice, font and source matching scopes and remaining limits; exact retained checks belong in [the primary journal](../logs/2026-10-10.md). That evidence is distinct from API fixture coverage.
+
+Public binary distribution, complete runtime attribution, source-exclusion eligibility and reproducibility remain unadmitted. Installation, native rendering, physical input, account behavior and licensed playback require separate device/provider evidence; development packaging establishes none of them.
