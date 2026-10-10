@@ -115,6 +115,61 @@ fn text(frame: &criterion_ui::UiFrame) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+
+#[test]
+fn complete_series_resume_caption_fits_primary_buttons() {
+    let target = Target::Native(MediaId::new("Series01").unwrap());
+    let episode = MediaId::new("Episode1").unwrap();
+    let caption = "RESUME SEASON -2147483648, EPISODE 510";
+    let mut native = detail(&target, Some(&episode));
+    native.primary_action = caption;
+    let data = ViewData {
+        detail: Some(native),
+        status: LoadState::Ready,
+        ..ViewData::default()
+    };
+    let mut ui = AppUi::new();
+    open_detail(&mut ui, &target);
+    for (information, button) in [
+        (
+            false,
+            egui::Rect::from_min_size(egui::pos2(150.0, 620.0), egui::vec2(460.0, 80.0)),
+        ),
+        (
+            true,
+            egui::Rect::from_min_size(egui::pos2(348.0, 903.0), egui::vec2(1224.0, 80.0)),
+        ),
+    ] {
+        if information {
+            ui.handle(Action::Right, &data);
+            ui.handle(Action::Select, &data);
+            assert_eq!(ui.focus(), Focus::InformationPrimary);
+        }
+        let mut frame = ui.render(egui::RawInput::default(), &data);
+        frame.output.textures_delta.clear();
+        let (painted, bounds) = frame
+            .output
+            .shapes
+            .iter()
+            .rev()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == caption => {
+                    Some((text, shape.shape.visual_bounding_rect()))
+                }
+                _ => None,
+            })
+            .expect("complete season and episode caption is painted");
+        assert!(
+            !painted.galley.elided,
+            "numeric operands must remain visible"
+        );
+        assert!(
+            button.contains_rect(bounds),
+            "complete caption {bounds:?} must fit primary button {button:?}"
+        );
+    }
+}
+
 #[test]
 fn no_primary_target_hides_play_for_containers_live_and_missing_series_episode() {
     let target = Target::Native(MediaId::new("Native01").unwrap());

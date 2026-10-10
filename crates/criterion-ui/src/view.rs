@@ -590,11 +590,18 @@ pub(crate) fn paragraph(
 }
 pub(crate) fn button(p: &egui::Painter, rect: Rect, text: &str, focused: bool) {
     button_background(p, rect, focused);
-    p.text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        text.chars().take(128).collect::<String>(),
+    let mut job = egui::text::LayoutJob::simple(
+        text.chars().take(128).collect(),
         FontId::proportional(26.0),
+        WHITE,
+        rect.width() - 48.0,
+    );
+    job.wrap.max_rows = 2;
+    job.halign = egui::Align::Center;
+    let galley = p.layout_job(job);
+    p.galley(
+        rect.center() - galley.rect.center().to_vec2(),
+        galley,
         WHITE,
     );
 }
