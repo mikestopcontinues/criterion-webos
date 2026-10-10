@@ -62,6 +62,7 @@ struct Step {
 impl Step {
     fn read(request: &ReadRequest) -> Self {
         let (target, body) = match request {
+            ReadRequest::Playback(_) => panic!("fixture does not admit Playback"),
             ReadRequest::NativeDetail { media_id } => (
                 Observation::Detail { region: Region::Ca, media_id: media_id.clone() },
                 format!(r#"{{"contentType":"film","mediaid":"{}","title":"Synthetic native film","description":"Synthetic native description","duration":90.5}}"#, media_id.as_str()).into_bytes(),
@@ -483,6 +484,7 @@ fn detail_watch_list_and_continue_watching_share_one_bootstrap_and_exact_payload
                 assert_eq!(actual, expected);
                 assert_eq!(page.playlist[0].id.as_str(), "Watch001");
             }
+            Loaded::Playback { .. } => panic!("fixture does not admit Playback"),
             Loaded::Entitlement { .. } => {
                 panic!("metadata/shelf fixture does not admit Entitlement")
             }

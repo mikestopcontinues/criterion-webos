@@ -3,14 +3,18 @@
 //! privacy; departed generations never publish or start replacement reads.
 use crate::jobs::Jobs;
 use criterion_account::{
-    AccountClient, ContinueWatching, Error, NativeDetail, NativeEntitlement, WatchList,
-    WatchListRequest,
+    AccountClient, ContinueWatching, Error, NativeDetail, NativeEntitlement, NativePlaybackRequest,
+    NativePlaybackSelection, WatchList, WatchListRequest,
 };
 use criterion_session::{MonotonicClock, Session, SystemClock};
 use std::sync::Arc;
 use tokio::runtime::{Handle, Runtime};
 
 pub(crate) enum Loaded {
+    Playback {
+        request: NativePlaybackRequest,
+        selection: NativePlaybackSelection,
+    },
     WatchList {
         request: WatchListRequest,
         page: WatchList,
@@ -25,6 +29,11 @@ pub(crate) enum Loaded {
 impl std::fmt::Debug for Loaded {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Playback { request, selection } => formatter
+                .debug_struct("Playback")
+                .field("request", request)
+                .field("selection", selection)
+                .finish(),
             Self::WatchList { request, page } => formatter
                 .debug_struct("WatchList")
                 .field("request", request)
@@ -44,6 +53,7 @@ impl std::fmt::Debug for Loaded {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ReadRequest {
+    Playback(NativePlaybackRequest),
     WatchList(WatchListRequest),
     ContinueWatching,
     NativeDetail {
@@ -56,7 +66,10 @@ pub(crate) enum ReadRequest {
 impl ReadRequest {
     pub(crate) fn requires_subscriber(&self) -> bool {
         match self {
-            Self::WatchList(_) | Self::ContinueWatching | Self::Entitlement { .. } => true,
+            Self::Playback(_)
+            | Self::WatchList(_)
+            | Self::ContinueWatching
+            | Self::Entitlement { .. } => true,
             Self::NativeDetail { .. } => false,
         }
     }
@@ -76,6 +89,9 @@ impl LoadedAccount {
     }
     pub(crate) fn matches_request(&self, expected: &ReadRequest) -> bool {
         match (&self.data, expected) {
+            (Loaded::Playback { request, .. }, _) => {
+                expected == &ReadRequest::Playback(request.clone())
+            }
             (Loaded::WatchList { request, .. }, ReadRequest::WatchList(expected)) => {
                 request == expected
             }
@@ -268,6 +284,10 @@ impl<
                 Err(error) => return Err(error),
             }
             let data = match intent.request {
+                ReadRequest::Playback(request) => {
+                    let selection = account.playback(&session, request.clone()).await?;
+                    Loaded::Playback { request, selection }
+                }
                 ReadRequest::WatchList(request) => {
                     let page = account.watch_list(&session, request.clone()).await?;
                     Loaded::WatchList { request, page }
@@ -342,6 +362,8 @@ mod continue_watching_tests;
 mod entitlement_tests;
 #[cfg(test)]
 mod native_detail_tests;
+#[cfg(test)]
+mod playback_tests;
 
 #[cfg(test)]
 mod tests {

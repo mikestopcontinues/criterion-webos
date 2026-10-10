@@ -103,6 +103,7 @@ impl Step {
     }
     fn read(region: Region, request: &ReadRequest) -> Self {
         let (target, body) = match request {
+            ReadRequest::Playback(_) => panic!("fixture does not admit Playback"),
             ReadRequest::Entitlement {
                 captured_unix_time_ms,
             } => {
@@ -967,6 +968,7 @@ fn exhausted_generation_retires_last_entitlement_and_never_wraps_or_starts_succe
     );
     fixture.wait(|| gate.retiring.load(Ordering::SeqCst));
     gate.open();
+    fixture.wait(|| gate.retired.load(Ordering::SeqCst) == 1);
     fixture.quiet(true, u64::MAX);
     for request in [
         entitlement(i64::MAX),

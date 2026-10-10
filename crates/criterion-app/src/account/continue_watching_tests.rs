@@ -82,6 +82,7 @@ struct Step {
 impl Step {
     fn page(request: ReadRequest) -> Self {
         match request {
+            ReadRequest::Playback(_) => panic!("fixture does not admit Playback"),
             ReadRequest::WatchList(request) => Self {
                 target: Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Ca,
@@ -462,6 +463,7 @@ fn native_methods_share_one_bootstrap_and_retain_each_typed_result() {
             Loaded::NativeDetail(_) => {
                 panic!("private read fixture does not admit NativeDetail")
             }
+            Loaded::Playback { .. } => panic!("fixture does not admit Playback"),
             Loaded::Entitlement { .. } => {
                 panic!("private shelf fixture does not admit Entitlement")
             }
