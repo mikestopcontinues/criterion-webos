@@ -22,9 +22,11 @@ The [transport](../crates/criterion-account/src/transport.rs) verifies TLS with 
 
 ## Native Home observation
 
-The [opt-in native Home observer](../crates/criterion-account/src/native_home_admission_tests.rs) uses the source-established Home identifier and validated bootstrap transport without subscriber credentials. One anonymous host observation succeeded through bootstrap and the regional Home request, then completed a bounded scan of the entire JSON response. The observed public fields are a `page` object, string `name` and `longName` fields, and a `blocks` array. The retained report contains coarse shape diagnostics and a body hash; scalar values are discarded.
+Anonymous native Home has structural and semantic middleware delivery admission. The reviewed candidate uses the public production `AccountClient` bootstrap followed by `native_home`, with no subscriber credentials. The same admitted bootstrap selects the fixed regional Home route. One original ten-second deadline bounds both requests and complete DTO admission; disposal precedes a bounded fixed-schema report containing only counters and source-owned image-family names. The separate [structural observer](../crates/criterion-account/src/native_home_admission_tests.rs) remains available for whole-response shape admission.
 
-This establishes anonymous structural delivery. It does not admit a semantic Home DTO, production Home routing or defaults, discovery/card semantics, artwork selection or rendering. Supplied Continue Watching has the separate account and host-rendering admission above.
+The candidate semantic decoder has accepted a complete provider response through verified TLS. It preserves supplied playlist/source slots, bounded native summaries, required numeric gallery facts and resolved image families; navigation, banners and slideshows remain explicitly unrepresented. A body/shape scan alone is not used as DTO acceptance. Detailed observations and exact source, binary, process and cleanup receipts belong in the [primary journal](../logs/). The candidate remains in an isolated reviewed worktree rather than the published application.
+
+This admits that anonymous DTO delivery, not the complete Home experience. The optional caption path has no admitted populated provider witness. Native caption ownership, gallery layout and artwork delivery, hero/actions, production routing/defaults, rendered composition and C4 behavior remain unfinished. The current composed candidate would remove the working website Home hero/actions; default integration is held until the native replacement is complete. Supplied Continue Watching retains its separate account and host-rendering admission above.
 
 ## Subscriber method admission
 
