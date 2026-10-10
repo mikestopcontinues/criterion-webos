@@ -12,6 +12,8 @@ The pinned SDK's wrapper contains an invalid formatted sysroot argument. Native 
 
 The application uses the stock TV SDL/graphics stack; host SDL/Mesa checks do not prove LG event delivery, DRM, physical remote feel or native GPU performance. [The product contract](product.md) owns the separate acceptance criteria. Development networking is enabled for dependency preparation and live public-provider experiments; locked verification must explicitly separate offline checks from those live checks.
 
+[The CI workflow](../.github/workflows/ci.yml) runs a pinned RustSec scanner over the complete lockfile and rejects vulnerabilities and advisory warnings without target, severity or ignore filters. It mounts only the lockfile read-only in the pinned development image, with separate scanner caches and no account/device credentials. Raw JSON, database revision/date, tool version, lock/report hashes and the original result remain in the job log. This dependency gate does not audit the SDK, rebuilt standard library, TV firmware, modified native libraries or host npm packaging tools; their owning acceptance remains separate.
+
 ## Application checks
 
 [Native packaging](native-package.md) describes sealed development artifacts; [the native caller](native-caller.md) remains a separate disposable device-admission executable. The complete native development executable uses `criterion-app`'s `sdl` host feature or `webos` ARM feature. Run the workspace behavior, formatting and strict Clippy commands in the README before source admission. CI also cross-links the complete application and the packaged lifetime broker. A successful SDK build is not a device execution result.
