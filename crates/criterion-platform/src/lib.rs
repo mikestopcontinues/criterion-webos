@@ -2,6 +2,15 @@
 //! The narrow native window and input seam. Rendering and playback belong to their owners.
 
 pub mod auxv;
+#[cfg(any(
+    test,
+    all(
+        feature = "webos-runtime",
+        target_arch = "arm",
+        target_pointer_width = "32"
+    )
+))]
+mod main_bus;
 pub mod write_fence;
 
 mod event;

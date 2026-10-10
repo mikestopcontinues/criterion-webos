@@ -1,4 +1,4 @@
-//! Narrow stock-SDK declarations. `native/abi.c` checks these against shipped headers.
+//! Narrow stock-SDK declarations. `main_bus/abi.c` checks these against shipped headers.
 use std::ffi::{c_char, c_int, c_ulong, c_void};
 
 #[repr(C)]
@@ -58,6 +58,7 @@ impl Drop for Error {
     }
 }
 
+#[cfg(not(test))]
 #[link(name = "luna-service2")]
 unsafe extern "C" {
     fn LSErrorInit(error: *mut Error) -> bool;
@@ -90,6 +91,7 @@ unsafe extern "C" {
     pub fn LSMessageGetResponseToken(message: *mut Message) -> Token;
     pub fn LSMessageIsHubErrorMessage(message: *mut Message) -> bool;
 }
+#[cfg(not(test))]
 #[link(name = "glib-2.0")]
 unsafe extern "C" {
     pub fn g_main_context_new() -> *mut Context;
@@ -97,3 +99,16 @@ unsafe extern "C" {
     pub fn g_main_context_iteration(context: *mut Context, may_block: c_int) -> c_int;
     pub fn g_main_context_unref(context: *mut Context);
 }
+
+#[cfg(test)]
+pub(crate) mod fixture;
+#[cfg(test)]
+pub(super) use fixture::{
+    attach as LSGmainContextAttach, call as LSCallOneReply, cancel as LSCallCancel,
+    context_new as g_main_context_new, context_unref as g_main_context_unref,
+    error_free as LSErrorFree, error_init as LSErrorInit, handle_name as LSHandleGetName,
+    hub_error as LSMessageIsHubErrorMessage, iterate as g_main_context_iteration,
+    payload as LSMessageGetPayload, register as LSRegisterApplicationService,
+    sender as LSMessageGetSenderServiceName, token as LSMessageGetResponseToken,
+    unregister as LSUnregister,
+};

@@ -2,12 +2,6 @@
 //! The nonsecret, restart-retained admission before an account write is polled.
 use std::{future::Future, pin::Pin, sync::Arc, time::Instant};
 
-#[cfg(all(
-    feature = "webos-runtime",
-    target_arch = "arm",
-    target_pointer_width = "32"
-))]
-mod native;
 #[cfg(any(
     test,
     all(
@@ -16,7 +10,7 @@ mod native;
         target_pointer_width = "32"
     )
 ))]
-mod reply;
+mod native;
 mod store;
 mod worker;
 
@@ -121,3 +115,6 @@ mod lifetimes;
 mod scenarios;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod native_tests;

@@ -1,8 +1,9 @@
-use super::{FenceError, store::MAX_REPLY};
+use super::MAX_REPLY;
+use crate::write_fence::FenceError;
 
 pub(super) fn admit(
-    expected: u64,
-    token: u64,
+    expected: super::ffi::Token,
+    token: super::ffi::Token,
     sender: Option<&[u8]>,
     hub_error: bool,
     payload: Option<&[u8]>,
