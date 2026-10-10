@@ -29,7 +29,7 @@ fn long_synopsis_exposes_paging_and_remote_navigation_retains_every_page() {
         artwork_key: None,
         title: "Synthetic synopsis fixture",
         year: "1986",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     };
