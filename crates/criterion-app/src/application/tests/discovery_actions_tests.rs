@@ -625,3 +625,7 @@ fn action_only_row_is_reachable_when_the_single_supplied_hero_is_unavailable() {
     assert!(app.finish(&runtime));
     assert_eq!(public.account_calls.load(Ordering::SeqCst), 0);
 }
+
+#[cfg(feature = "sdl")]
+#[path = "discovery_actions_render_tests.rs"]
+mod discovery_actions_render_tests;
