@@ -211,6 +211,81 @@ fn remote_new_see_all_opens_exact_discovery_route_and_back_restores_rail() {
     assert_eq!(public.account_calls.load(Ordering::SeqCst), 0);
 }
 
+#[test]
+fn captured_new_and_warm_back_keep_next_rail_headers_below_previous_card_metadata() {
+    fn output(app: &mut App, runtime: &Runtime) -> egui::FullOutput {
+        app.consume(runtime, Duration::ZERO);
+        let mut output = app.take_output().unwrap();
+        output.textures_delta.clear();
+        output
+    }
+    fn text_bounds(output: &egui::FullOutput, caption: &str) -> egui::Rect {
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == caption => {
+                    Some(shape.shape.visual_bounding_rect())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("captured public text was not painted: {caption}"))
+    }
+    fn separated(output: &egui::FullOutput, heading: &str, metadata: [&str; 3]) {
+        let next = text_bounds(output, heading);
+        for caption in metadata {
+            let previous = text_bounds(output, caption);
+            assert!(
+                previous.bottom() < next.top(),
+                "{heading} overlaps previous card {caption}: {previous:?} then {next:?}"
+            );
+        }
+    }
+    let runtime = runtime();
+    let public = Public::default();
+    let mut app = fixture_app(&runtime, public.clone());
+    new_page(&mut app, &runtime);
+    for code in [81, 81, 79, 79, 82] {
+        key(&mut app, &runtime, code);
+    }
+    let focus = Focus::DiscoveryRailAction { row: 1, column: 2 };
+    assert_eq!(app.ui.focus(), focus);
+    let scroll = app.ui.scroll_y();
+    separated(
+        &output(&mut app, &runtime),
+        "Highway Horror",
+        ["Barry Lyndon", "1975", "3 h 5 min"],
+    );
+    key(&mut app, &runtime, 40);
+    assert_eq!(app.ui.page(), Page::Discovery);
+    settle(&mut app, &runtime);
+    key(&mut app, &runtime, 41);
+    assert_eq!(app.ui.page(), Page::New);
+    assert_eq!(app.ui.focus(), focus);
+    assert_eq!(app.ui.scroll_y(), scroll);
+    separated(
+        &output(&mut app, &runtime),
+        "Highway Horror",
+        ["Barry Lyndon", "1975", "3 h 5 min"],
+    );
+    // Keep the second collision visible at its own focused row rather than
+    // requiring offscreen rows to be painted after the layout changes.
+    key(&mut app, &runtime, 81);
+    key(&mut app, &runtime, 81);
+    assert_eq!(app.ui.focus(), Focus::Card { row: 2, column: 2 });
+    separated(
+        &output(&mut app, &runtime),
+        "Possessions",
+        ["The Appointment", "1981", "1 h 29 min"],
+    );
+    assert_eq!(
+        &*public.calls.lock().unwrap(),
+        &["/", "/new", "/discover/newly-added"]
+    );
+    assert!(app.finish(&runtime));
+    assert_eq!(public.account_calls.load(Ordering::SeqCst), 0);
+}
+
 fn raw_rail() -> serde_json::Value {
     let data: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../../tests/fixtures/provider/discovery-new.json"

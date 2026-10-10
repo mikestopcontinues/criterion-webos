@@ -169,7 +169,7 @@ impl AppUi {
             self.focus = focus;
             self.scroll_y = match focus {
                 Focus::Card { row, .. } | Focus::DiscoveryRailAction { row, .. } => {
-                    632.0 + row as f32 * 397.0
+                    crate::view::discovery_scroll_y(self.page(), row)
                 }
                 _ => 0.0,
             };

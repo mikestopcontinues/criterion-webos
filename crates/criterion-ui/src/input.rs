@@ -408,7 +408,8 @@ impl AppUi {
         if matches!(self.page(), Page::Home | Page::New | Page::Discovery) {
             for row in 0..data.rails.len() {
                 if data.rail_action_cursor(row).is_some()
-                    && crate::view::discovery_action_rect(row, self.scroll_y()).contains(pos)
+                    && crate::view::discovery_action_rect(self.page(), row, self.scroll_y())
+                        .contains(pos)
                 {
                     let column = match self.layout_focus() {
                         Focus::Card {

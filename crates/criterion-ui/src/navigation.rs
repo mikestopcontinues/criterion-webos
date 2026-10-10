@@ -377,7 +377,7 @@ impl AppUi {
             && rows.first().is_some_and(|count| *count > 0)
         {
             self.focus = Focus::Card { row: 0, column: 0 };
-            self.scroll_y = 632.0;
+            self.scroll_y = crate::view::discovery_scroll_y(self.page, 0);
         } else if action == Action::Up && matches!(self.focus, Focus::Card { row: 0, .. }) {
             self.focus = if self.page == Page::MyList {
                 self.focus
@@ -408,7 +408,7 @@ impl AppUi {
                 } else if matches!(self.page, Page::AllFilms | Page::MyList) {
                     (row as f32 * 321.0 - 172.0).max(0.0)
                 } else {
-                    632.0 + row as f32 * 397.0
+                    crate::view::discovery_scroll_y(self.page, row)
                 };
             }
         }

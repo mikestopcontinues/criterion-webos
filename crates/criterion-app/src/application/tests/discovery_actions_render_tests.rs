@@ -182,7 +182,7 @@ impl Stage {
         if self == Self::Discovery {
             632.0
         } else {
-            1029.0
+            1106.625
         }
     }
 }

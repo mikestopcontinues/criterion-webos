@@ -16,9 +16,22 @@ pub(crate) fn hero_control_rect(focus: Focus, scroll: f32) -> Option<Rect> {
         Vec2::new(width, 80.0),
     ))
 }
-pub(crate) fn discovery_action_rect(row: usize, scroll: f32) -> Rect {
+pub(crate) fn discovery_card_width(page: Page) -> f32 {
+    if page == Page::New { 516.0 } else { 378.0 }
+}
+fn discovery_row_height(page: Page) -> f32 {
+    // Preserve the existing caption and header clearance as thumbnails grow.
+    397.0 + (discovery_card_width(page) - 378.0) * 9.0 / 16.0
+}
+fn discovery_row_y(page: Page, row: usize, scroll: f32) -> f32 {
+    896.0 + row as f32 * discovery_row_height(page) - scroll
+}
+pub(crate) fn discovery_scroll_y(page: Page, row: usize) -> f32 {
+    discovery_row_y(page, row, 0.0) - 264.0
+}
+pub(crate) fn discovery_action_rect(page: Page, row: usize, scroll: f32) -> Rect {
     Rect::from_min_size(
-        Pos2::new(1470.0, 896.0 + row as f32 * 397.0 - scroll - 8.0),
+        Pos2::new(1470.0, discovery_row_y(page, row, scroll) - 8.0),
         Vec2::new(300.0, 52.0),
     )
 }
@@ -413,14 +426,14 @@ impl AppUi {
                         );
                     }
                     for (row, rail) in data.rails.iter().enumerate() {
-                        let y = 896.0 + row as f32 * 397.0 - self.scroll_y();
-                        if !(-380.0..1080.0).contains(&y) {
+                        let y = discovery_row_y(self.page(), row, self.scroll_y());
+                        if !(-discovery_row_height(self.page())..LOGICAL_SIZE[1]).contains(&y) {
                             continue;
                         }
                         label(&p, [150.0, y], rail.title, 34.0, WHITE,
                             if rail.action.is_some() { 1250.0 } else { 1620.0 });
                         if let Some(action) = rail.action {
-                            let area = discovery_action_rect(row, self.scroll_y());
+                            let area = discovery_action_rect(self.page(), row, self.scroll_y());
                             button_background(&p, area, matches!(self.focus(), Focus::DiscoveryRailAction { row: current, .. } if current == row));
                             label(&p, [area.left() + 24.0, area.top() + 8.0], action.label, 26.0, WHITE, area.width() - 48.0);
                         }
@@ -428,11 +441,7 @@ impl AppUi {
                             Focus::Card { row: r, column } | Focus::DiscoveryRailAction { row: r, column } if r == row => column,
                             _ => 0,
                         };
-                        let width = if self.page() == Page::New {
-                            516.0
-                        } else {
-                            378.0
-                        };
+                        let width = discovery_card_width(self.page());
                         let first =
                             selected.saturating_sub(if self.page() == Page::New { 2 } else { 3 });
                         for (column, card) in rail
