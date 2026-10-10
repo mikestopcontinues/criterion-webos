@@ -48,6 +48,8 @@ fn card(target: &Target) -> Card<'_> {
 fn detail<'a>(target: &'a Target, primary: Option<&'a MediaId>) -> criterion_ui::Detail<'a> {
     criterion_ui::Detail {
         card: card(target),
+        header_metadata: "",
+        information_metadata: "",
         directors: "",
         description: "Series synopsis",
         starring: None,

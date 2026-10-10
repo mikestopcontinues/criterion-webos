@@ -61,6 +61,9 @@ pub struct SeasonView<'a> {
 }
 pub struct Detail<'a> {
     pub card: Card<'a>,
+    /// Owned and formatted by the presentation, independently for each surface.
+    pub header_metadata: &'a str,
+    pub information_metadata: &'a str,
     pub directors: &'a str,
     pub description: &'a str,
     pub starring: Option<&'a str>,
@@ -1000,11 +1003,7 @@ impl AppUi {
         label(
             p,
             [169.0, y + 563.0],
-            &format!(
-                "{}   {}",
-                detail.card.year,
-                duration(detail.card.duration_seconds)
-            ),
+            detail.header_metadata,
             24.0,
             WHITE,
             1200.0,
@@ -1215,11 +1214,7 @@ impl AppUi {
         label(
             &content,
             [348.0, 826.0],
-            &format!(
-                "{}   {}",
-                detail.card.year,
-                duration(detail.card.duration_seconds)
-            ),
+            detail.information_metadata,
             24.0,
             WHITE,
             1200.0,
@@ -1240,16 +1235,6 @@ impl AppUi {
         }
     }
 }
-fn duration(seconds: u32) -> String {
-    if seconds == 0 {
-        String::new()
-    } else if seconds >= 3600 {
-        format!("{}h {}m", seconds / 3600, (seconds % 3600) / 60)
-    } else {
-        format!("{} min", seconds / 60)
-    }
-}
-
 pub(crate) fn catalog_retry_rect() -> Rect {
     Rect::from_min_size(Pos2::new(150.0, 970.0), Vec2::new(650.0, 80.0))
 }

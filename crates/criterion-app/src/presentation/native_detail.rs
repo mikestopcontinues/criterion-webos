@@ -109,11 +109,50 @@ impl Presentation {
                 },
             );
         }
+        // Native catalog Float32 seconds truncate/saturate to signed Int64.
+        // Do not route these values through the public card's integer runtime.
+        let seconds = detail.media.duration.map(|value| value as i64);
         let card = projection.native_detail_card(detail.media, ImageRole::Backdrop, None);
+        let header_runtime = matches!(
+            kind,
+            DetailKind::Film | DetailKind::Original | DetailKind::Supplement
+        )
+        .then(|| seconds.map(header_runtime))
+        .flatten();
+        let information_runtime = matches!(
+            kind,
+            DetailKind::Film | DetailKind::Original | DetailKind::Supplement | DetailKind::Episode
+        )
+        .then(|| seconds.map(information_runtime))
+        .flatten();
+        let header_year = if matches!(
+            kind,
+            DetailKind::Film | DetailKind::Original | DetailKind::Supplement | DetailKind::Series
+        ) {
+            card.year.as_str()
+        } else {
+            ""
+        };
+        let information_year = if matches!(
+            kind,
+            DetailKind::Film
+                | DetailKind::Original
+                | DetailKind::Supplement
+                | DetailKind::Series
+                | DetailKind::Episode
+        ) {
+            card.year.as_str()
+        } else {
+            ""
+        };
+        let header_metadata = metadata_line(header_year, header_runtime.as_deref());
+        let information_metadata = metadata_line(information_year, information_runtime.as_deref());
         projection.detail = Some(OwnedDetail {
             primary_playback_target,
             primary_action: resolution.map_or_else(|| "WATCH NOW".into(), |value| value.action),
             native: Some(native),
+            header_metadata,
+            information_metadata,
             card,
             kind,
             description: [
@@ -296,6 +335,43 @@ impl Presentation {
                 },
         )
         .expect("bounded native detail");
+    }
+}
+
+fn metadata_line(year: &str, runtime: Option<&str>) -> String {
+    match (year.is_empty(), runtime) {
+        (false, Some(runtime)) => format!("{year}   {runtime}"),
+        (false, None) => year.into(),
+        (true, Some(runtime)) => runtime.into(),
+        (true, None) => String::new(),
+    }
+}
+
+fn header_runtime(seconds: i64) -> String {
+    if seconds <= 0 {
+        return "0m".into();
+    }
+    // The source header divides before narrowing each displayed part.
+    let minutes = seconds / 60;
+    compact_runtime((minutes / 60) as i32, (minutes % 60) as i32)
+}
+
+fn information_runtime(seconds: i64) -> String {
+    // The source modal wraps to signed Int32 before its positive-value guard.
+    let seconds = seconds as i32;
+    if seconds <= 0 {
+        return "0m".into();
+    }
+    compact_runtime(seconds / 3600, (seconds % 3600) / 60)
+}
+
+fn compact_runtime(hours: i32, minutes: i32) -> String {
+    if hours <= 0 {
+        format!("{minutes}m")
+    } else if minutes <= 0 {
+        format!("{hours}h")
+    } else {
+        format!("{hours}h {minutes}m")
     }
 }
 

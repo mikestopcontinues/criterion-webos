@@ -33,6 +33,8 @@ fn unavailable_duration_is_omitted_from_grid_detail_and_information() {
         status: LoadState::Ready,
         detail: Some(Detail {
             card,
+            header_metadata: "1986",
+            information_metadata: "1986",
             directors: "Fixture director",
             description: "Fixture synopsis",
             starring: None,
@@ -89,6 +91,8 @@ fn native_information_omits_headings_for_absent_metadata() {
         status: LoadState::Ready,
         detail: Some(Detail {
             card,
+            header_metadata: "1986",
+            information_metadata: "1986",
             directors: "Fixture director",
             description: "Fixture synopsis",
             starring: None,
@@ -124,6 +128,84 @@ fn native_information_omits_headings_for_absent_metadata() {
     }
 }
 
+#[test]
+fn header_and_information_paint_their_independent_borrowed_runtime_lines() {
+    let target =
+        criterion_ui::Target::Native(criterion_provider::MediaId::new("Native01").unwrap());
+    let card = Card {
+        key: &target,
+        artwork_key: None,
+        title: "Independent runtime fixture",
+        year: "1986",
+        duration_seconds: 3600,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
+    };
+    let cards = [card];
+    let rails = [criterion_ui::Rail {
+        title: "Native origin",
+        cards: &cards,
+    }];
+    let data = ViewData {
+        rails: &rails,
+        status: LoadState::Ready,
+        detail: Some(Detail {
+            card,
+            header_metadata: "85   596523h 14m",
+            information_metadata: "85   0m",
+            directors: "",
+            description: "",
+            starring: None,
+            countries: None,
+            languages: None,
+            content_warnings: None,
+            primary_action: "WATCH NOW",
+            primary_playback_target: Some(target.media_id().unwrap()),
+            selected_playlist: None,
+            seasons: None,
+            kind: DetailKind::Film,
+        }),
+        ..Default::default()
+    };
+    let mut ui = AppUi::new();
+    ui.handle(Action::Down, &data);
+    ui.handle(Action::Select, &data);
+    let header_region =
+        egui::Rect::from_min_max(egui::pos2(150.0, 540.0), egui::pos2(1400.0, 600.0));
+    let information_region =
+        egui::Rect::from_min_max(egui::pos2(348.0, 826.0), egui::pos2(1570.0, 852.0));
+    let assert_line = |frame: &criterion_ui::UiFrame, expected: &str, region: egui::Rect| {
+        let shape = frame
+            .output
+            .shapes
+            .iter()
+            .find(|shape| {
+                matches!(
+                    &shape.shape, egui::Shape::Text(text)
+                        if region.contains(text.pos) && text.galley.job.text == expected
+                )
+            })
+            .expect("independent metadata line on intended surface");
+        let bounds = shape.shape.visual_bounding_rect();
+        assert!(shape.clip_rect.contains_rect(bounds));
+        assert!(region.contains_rect(bounds));
+        assert!(
+            !text(frame).contains("1986   1h 0m"),
+            "card metadata is not reformatted by either renderer"
+        );
+    };
+    let mut frame = ui.render(egui::RawInput::default(), &data);
+    frame.output.textures_delta.clear();
+    assert_line(&frame, "85   596523h 14m", header_region);
+    ui.handle(Action::Right, &data);
+    ui.handle(Action::Select, &data);
+    assert_eq!(ui.focus(), criterion_ui::Focus::InformationPrimary);
+    let mut frame = ui.render(egui::RawInput::default(), &data);
+    frame.output.textures_delta.clear();
+    assert_line(&frame, "85   0m", information_region);
+    assert_line(&frame, "85   596523h 14m", header_region);
+}
+
 fn populated_native_information(value: &str) -> criterion_ui::UiFrame {
     let target =
         criterion_ui::Target::Native(criterion_provider::MediaId::new("Native01").unwrap());
@@ -146,6 +228,8 @@ fn populated_native_information(value: &str) -> criterion_ui::UiFrame {
         status: LoadState::Ready,
         detail: Some(Detail {
             card,
+            header_metadata: "1986",
+            information_metadata: "1986",
             directors: "Fixture director",
             description: "Fixture synopsis",
             starring: Some(value),

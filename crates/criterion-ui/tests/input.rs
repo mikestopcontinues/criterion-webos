@@ -309,6 +309,8 @@ fn detail_tab_press_is_bound_to_the_owning_detail_identity() {
         rails: &rails,
         detail: Some(criterion_ui::Detail {
             card: card(key),
+            header_metadata: "1986   1h 37m",
+            information_metadata: "1986   1h 37m",
             directors: "",
             description: "",
             starring: None,

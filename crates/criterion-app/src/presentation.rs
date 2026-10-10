@@ -219,10 +219,13 @@ impl Presentation {
                 .expect("public playable media target")
                 .clone()
         });
+        let metadata = format!("{}   {}", card.year, public_duration(card.duration_seconds));
         projection.detail = Some(OwnedDetail {
             primary_playback_target,
             primary_action: "WATCH NOW".into(),
             native: None,
+            header_metadata: metadata.clone(),
+            information_metadata: metadata,
             card,
             kind,
             description: detail.description.unwrap_or_default(),
@@ -333,6 +336,8 @@ impl Presentation {
                     .as_ref()
                     .map_or(0, native_detail::NativeDetailState::heap_bytes)
                 + detail.card.heap_bytes()
+                + detail.header_metadata.capacity()
+                + detail.information_metadata.capacity()
                 + detail.description.capacity()
                 + detail.directors.capacity()
                 + detail.starring.as_ref().map_or(0, String::capacity)
@@ -656,6 +661,8 @@ impl Presentation {
             .collect();
         let detail = self.detail.as_ref().map(|detail| Detail {
             card: detail.card.view(),
+            header_metadata: &detail.header_metadata,
+            information_metadata: &detail.information_metadata,
             directors: &detail.directors,
             description: &detail.description,
             starring: detail.starring.as_deref(),
@@ -736,6 +743,16 @@ fn joined(values: Vec<String>) -> Option<String> {
     (!values.is_empty()).then(|| values.join(", "))
 }
 
+fn public_duration(seconds: u32) -> String {
+    if seconds == 0 {
+        String::new()
+    } else if seconds >= 3600 {
+        format!("{}h {}m", seconds / 3600, (seconds % 3600) / 60)
+    } else {
+        format!("{} min", seconds / 60)
+    }
+}
+
 struct OwnedFilter {
     label: String,
     options: Vec<String>,
@@ -744,6 +761,8 @@ struct OwnedDetail {
     primary_playback_target: Option<MediaId>,
     primary_action: String,
     native: Option<native_detail::NativeDetailState>,
+    header_metadata: String,
+    information_metadata: String,
     card: OwnedCard,
     kind: DetailKind,
     description: String,
@@ -969,6 +988,46 @@ mod tests {
             });
         }
         assert_eq!(presentation.artwork_bindings().len(), 6);
+    }
+
+    #[test]
+    fn public_detail_runtime_keeps_existing_unsigned_display_conventions() {
+        use criterion_provider::{MediaDetail, MediaId, MediaKind, MediaSummary};
+        for (seconds, expected) in [
+            (0, "1986   "),
+            (59, "1986   0 min"),
+            (60, "1986   1 min"),
+            (3600, "1986   1h 0m"),
+            (7199, "1986   1h 59m"),
+            (u32::MAX, "1986   1193046h 28m"),
+        ] {
+            let presentation = Presentation::detail(MediaDetail {
+                media: MediaSummary {
+                    id: MediaId::new("Public01").unwrap(),
+                    title: "Public runtime fixture".into(),
+                    kind: MediaKind::Film,
+                    duration_seconds: seconds,
+                    release_date: Some("1986-01-01".into()),
+                },
+                description: None,
+                directors: vec![],
+                starring: vec![],
+                countries: vec![],
+                languages: vec![],
+                genres: vec![],
+                content_warnings: None,
+                commentary_tracks: vec![],
+                first_playlist_sortable: false,
+                live_schedule: vec![],
+                playlists: vec![],
+            });
+            presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
+                let detail = view.detail.as_ref().unwrap();
+                assert_eq!(detail.card.duration_seconds, seconds);
+                assert_eq!(detail.header_metadata, expected);
+                assert_eq!(detail.information_metadata, expected);
+            });
+        }
     }
 
     #[test]

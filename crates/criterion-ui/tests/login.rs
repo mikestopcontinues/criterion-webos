@@ -368,6 +368,8 @@ fn authentication_from_information_modal_owns_input_and_restores_the_modal() {
     };
     let detail = || criterion_ui::Detail {
         card,
+        header_metadata: "1986   1h 37m",
+        information_metadata: "1986   1h 37m",
         directors: "Fixture director",
         description: "MODAL-ONLY-SYNOPSIS",
         starring: Some("Fixture cast"),
@@ -488,6 +490,8 @@ fn film_view(target: &criterion_ui::Target) -> ViewData<'_> {
         }),
         detail: Some(criterion_ui::Detail {
             card,
+            header_metadata: "1986   1h 37m",
+            information_metadata: "1986   1h 37m",
             directors: "Fixture director",
             description: "Fixture synopsis",
             starring: Some("Fixture cast"),

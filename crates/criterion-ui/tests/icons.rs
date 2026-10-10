@@ -75,6 +75,8 @@ fn filter_and_information_controls_use_vector_marks_and_keep_remote_actions() {
         filters: Some(criterion_ui::FilterMenu { groups: &groups }),
         detail: Some(criterion_ui::Detail {
             card,
+            header_metadata: "1986   1h 37m",
+            information_metadata: "1986   1h 37m",
             directors: "Fixture director",
             description: "Fixture synopsis",
             starring: None,

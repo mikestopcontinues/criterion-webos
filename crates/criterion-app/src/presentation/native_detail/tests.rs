@@ -752,3 +752,123 @@ fn native_root_and_child_years_use_unpadded_calendar_years() {
         });
     }
 }
+
+#[test]
+fn native_runtime_and_year_have_distinct_header_and_information_subtype_gates() {
+    for (kind, header, information) in [
+        (MediaKind::Film, "85   1h 59m", "85   1h 59m"),
+        (MediaKind::Original, "85   1h 59m", "85   1h 59m"),
+        (MediaKind::Supplement, "85   1h 59m", "85   1h 59m"),
+        (MediaKind::Episode, "", "85   1h 59m"),
+        (MediaKind::Series, "85", "85"),
+        (MediaKind::Category, "", ""),
+        (MediaKind::Collection, "", ""),
+        (MediaKind::Franchise, "", ""),
+        (MediaKind::Live, "", ""),
+    ] {
+        let mut source = detail(kind);
+        source.media.duration = Some(7199.0);
+        source.media.release_date =
+            Some(time::Date::from_calendar_date(85, time::Month::January, 1).unwrap());
+        let mut child = media("Child001", "Child runtime", MediaKind::Film);
+        child.duration = Some(3600.0);
+        source.playlists.push(generic("Related", vec![child]));
+        let presentation = Presentation::native_detail(source, None).unwrap();
+        presentation.with_view(LoginView::SignedOut, |view| {
+            let native = view.detail.as_ref().unwrap();
+            assert_eq!(native.header_metadata, header, "{kind:?}");
+            assert_eq!(native.information_metadata, information, "{kind:?}");
+            assert_eq!(native.card.duration_seconds, 0);
+            assert_eq!(view.rails[0].cards[0].duration_seconds, 0);
+        });
+    }
+}
+
+#[test]
+fn native_runtime_absence_preserves_year_without_inventing_zero() {
+    for kind in [
+        MediaKind::Film,
+        MediaKind::Original,
+        MediaKind::Supplement,
+        MediaKind::Episode,
+    ] {
+        for (duration, header, information) in
+            [(None, "85", "85"), (Some(0.0), "85   0m", "85   0m")]
+        {
+            let mut source = detail(kind);
+            source.media.duration = duration;
+            source.media.release_date =
+                Some(time::Date::from_calendar_date(85, time::Month::January, 1).unwrap());
+            let presentation = Presentation::native_detail(source, None).unwrap();
+            presentation.with_view(LoginView::SignedOut, |view| {
+                let native = view.detail.as_ref().unwrap();
+                assert_eq!(
+                    native.header_metadata,
+                    if kind == MediaKind::Episode {
+                        ""
+                    } else {
+                        header
+                    }
+                );
+                assert_eq!(native.information_metadata, information);
+            });
+        }
+    }
+}
+
+#[test]
+fn both_owned_runtime_lines_charge_reserved_capacity_to_retained_budget() {
+    let mut source = detail(MediaKind::Film);
+    source.media.duration = Some(7199.0);
+    let mut presentation = Presentation::native_detail(source, None).unwrap();
+    {
+        let native = presentation.detail.as_mut().unwrap();
+        native.header_metadata.clear();
+        native.header_metadata.shrink_to_fit();
+        native.information_metadata.clear();
+        native.information_metadata.shrink_to_fit();
+    }
+    let baseline = presentation.estimated_bytes();
+    {
+        let native = presentation.detail.as_mut().unwrap();
+        native.header_metadata = String::with_capacity(8192);
+        native.header_metadata.push_str("1h 59m");
+        native.information_metadata = String::with_capacity(12288);
+        native.information_metadata.push_str("1h 59m");
+    }
+    assert_eq!(presentation.estimated_bytes() - baseline, 20480);
+    presentation.with_view(LoginView::SignedOut, |view| {
+        let native = view.detail.as_ref().unwrap();
+        assert_eq!(native.header_metadata, "1h 59m");
+        assert_eq!(native.information_metadata, "1h 59m");
+    });
+}
+
+#[test]
+fn native_runtime_lines_are_included_before_exact_projection_admission() {
+    let source = || {
+        let mut source = detail(MediaKind::Film);
+        source.media.duration = Some(f32::MAX);
+        source
+    };
+    let baseline = Presentation::native_detail(source(), None)
+        .unwrap()
+        .estimated_bytes();
+    for (extra, accepted) in [(0, true), (1, false)] {
+        let mut source = source();
+        let mut description = String::with_capacity(512 * 1024 - baseline + extra);
+        description.push('d');
+        source.metadata.description_long = Some(description);
+        assert!(source.estimated_bytes() < 512 * 1024);
+        let result = Presentation::native_detail(source, None);
+        assert_eq!(result.is_ok(), accepted);
+        if let Ok(presentation) = result {
+            assert_eq!(presentation.estimated_bytes(), 512 * 1024);
+            presentation.with_view(LoginView::SignedOut, |view| {
+                let native = view.detail.as_ref().unwrap();
+                assert_eq!(native.header_metadata, "1011703407h 30m");
+                assert_eq!(native.information_metadata, "0m");
+            });
+        }
+    }
+}

@@ -873,3 +873,6 @@ fn cached_anonymous_series_reset_keeps_a_visible_canonical_card_focus() {
         "actual resulting frame includes visible canonical card focus"
     );
 }
+
+#[path = "native_runtime_tests.rs"]
+mod native_runtime_tests;
