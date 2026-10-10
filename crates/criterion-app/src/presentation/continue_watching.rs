@@ -4,7 +4,7 @@ use super::{ImageSource, NativeActivation, OwnedCard, Presentation, ProjectionLi
 use crate::continue_watching::ContinueWatchingShelf;
 use criterion_artwork::ImageRole;
 use criterion_provider::MediaId;
-use criterion_ui::{LoadState, Target};
+use criterion_ui::Target;
 
 // Policy across all supplied slots, including duplicate gallery multiplicity.
 const MAX_PRIVATE_CARDS: usize = 4096;
@@ -331,11 +331,7 @@ impl Presentation {
     }
     fn refresh_discovery_count(&mut self) {
         self.total = self.rails.iter().map(|rail| rail.cards.len() as u32).sum();
-        self.status = if self.total == 0 && self.hero.is_none() {
-            LoadState::Empty
-        } else {
-            LoadState::Ready
-        };
+        self.refresh_discovery_status();
     }
     fn prune_unused_artwork(&mut self) {
         let mut bindings = std::mem::take(&mut self.artwork);
@@ -343,6 +339,13 @@ impl Presentation {
         self.artwork = bindings;
     }
     fn references_artwork(&self, key: &str, exclude_replaced_slots: bool) -> bool {
+        self.references_nonhero_artwork(key, exclude_replaced_slots)
+            || self
+                .slideshow
+                .as_ref()
+                .is_some_and(|value| value.references(key))
+    }
+    fn references_nonhero_artwork(&self, key: &str, exclude_replaced_slots: bool) -> bool {
         let matches_card = |card: &OwnedCard| card.artwork.as_deref() == Some(key);
         self.cards.iter().any(matches_card)
             || self
@@ -362,11 +365,6 @@ impl Presentation {
                 .into_iter()
                 .flatten()
                 .any(matches_card)
-            || self.hero.as_ref().is_some_and(|hero| {
-                matches_card(&hero.card)
-                    || hero.background == key
-                    || hero.logo.as_deref() == Some(key)
-            })
     }
 }
 
@@ -408,7 +406,7 @@ mod tests {
         ContentTarget, DiscoveryBlock, DiscoveryCard, DiscoveryPage, GalleryLayout,
         GalleryPresentation, ImageLabel, RailSource,
     };
-    use criterion_ui::{LoginView, Target};
+    use criterion_ui::{LoadState, LoginView, Target};
 
     fn native_media(
         id: &str,

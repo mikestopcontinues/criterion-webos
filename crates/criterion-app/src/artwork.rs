@@ -55,7 +55,7 @@ impl Artwork {
             Box::pin(async move { loader.load(&source).await })
         })))
     }
-    fn with_loader(load: LoadImage) -> Self {
+    pub(crate) fn with_loader(load: LoadImage) -> Self {
         Self {
             load,
             requests: Vec::new(),

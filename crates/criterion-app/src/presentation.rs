@@ -2,18 +2,20 @@
 //! Owned validated display data; the controller owns publication and request lifetimes.
 mod account;
 mod continue_watching;
+mod hero;
+use hero::OwnedSlideshow;
 mod native_detail;
 pub(crate) use account::my_list_filter;
 use continue_watching::ContinueWatchingState;
 use criterion_artwork::ImageRole;
 use criterion_provider::{
-    BrowseOptions, CatalogPage, DiscoveryArtwork, DiscoveryBlock, DiscoveryPage, DiscoverySlide,
-    EditorialImage, GalleryPresentation, ImageLabel, MediaDetail, MediaId, MediaKind, MediaSummary,
-    RailSource, SearchResults,
+    BrowseOptions, CatalogPage, DiscoveryArtwork, DiscoveryBlock, DiscoveryPage, EditorialImage,
+    GalleryPresentation, ImageLabel, MediaDetail, MediaId, MediaKind, MediaSummary, RailSource,
+    SearchResults,
 };
 use criterion_ui::{
-    Card, Detail, DetailKind, FilterGroup, FilterMenu, Hero, HeroAction, LoadState, Rail,
-    SearchGroup, Target, ViewData,
+    Card, Detail, DetailKind, FilterGroup, FilterMenu, LoadState, Rail, SearchGroup, Target,
+    ViewData,
 };
 use std::fmt::Write;
 
@@ -61,7 +63,7 @@ pub(crate) struct Presentation {
     rails: Vec<OwnedRail>,
     artwork: Vec<ImageBinding>,
     gaps: ProjectionGaps,
-    hero: Option<OwnedHero>,
+    slideshow: Option<OwnedSlideshow>,
     detail: Option<OwnedDetail>,
     selected_playlist: Option<usize>,
     search_counts: [u32; 4],
@@ -83,7 +85,7 @@ impl Presentation {
             rails: Vec::new(),
             artwork: Vec::new(),
             gaps: ProjectionGaps::default(),
-            hero: None,
+            slideshow: None,
             detail: None,
             selected_playlist: None,
             search_counts: [0; 4],
@@ -319,13 +321,10 @@ impl Presentation {
                     + filter.options.iter().map(String::capacity).sum::<usize>();
             }
         }
-        if let Some(hero) = &self.hero {
-            bytes += hero.card.heap_bytes()
-                + hero.description.capacity()
-                + hero.action.capacity()
-                + hero.background.capacity()
-                + hero.logo.as_ref().map_or(0, String::capacity);
-        }
+        bytes += self
+            .slideshow
+            .as_ref()
+            .map_or(0, OwnedSlideshow::heap_bytes);
         if let Some(detail) = &self.detail {
             bytes += detail.primary_action.capacity()
                 + detail
@@ -407,15 +406,12 @@ impl Presentation {
         let mut saw_slideshow = false;
         for block in page.blocks {
             match block {
-                DiscoveryBlock::Slideshow { slides, .. } => {
+                DiscoveryBlock::Slideshow { id, slides } => {
                     if saw_slideshow {
                         projection.gaps.extra_slides += slides.len();
                     } else {
                         saw_slideshow = true;
-                        projection.gaps.extra_slides += slides.len().saturating_sub(1);
-                        if let Some(slide) = slides.into_iter().next() {
-                            projection.admit_hero(slide);
-                        }
+                        projection.admit_slideshow(id, slides);
                     }
                 }
                 DiscoveryBlock::Banner {
@@ -497,48 +493,8 @@ impl Presentation {
             .iter()
             .map(|rail| rail.cards.len() as u32)
             .sum();
-        projection.status = if projection.total == 0 && projection.hero.is_none() {
-            LoadState::Empty
-        } else {
-            LoadState::Ready
-        };
+        projection.refresh_discovery_status();
         projection
-    }
-    fn admit_hero(&mut self, slide: DiscoverySlide) {
-        if slide.opens_new_window {
-            self.gaps.new_window_targets += usize::from(slide.target.is_some());
-            self.gaps.unavailable_heroes += 1;
-            return;
-        }
-        let (Some(target), Some(action), Some(background)) = (
-            slide.target,
-            slide.cta,
-            desktop_image(&slide.artwork).cloned(),
-        ) else {
-            self.gaps.unavailable_heroes += 1;
-            return;
-        };
-        let background = self.bind_image(ImageSource::Editorial(background));
-        let logo = slide
-            .artwork
-            .logo
-            .map(|image| self.bind_image(ImageSource::Editorial(image)));
-        self.hero = Some(OwnedHero {
-            card: OwnedCard {
-                target: Target::Content(target),
-                kind: None,
-                title: slide.title.unwrap_or_default(),
-                year: String::new(),
-                duration_label: None,
-                artwork: None,
-                saved_fraction: None,
-                native_activation: None,
-            },
-            description: slide.title_prefix.unwrap_or_default(),
-            action,
-            background,
-            logo,
-        });
     }
     fn media_card(&mut self, media: MediaSummary, target: Target, label: ImageLabel) -> OwnedCard {
         self.media_card_for_role(media, target, label, ImageRole::Card)
@@ -641,14 +597,8 @@ impl Presentation {
                 cards,
             })
             .collect();
-        let hero = self.hero.as_ref().map(|hero| Hero {
-            card: hero.card.view(),
-            description: &hero.description,
-            action: &hero.action,
-            action_kind: HeroAction::Open,
-            background_key: Some(&hero.background),
-            title_logo_key: hero.logo.as_deref(),
-        });
+        let hero = self.current_hero().map(|hero| hero.view());
+        let hero_carousel = self.hero_carousel();
         let season_choices: Vec<_> = self
             .detail
             .as_ref()
@@ -728,6 +678,7 @@ impl Presentation {
             filters,
             detail,
             hero,
+            hero_carousel,
             rails: &rails,
             title: &self.title,
             status: self.status,
@@ -810,13 +761,6 @@ struct OwnedDetail {
     countries: Option<String>,
     languages: Option<String>,
     content_warnings: Option<String>,
-}
-struct OwnedHero {
-    card: OwnedCard,
-    description: String,
-    action: String,
-    background: String,
-    logo: Option<String>,
 }
 struct OwnedRail {
     title: String,
@@ -1310,7 +1254,7 @@ mod tests {
         assert_eq!(
             presentation.gaps(),
             &super::ProjectionGaps {
-                extra_slides: 1,
+                extra_slides: 0,
                 banners: 1,
                 rail_actions: 1,
                 account_rails: 1,
@@ -1320,8 +1264,8 @@ mod tests {
         );
         assert_eq!(
             presentation.artwork_bindings().len(),
-            2,
-            "unrepresented slides/banners are not loaded"
+            3,
+            "all supplied slideshow sources are retained; banners are omitted"
         );
         assert_eq!(
             presentation.artwork_bindings()[0].source,

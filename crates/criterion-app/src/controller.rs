@@ -2,6 +2,7 @@
 //! Main-thread catalog publication and bounded navigation snapshots.
 mod catalog;
 mod continue_watching;
+mod hero;
 mod list_membership;
 mod native_detail;
 mod native_play;
@@ -164,6 +165,16 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             None
         };
         match command {
+            Command::MoveHero {
+                page,
+                from,
+                direction,
+            } => {
+                self.move_hero(page, from, direction);
+                return Effect::None;
+            }
+            // Application must validate the origin before committing UI history.
+            Command::ActivateHero { .. } => return Effect::None,
             Command::Navigate(destination) => {
                 if (destination == Page::Search && self.page != Page::Search)
                     || (destination != Page::Search && self.page == Page::Search)

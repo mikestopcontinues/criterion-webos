@@ -18,6 +18,7 @@ pub(crate) enum Icon {
     Check,
     Reset,
     ChevronRight,
+    ChevronLeft,
     More,
 }
 
@@ -146,6 +147,7 @@ impl Icon {
                 path(&[[10.0, 6.0], [6.0, 6.0], [6.0, 10.0]]);
             }
             Self::ChevronRight => path(&[[8.0, 4.0], [16.0, 12.0], [8.0, 20.0]]),
+            Self::ChevronLeft => path(&[[16.0, 4.0], [8.0, 12.0], [16.0, 20.0]]),
             Self::More => {
                 for x in [5.0, 12.0, 19.0] {
                     dot(x, 12.0, 1.5);
@@ -181,6 +183,7 @@ mod tests {
             Icon::Check,
             Icon::Reset,
             Icon::ChevronRight,
+            Icon::ChevronLeft,
             Icon::More,
         ] {
             let ctx = egui::Context::default();

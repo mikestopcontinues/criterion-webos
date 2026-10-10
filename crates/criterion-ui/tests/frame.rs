@@ -27,6 +27,7 @@ fn cpu_frame_uses_observed_four_landscape_columns_and_visible_budget() {
     let data = ViewData {
         title: "All Films",
         hero: None,
+        hero_carousel: None,
         rails: &[],
         cards: &cards,
         total: 1000,

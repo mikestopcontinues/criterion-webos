@@ -5,6 +5,16 @@ pub enum Command {
     Navigate(Page),
     Restore(Page),
     Open(crate::Target),
+    MoveHero {
+        page: Page,
+        from: crate::HeroCursor,
+        direction: crate::HeroDirection,
+    },
+    ActivateHero {
+        origin: Page,
+        from: crate::HeroCursor,
+        target: crate::Target,
+    },
     ActivateCard {
         target: crate::Target,
         focus: Focus,
@@ -36,6 +46,108 @@ pub enum Command {
     MyListGroup(crate::MyListGroup),
 }
 impl AppUi {
+    pub(crate) fn sync_hero(&mut self, data: &ViewData<'_>) {
+        if !matches!(self.page(), Page::Home | Page::New | Page::Discovery) {
+            return;
+        }
+        let Some(carousel) = data.hero_carousel else {
+            if matches!(self.focus, Focus::HeroPrevious | Focus::HeroNext) {
+                self.focus = Focus::Hero;
+            }
+            if matches!(self.return_focus, Focus::HeroPrevious | Focus::HeroNext) {
+                self.return_focus = Focus::Hero;
+            }
+            return;
+        };
+        let fallback = if data.hero.is_some() {
+            Focus::Hero
+        } else if carousel.total > 1 && data.status == crate::LoadState::Ready {
+            Focus::HeroPrevious
+        } else if let Some(row) = data.rails.iter().position(|rail| !rail.cards.is_empty()) {
+            Focus::Card { row, column: 0 }
+        } else {
+            Focus::Rail(if self.page() == Page::New {
+                crate::RailItem::New
+            } else {
+                crate::RailItem::Home
+            })
+        };
+        let valid = |focus| match focus {
+            Focus::Hero => data.hero.is_some(),
+            Focus::HeroPrevious | Focus::HeroNext => {
+                carousel.total > 1 && data.status == crate::LoadState::Ready
+            }
+            _ => true,
+        };
+        if !valid(self.focus) {
+            self.focus = fallback;
+            self.pointer_press = None;
+            self.pointer_layout_focus = None;
+        }
+        if !valid(self.return_focus) {
+            self.return_focus = fallback;
+        }
+    }
+    fn handle_hero(&mut self, action: Action, data: &ViewData<'_>) -> Option<Vec<Command>> {
+        if !matches!(self.page(), Page::Home | Page::New | Page::Discovery) {
+            return None;
+        }
+        let carousel = data.hero_carousel?;
+        match (self.focus(), action) {
+            (Focus::Hero, Action::Right) if carousel.total > 1 => self.focus = Focus::HeroPrevious,
+            (Focus::HeroPrevious, Action::Right) => self.focus = Focus::HeroNext,
+            (Focus::HeroNext, Action::Right) => (),
+            (Focus::HeroNext, Action::Left) => self.focus = Focus::HeroPrevious,
+            (Focus::HeroPrevious, Action::Left) if data.hero.is_some() => self.focus = Focus::Hero,
+            (Focus::HeroPrevious | Focus::HeroNext, Action::Select) => {
+                return Some(
+                    carousel
+                        .cursor()
+                        .filter(|_| data.status == crate::LoadState::Ready && carousel.total > 1)
+                        .map(|from| {
+                            vec![Command::MoveHero {
+                                page: self.page(),
+                                from,
+                                direction: if self.focus() == Focus::HeroPrevious {
+                                    crate::HeroDirection::Previous
+                                } else {
+                                    crate::HeroDirection::Next
+                                },
+                            }]
+                        })
+                        .unwrap_or_default(),
+                );
+            }
+            (Focus::Hero, Action::Select) => {
+                return Some(
+                    carousel
+                        .cursor()
+                        .filter(|_| data.status == crate::LoadState::Ready)
+                        .zip(data.hero.as_ref())
+                        .map(|(from, hero)| {
+                            vec![Command::ActivateHero {
+                                origin: self.page(),
+                                from,
+                                target: hero.card.key.clone(),
+                            }]
+                        })
+                        .unwrap_or_default(),
+                );
+            }
+            (Focus::Card { row: 0, .. }, Action::Up) => {
+                self.focus = if data.hero.is_some() {
+                    Focus::Hero
+                } else if carousel.total > 1 {
+                    Focus::HeroPrevious
+                } else {
+                    self.focus
+                };
+                self.scroll_y = 0.0;
+            }
+            _ => return None,
+        }
+        Some(Vec::new())
+    }
     /// Transform one remote action using the current admitted display model.
     /// The caller executes returned commands and owns asynchronous publication.
     pub fn handle(&mut self, action: Action, data: &ViewData<'_>) -> Vec<Command> {
@@ -44,6 +156,10 @@ impl AppUi {
         self.sync_login(data.login);
         self.sync_rail(data.login);
         self.sync_my_list(data);
+        self.sync_hero(data);
+        if let Some(commands) = self.handle_hero(action, data) {
+            return commands;
+        }
         if let Some(commands) = self.handle_my_list(action, data) {
             return commands;
         }

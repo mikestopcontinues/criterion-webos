@@ -7,6 +7,7 @@ pub(crate) struct PointerTarget {
     identity: Option<crate::Target>,
     action: Option<crate::CardAction>,
     primary: Option<criterion_provider::MediaId>,
+    hero: Option<crate::HeroCursor>,
 }
 fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
     Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, h))
@@ -201,6 +202,11 @@ impl AppUi {
                     _ => None,
                 },
                 action: None,
+                hero: if matches!(focus, Focus::Hero | Focus::HeroPrevious | Focus::HeroNext) {
+                    data.hero_carousel.and_then(crate::HeroCarousel::cursor)
+                } else {
+                    None
+                },
                 primary: if matches!(focus, Focus::DetailAction(0) | Focus::InformationPrimary) {
                     data.detail
                         .as_ref()
@@ -362,10 +368,31 @@ impl AppUi {
             return target(Focus::MyListGroup(choice.group));
         }
         if matches!(self.page(), Page::Home | Page::New | Page::Discovery)
-            && data.hero.is_some()
-            && rect(150.0, 740.0 - self.scroll_y(), 214.0, 80.0).contains(pos)
+            && data.status == crate::LoadState::Ready
         {
-            return target(Focus::Hero);
+            if data.hero.is_some()
+                && (data.hero_carousel.is_none()
+                    || data
+                        .hero_carousel
+                        .and_then(crate::HeroCarousel::cursor)
+                        .is_some())
+                && crate::view::hero_control_rect(Focus::Hero, self.scroll_y())
+                    .is_some_and(|area| area.contains(pos))
+            {
+                return target(Focus::Hero);
+            }
+            if data
+                .hero_carousel
+                .is_some_and(|value| value.total > 1 && value.cursor().is_some())
+            {
+                for focus in [Focus::HeroPrevious, Focus::HeroNext] {
+                    if crate::view::hero_control_rect(focus, self.scroll_y())
+                        .is_some_and(|area| area.contains(pos))
+                    {
+                        return target(focus);
+                    }
+                }
+            }
         }
         if self.page() == Page::Detail
             && let Some(detail) = &data.detail
@@ -429,6 +456,7 @@ impl AppUi {
                     identity: Some(card.key.clone()),
                     action: Some(current.action),
                     primary: None,
+                    hero: None,
                 })
             })
     }

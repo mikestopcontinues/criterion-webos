@@ -165,12 +165,16 @@ impl<
             .as_ref()
             .map(|_| self.controller.membership_visit());
         let membership = self.membership_view();
+        let hero_visit = self.controller.membership_visit();
         let batch = self.input.take_frame(now);
         let mut frame = self
             .controller
             .view
             .with_view(self.authentication.view(), |mut data| {
                 list_membership::overlay(&mut data, membership);
+                if let Some(hero) = &mut data.hero_carousel {
+                    hero.visit = hero_visit;
+                }
                 self.ui.render(batch.raw, &data)
             });
         for command in frame.commands {
@@ -184,11 +188,15 @@ impl<
                 break;
             }
             let membership = self.membership_view();
+            let hero_visit = self.controller.membership_visit();
             let commands =
                 self.controller
                     .view
                     .with_view(self.authentication.view(), |mut data| {
                         list_membership::overlay(&mut data, membership);
+                        if let Some(hero) = &mut data.hero_carousel {
+                            hero.visit = hero_visit;
+                        }
                         self.ui.handle(action, &data)
                     });
             for command in commands {
@@ -198,6 +206,9 @@ impl<
         // Admission uses only the current projection's immutable bindings. A
         // command that changed the view cannot fetch a previous frame's source.
         if self.active && !self.exiting {
+            self.controller
+                .view
+                .retain_current_artwork(&mut frame.visible_artwork, &frame.visible_cards);
             self.artwork.update(
                 &frame.visible_artwork,
                 self.controller.view.artwork_bindings(),
@@ -222,6 +233,30 @@ impl<
         self.input.set_text_input(self.ui.wants_text_input());
     }
     fn command(&mut self, command: Command, runtime: &Handle) {
+        let command = match command {
+            Command::ActivateHero {
+                origin,
+                from,
+                target,
+            } => {
+                if !self.active || self.exiting || self.ui.page() != origin {
+                    return;
+                }
+                let Some(target) = self.controller.admit_hero_activation(origin, from, &target)
+                else {
+                    return;
+                };
+                self.ui
+                    .commit_hero_target(&target, self.authentication.view());
+                Command::Open(target)
+            }
+            Command::MoveHero { page, .. }
+                if !self.active || self.exiting || self.ui.page() != page =>
+            {
+                return;
+            }
+            command => command,
+        };
         let retained_search = (matches!(command, Command::Navigate(criterion_ui::Page::Search))
             && !self.ui.query().trim().is_empty())
         .then(|| Command::Search {
@@ -547,6 +582,8 @@ mod tests {
     use criterion_provider::{Error, Request, Response};
     use criterion_ui::{Action, Focus, Page};
     use std::sync::Arc;
+
+    mod hero_tests;
 
     struct Offline;
     impl RequestTransport for Offline {

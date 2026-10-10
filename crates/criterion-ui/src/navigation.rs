@@ -30,6 +30,8 @@ pub enum Page {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Focus {
     Hero,
+    HeroPrevious,
+    HeroNext,
     Card { row: usize, column: usize },
     FeaturedCard(usize),
     Rail(RailItem),
@@ -236,6 +238,11 @@ impl AppUi {
         };
         self.scroll_y = 0.0;
     }
+    /// Commit only after the application has admitted the prepared Hero origin.
+    pub fn commit_hero_target(&mut self, target: &crate::Target, login: crate::LoginView<'_>) {
+        self.push_history();
+        self.activate_target(target, login);
+    }
     pub(crate) fn layout_focus(&self) -> Focus {
         self.pointer_layout_focus.unwrap_or(self.focus)
     }
@@ -284,7 +291,10 @@ impl AppUi {
         if action == Action::Left
             && matches!(
                 self.focus,
-                Focus::Hero | Focus::Card { column: 0, .. } | Focus::FeaturedCard(0)
+                Focus::Hero
+                    | Focus::HeroPrevious
+                    | Focus::Card { column: 0, .. }
+                    | Focus::FeaturedCard(0)
             )
         {
             self.return_focus = self.focus;
@@ -358,7 +368,10 @@ impl AppUi {
         {
             self.focus = Focus::Card { row: 0, column: 0 };
         } else if action == Action::Down
-            && self.focus == Focus::Hero
+            && matches!(
+                self.focus,
+                Focus::Hero | Focus::HeroPrevious | Focus::HeroNext
+            )
             && rows.first().is_some_and(|count| *count > 0)
         {
             self.focus = Focus::Card { row: 0, column: 0 };

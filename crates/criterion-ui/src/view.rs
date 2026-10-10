@@ -4,6 +4,18 @@ use egui::{Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 pub const LOGICAL_SIZE: [f32; 2] = [1920.0, 1080.0];
 pub const MAX_VISIBLE_CARDS: usize = 15;
+pub(crate) fn hero_control_rect(focus: Focus, scroll: f32) -> Option<Rect> {
+    let (x, width) = match focus {
+        Focus::Hero => (150.0, 214.0),
+        Focus::HeroPrevious => (402.0, 82.0),
+        Focus::HeroNext => (520.0, 82.0),
+        _ => return None,
+    };
+    Some(Rect::from_min_size(
+        Pos2::new(x, 740.0 - scroll),
+        Vec2::new(width, 80.0),
+    ))
+}
 /// Fixed, nonprivate runtime feedback; never part of navigation history.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PlaybackFeedback {
@@ -54,6 +66,39 @@ pub struct Hero<'a> {
     pub action_kind: HeroAction,
     pub background_key: Option<&'a str>,
     pub title_logo_key: Option<&'a str>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeroDirection {
+    Previous,
+    Next,
+}
+/// Exact raw source address within the current checked navigation visit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HeroCursor {
+    pub visit: u64,
+    pub block: u32,
+    pub index: usize,
+    pub slide: u32,
+}
+#[derive(Clone, Copy)]
+pub struct HeroCarousel<'a> {
+    pub block: u32,
+    pub index: usize,
+    pub slide: u32,
+    pub total: usize,
+    pub caption: &'a str,
+    /// Lent by the current application, never retained in a history projection.
+    pub visit: Option<u64>,
+}
+impl HeroCarousel<'_> {
+    pub fn cursor(self) -> Option<HeroCursor> {
+        Some(HeroCursor {
+            visit: self.visit?,
+            block: self.block,
+            index: self.index,
+            slide: self.slide,
+        })
+    }
 }
 pub struct FilterGroup<'a> {
     pub label: &'a str,
@@ -126,6 +171,7 @@ pub struct CatalogWindow {
 pub struct ViewData<'a> {
     pub title: &'a str,
     pub hero: Option<Hero<'a>>,
+    pub hero_carousel: Option<HeroCarousel<'a>>,
     pub rails: &'a [Rail<'a>],
     pub cards: &'a [Card<'a>],
     pub total: u32,
@@ -142,6 +188,7 @@ impl Default for ViewData<'_> {
         Self {
             title: "",
             hero: None,
+            hero_carousel: None,
             rails: &[],
             cards: &[],
             total: 0,
@@ -178,6 +225,7 @@ impl AppUi {
         self.sync_rail(data.login);
         self.sync_my_list(data);
         self.sync_catalog(data);
+        self.sync_hero(data);
         if !self.wants_text_input() {
             self.search.composition.clear();
             self.search.select_all = false;
@@ -287,12 +335,44 @@ impl AppUi {
                         );
                         button(
                             &p,
-                            Rect::from_min_size(
-                                Pos2::new(150.0, y + 740.0),
-                                Vec2::new(214.0, 80.0),
-                            ),
+                            hero_control_rect(Focus::Hero, self.scroll_y()).unwrap(),
                             hero.action,
                             self.focus() == Focus::Hero,
+                        );
+                    }
+                    if let Some(carousel) = data.hero_carousel
+                        && self.scroll_y() < 1080.0
+                    {
+                        if data.hero.is_none() {
+                            label(
+                                &p,
+                                [150.0, 600.0 - self.scroll_y()],
+                                "Slide unavailable",
+                                27.0,
+                                MUTED,
+                                900.0,
+                            );
+                        }
+                        if carousel.total > 1 {
+                            for (focus, icon) in [
+                                (Focus::HeroPrevious, Icon::ChevronLeft),
+                                (Focus::HeroNext, Icon::ChevronRight),
+                            ] {
+                                icon_button(
+                                    &p,
+                                    hero_control_rect(focus, self.scroll_y()).unwrap(),
+                                    icon,
+                                    self.focus() == focus,
+                                );
+                            }
+                        }
+                        label(
+                            &p,
+                            [640.0, 760.0 - self.scroll_y()],
+                            carousel.caption,
+                            26.0,
+                            WHITE,
+                            800.0,
                         );
                     }
                     for (row, rail) in data.rails.iter().enumerate() {
