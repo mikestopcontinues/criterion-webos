@@ -1,4 +1,4 @@
-//! Root-only anonymous native Home index observation; no production Lander default.
+//! Root-only anonymous native Home index diagnostic; no production Lander default.
 use super::*;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use std::io::{Read, Write};
@@ -20,11 +20,12 @@ struct Report {
     home_status: Option<u16>,
     body_sha256: Option<String>,
     schema: Option<Schema>,
+    diagnostic: Option<Diagnostic>,
 }
 impl Default for Report {
     fn default() -> Self {
         Self {
-            experiment: "anonymous_native_home_index",
+            experiment: "anonymous_native_home_index_diagnostic",
             phase: "not_started",
             outcome: "not_started",
             bootstrap_attempts: 0,
@@ -33,6 +34,7 @@ impl Default for Report {
             home_status: None,
             body_sha256: None,
             schema: None,
+            diagnostic: None,
         }
     }
 }
@@ -42,6 +44,39 @@ const MAX_DEPTH: usize = 32;
 const MAX_FIELDS: usize = 4096;
 const MAX_NODES: usize = 16384;
 const PUBLIC_FIELDS: [&str; 4] = ["page", "name", "longName", "blocks"];
+
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Refusal {
+    Syntax,
+    Data,
+    Eof,
+    RootType,
+    DepthLimit,
+    FieldLimit,
+    NodeLimit,
+}
+#[derive(Debug, serde::Serialize)]
+struct Diagnostic {
+    category: Refusal,
+    nodes: usize,
+    object_fields: usize,
+    unallowlisted_fields: usize,
+    array_items: usize,
+}
+#[derive(Debug)]
+struct ObservationFailure {
+    error: Error,
+    diagnostic: Option<Diagnostic>,
+}
+fn parse_refusal(category: serde_json::error::Category) -> Refusal {
+    match category {
+        serde_json::error::Category::Syntax => Refusal::Syntax,
+        serde_json::error::Category::Eof => Refusal::Eof,
+        // The slice observer performs no I/O; neither category retains error text.
+        serde_json::error::Category::Data | serde_json::error::Category::Io => Refusal::Data,
+    }
+}
 
 #[derive(Clone, Copy, Default, serde::Serialize)]
 struct Types {
@@ -98,6 +133,22 @@ struct Scan {
     array_items: usize,
     types: Types,
     fields: [Field; 4],
+    refusal: Option<Refusal>,
+}
+impl Scan {
+    fn failure(&self, category: Refusal) -> ObservationFailure {
+        ObservationFailure {
+            error: Error::InvalidResponse,
+            diagnostic: Some(Diagnostic {
+                category: self.refusal.unwrap_or(category),
+                // Charged prefix only, clamped before the first refused increment.
+                nodes: self.nodes.min(MAX_NODES),
+                object_fields: self.object_fields.min(MAX_FIELDS),
+                unallowlisted_fields: self.unallowlisted_fields.min(MAX_FIELDS),
+                array_items: self.array_items.min(MAX_NODES),
+            }),
+        }
+    }
 }
 struct Shape {
     kind: Kind,
@@ -128,9 +179,12 @@ impl<'de> DeserializeSeed<'de> for ValueSeed<'_> {
     type Value = Shape;
     fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Shape, D::Error> {
         if self.depth > MAX_DEPTH {
+            self.scan.refusal = Some(Refusal::DepthLimit);
             return Err(de::Error::custom("schema bounds"));
         }
-        charge(&mut self.scan.nodes, MAX_NODES)?;
+        charge(&mut self.scan.nodes, MAX_NODES).inspect_err(|_| {
+            self.scan.refusal = Some(Refusal::NodeLimit);
+        })?;
         let shape = deserializer.deserialize_any(ValueVisitor {
             scan: self.scan,
             depth: self.depth,
@@ -195,8 +249,12 @@ impl<'de> Visitor<'de> for ValueVisitor<'_> {
             })?
             .is_some()
         {
-            charge(&mut items, MAX_NODES)?;
-            charge(&mut self.scan.array_items, MAX_NODES)?;
+            charge(&mut items, MAX_NODES).inspect_err(|_| {
+                self.scan.refusal = Some(Refusal::NodeLimit);
+            })?;
+            charge(&mut self.scan.array_items, MAX_NODES).inspect_err(|_| {
+                self.scan.refusal = Some(Refusal::NodeLimit);
+            })?;
         }
         Ok(Shape {
             kind: Kind::Array,
@@ -205,9 +263,13 @@ impl<'de> Visitor<'de> for ValueVisitor<'_> {
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Shape, A::Error> {
         while let Some(public) = map.next_key_seed(PublicKey)? {
-            charge(&mut self.scan.object_fields, MAX_FIELDS)?;
+            charge(&mut self.scan.object_fields, MAX_FIELDS).inspect_err(|_| {
+                self.scan.refusal = Some(Refusal::FieldLimit);
+            })?;
             if public.is_none() {
-                charge(&mut self.scan.unallowlisted_fields, MAX_FIELDS)?;
+                charge(&mut self.scan.unallowlisted_fields, MAX_FIELDS).inspect_err(|_| {
+                    self.scan.refusal = Some(Refusal::FieldLimit);
+                })?;
             }
             let value = map.next_value_seed(ValueSeed {
                 scan: self.scan,
@@ -225,9 +287,12 @@ impl<'de> Visitor<'de> for ValueVisitor<'_> {
     }
 }
 
-fn observe(body: &[u8]) -> Result<Schema, Error> {
+fn observe(body: &[u8]) -> Result<Schema, ObservationFailure> {
     if body.len() > MAX_BODY {
-        return Err(Error::ResponseTooLarge);
+        return Err(ObservationFailure {
+            error: Error::ResponseTooLarge,
+            diagnostic: None,
+        });
     }
     let mut scan = Scan::default();
     let mut deserializer = serde_json::Deserializer::from_slice(body);
@@ -236,10 +301,12 @@ fn observe(body: &[u8]) -> Result<Schema, Error> {
         depth: 1,
     }
     .deserialize(&mut deserializer)
-    .map_err(|_| Error::InvalidResponse)?;
-    deserializer.end().map_err(|_| Error::InvalidResponse)?;
+    .map_err(|error| scan.failure(parse_refusal(error.classify())))?;
+    deserializer
+        .end()
+        .map_err(|error| scan.failure(parse_refusal(error.classify())))?;
     if !matches!(root.kind, Kind::Object) {
-        return Err(Error::InvalidResponse);
+        return Err(scan.failure(Refusal::RootType));
     }
     Ok(Schema {
         nodes: scan.nodes,
@@ -286,7 +353,14 @@ async fn run_experiment(transport: &HttpTransport, deadline: Instant) -> Report 
         let hash = sha256(body.expose())?;
         check_deadline(deadline)?;
         report.body_sha256 = Some(hash);
-        let schema = observe(body.expose())?;
+        let schema = match observe(body.expose()) {
+            Ok(schema) => schema,
+            Err(failure) => {
+                check_deadline(deadline)?;
+                report.diagnostic = failure.diagnostic;
+                return Err(failure.error);
+            }
+        };
         check_deadline(deadline)?;
         report.schema = Some(schema);
         Ok(())
@@ -295,7 +369,7 @@ async fn run_experiment(transport: &HttpTransport, deadline: Instant) -> Report 
     .unwrap_or(Err(Error::Deadline))
     .and_then(|()| check_deadline(deadline));
     report.outcome = match result {
-        Ok(()) => "admitted_index_experiment",
+        Ok(()) => "admitted_index_diagnostic_experiment",
         Err(Error::HttpStatus(status)) => {
             if report.home_attempts == 0 {
                 report.bootstrap_status = Some(status);
@@ -312,6 +386,7 @@ async fn run_experiment(transport: &HttpTransport, deadline: Instant) -> Report 
         report.schema = None;
         if matches!(result, Err(Error::Deadline)) {
             report.body_sha256 = None;
+            report.diagnostic = None;
         }
     }
     report
@@ -353,7 +428,7 @@ fn reserve_private_report(path: &std::path::Path) -> Result<std::fs::File, &'sta
         .mode(0o600)
         .open(path.join("attempt.json"))
         .map_err(|_| "attempt_already_reserved")?;
-    attempt.write_all(br#"{"experiment":"anonymous_native_home_index","max_bootstrap":1,"max_home":1,"state":"reserved_before_contact"}"#)
+    attempt.write_all(br#"{"experiment":"anonymous_native_home_index_diagnostic","max_bootstrap":1,"max_home":1,"state":"reserved_before_contact"}"#)
         .map_err(|_| "attempt_ledger")?;
     attempt.sync_all().map_err(|_| "attempt_ledger")?;
     std::fs::OpenOptions::new()
@@ -370,7 +445,7 @@ fn reserve_private_report(path: &std::path::Path) -> Result<std::fs::File, &'sta
 /// production Home default remain unadmitted until their separate checks.
 #[tokio::test(flavor = "current_thread")]
 #[ignore = "Root-only anonymous provider experiment; fixed private mount and explicit separate execution grant"]
-async fn live_anonymous_native_home_index_once() -> Result<(), &'static str> {
+async fn live_anonymous_native_home_index_diagnostic_once() -> Result<(), &'static str> {
     let mut output = reserve_private_report(std::path::Path::new(PRIVATE_DIRECTORY))?;
     let deadline = Instant::now() + REQUEST_DEADLINE;
     let mut report = match HttpTransport::new() {
@@ -384,14 +459,15 @@ async fn live_anonymous_native_home_index_once() -> Result<(), &'static str> {
         report.outcome = "deadline";
         report.body_sha256 = None;
         report.schema = None;
+        report.diagnostic = None;
     }
     let encoded = encoded_report(&report)?;
     output.write_all(&encoded).map_err(|_| "report_write")?;
     output.sync_all().map_err(|_| "report_write")?;
-    if report.outcome == "admitted_index_experiment" {
+    if report.outcome == "admitted_index_diagnostic_experiment" {
         Ok(())
     } else {
-        Err("native_home_index_experiment_refused")
+        Err("native_home_index_diagnostic_experiment_refused")
     }
 }
 
@@ -616,13 +692,14 @@ async fn anonymous_native_home_index_uses_one_bootstrap_then_one_regional_get() 
     );
     assert!(requests[0].starts_with("GET /api/init HTTP/1.1\r\n"));
     assert!(requests[1].starts_with("GET /api/ca/content/lander/index HTTP/1.1\r\n"));
-    assert_eq!(result.experiment, "anonymous_native_home_index");
+    assert_eq!(result.experiment, "anonymous_native_home_index_diagnostic");
     assert_eq!(result.phase, "schema");
-    assert_eq!(result.outcome, "admitted_index_experiment");
+    assert_eq!(result.outcome, "admitted_index_diagnostic_experiment");
     assert_eq!(result.bootstrap_attempts, 1);
     assert_eq!(result.home_attempts, 1);
     assert_eq!(result.bootstrap_status, Some(200));
     assert_eq!(result.home_status, Some(200));
+    assert!(result.diagnostic.is_none());
     for forbidden in [
         "authorization:",
         "x-auth-token:",
@@ -677,6 +754,117 @@ fn schema_observer_counts_structure_without_values_or_unallowlisted_names() {
     }
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn rejected_index_root_retains_only_bounded_diagnostic_counts() {
+    let server = Server::new(|index| Reply::json(if index == 0 { BOOTSTRAP } else { b"[]" }));
+    let report = run_experiment(&server.transport(), Instant::now() + Duration::from_secs(2)).await;
+    let value = serde_json::to_value(report).unwrap();
+    assert_eq!(value["outcome"], "invalid_response");
+    assert_eq!(value["diagnostic"]["category"], "root_type");
+    assert_eq!(value["diagnostic"]["nodes"], 1);
+    assert_eq!(value["diagnostic"]["object_fields"], 0);
+    assert_eq!(value["diagnostic"]["array_items"], 0);
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn observer_diagnostic_distinguishes_syntax_eof_and_complete_nonobject_root() {
+    for (body, category, nodes, fields, unknown, items) in [
+        (br#"{"SECRET-PROPERTY":?}"#.as_slice(), "syntax", 2, 1, 1, 0),
+        (
+            br#"{"SECRET-PROPERTY":"SECRET"#.as_slice(),
+            "eof",
+            2,
+            1,
+            1,
+            0,
+        ),
+        (br#"["SECRET-SCALAR"]"#.as_slice(), "root_type", 2, 0, 0, 1),
+        (br#"{} {}"#.as_slice(), "syntax", 1, 0, 0, 0),
+    ] {
+        let failure = observe(body).err().unwrap();
+        assert_eq!(failure.error, Error::InvalidResponse);
+        let value = serde_json::to_value(failure.diagnostic.unwrap()).unwrap();
+        assert_eq!(value["category"], category);
+        assert_eq!(value["nodes"], nodes);
+        assert_eq!(value["object_fields"], fields);
+        assert_eq!(value["unallowlisted_fields"], unknown);
+        assert_eq!(value["array_items"], items);
+        let encoded = value.to_string();
+        for forbidden in [
+            "SECRET", "PROPERTY", "SCALAR", "line", "column", "expected", "error",
+        ] {
+            assert!(!encoded.contains(forbidden));
+        }
+    }
+}
+
+#[test]
+fn parser_data_category_is_coarse_and_discards_actual_library_error_text() {
+    // This exercises the library Data classifier; the complete slice observer
+    // accepts all JSON scalar types, so no provider Data cause is inferred.
+    let error = serde_json::from_slice::<u8>(br#""SECRET-ERROR-SCALAR""#).unwrap_err();
+    assert!(error.to_string().contains("SECRET-ERROR-SCALAR"));
+    let failure = Scan::default().failure(parse_refusal(error.classify()));
+    let report = Report {
+        outcome: "invalid_response",
+        diagnostic: failure.diagnostic,
+        ..Report::default()
+    };
+    let encoded = encoded_report(&report).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(value["diagnostic"]["category"], "data");
+    assert_eq!(value["diagnostic"]["nodes"], 0);
+    let encoded = std::str::from_utf8(&encoded).unwrap();
+    for forbidden in [
+        "SECRET",
+        "invalid type",
+        "expected",
+        "line",
+        "column",
+        "ERROR-SCALAR",
+    ] {
+        assert!(!encoded.contains(forbidden));
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn index_limit_diagnostics_keep_caps_partial_counts_and_two_requests() {
+    let fields = format!(
+        "{{{}}}",
+        vec!["\"SECRET-PROPERTY\":null"; MAX_FIELDS + 1].join(",")
+    );
+    let nodes = format!("{{\"blocks\":[{}]}}", vec!["null"; MAX_NODES - 1].join(","));
+    let depth = format!(
+        "{{\"page\":{}0{}}}",
+        "[".repeat(MAX_DEPTH - 1),
+        "]".repeat(MAX_DEPTH - 1)
+    );
+    for (body, category, charged_nodes, charged_fields, unknown, items) in [
+        (fields, "field_limit", 4097, 4096, 4096, 0),
+        (nodes, "node_limit", 16384, 1, 0, 16382),
+        (depth, "depth_limit", 32, 1, 0, 0),
+    ] {
+        let body = body.into_bytes();
+        let server =
+            Server::new(move |index| Reply::json(if index == 0 { BOOTSTRAP } else { &body }));
+        let report =
+            run_experiment(&server.transport(), Instant::now() + Duration::from_secs(2)).await;
+        assert_eq!(report.outcome, "invalid_response");
+        assert!(report.body_sha256.is_some());
+        assert!(report.schema.is_none());
+        let encoded = encoded_report(&report).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(value["diagnostic"]["category"], category);
+        assert_eq!(value["diagnostic"]["nodes"], charged_nodes);
+        assert_eq!(value["diagnostic"]["object_fields"], charged_fields);
+        assert_eq!(value["diagnostic"]["unallowlisted_fields"], unknown);
+        assert_eq!(value["diagnostic"]["array_items"], items);
+        assert!(!std::str::from_utf8(&encoded).unwrap().contains("SECRET"));
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
+    }
+}
+
 #[test]
 fn pinned_existing_crypto_hashes_the_literal_sha256_vector() {
     assert_eq!(
@@ -688,7 +876,13 @@ fn pinned_existing_crypto_hashes_the_literal_sha256_vector() {
 #[test]
 fn observer_bounds_all_unknown_structure_and_requires_one_complete_object() {
     for invalid in [b"[]".as_slice(), b"null", b"{} {}", b"{", b"{\"page\":NaN}"] {
-        assert!(matches!(observe(invalid), Err(Error::InvalidResponse)));
+        assert!(matches!(
+            observe(invalid),
+            Err(ObservationFailure {
+                error: Error::InvalidResponse,
+                ..
+            })
+        ));
     }
     let fields = format!("{{{}}}", vec!["\"unknown\":null"; MAX_FIELDS].join(","));
     assert_eq!(
@@ -698,24 +892,36 @@ fn observer_bounds_all_unknown_structure_and_requires_one_complete_object() {
     let excess = format!("{{{}}}", vec!["\"unknown\":null"; MAX_FIELDS + 1].join(","));
     assert!(matches!(
         observe(excess.as_bytes()),
-        Err(Error::InvalidResponse)
+        Err(ObservationFailure {
+            error: Error::InvalidResponse,
+            ..
+        })
     ));
     let nodes = format!("{{\"blocks\":[{}]}}", vec!["null"; MAX_NODES - 2].join(","));
     assert_eq!(observe(nodes.as_bytes()).unwrap().nodes, MAX_NODES);
     let excess = format!("{{\"blocks\":[{}]}}", vec!["null"; MAX_NODES - 1].join(","));
     assert!(matches!(
         observe(excess.as_bytes()),
-        Err(Error::InvalidResponse)
+        Err(ObservationFailure {
+            error: Error::InvalidResponse,
+            ..
+        })
     ));
     let nested = |arrays| format!("{{\"page\":{}0{}}}", "[".repeat(arrays), "]".repeat(arrays));
     assert!(observe(nested(MAX_DEPTH - 2).as_bytes()).is_ok());
     assert!(matches!(
         observe(nested(MAX_DEPTH - 1).as_bytes()),
-        Err(Error::InvalidResponse)
+        Err(ObservationFailure {
+            error: Error::InvalidResponse,
+            ..
+        })
     ));
     assert!(matches!(
         observe(&vec![b' '; MAX_BODY + 1]),
-        Err(Error::ResponseTooLarge)
+        Err(ObservationFailure {
+            error: Error::ResponseTooLarge,
+            ..
+        })
     ));
 }
 
@@ -753,6 +959,7 @@ async fn expired_original_deadline_refuses_all_contact_and_schema_publication() 
     assert_eq!(report.bootstrap_attempts, 0);
     assert_eq!(report.home_attempts, 0);
     assert!(report.schema.is_none());
+    assert!(report.diagnostic.is_none());
     assert!(server.requests.lock().unwrap().is_empty());
 }
 
@@ -777,6 +984,7 @@ async fn original_deadline_covers_bootstrap_then_home_body_without_reset() {
     assert_eq!(report.outcome, "deadline");
     assert!(report.schema.is_none());
     assert!(report.body_sha256.is_none());
+    assert!(report.diagnostic.is_none());
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -842,7 +1050,7 @@ async fn home_index_body_has_inclusive_512k_limit_for_known_and_chunked_lengths(
             assert_eq!(
                 report.outcome,
                 if length == MAX_BODY {
-                    "admitted_index_experiment"
+                    "admitted_index_diagnostic_experiment"
                 } else {
                     "response_too_large"
                 }
@@ -873,7 +1081,7 @@ async fn home_index_admits_only_json_identity_and_never_sends_received_cookies()
         assert_eq!(
             report.outcome,
             if headers.is_empty() {
-                "admitted_index_experiment"
+                "admitted_index_diagnostic_experiment"
             } else {
                 "invalid_response"
             }
@@ -961,7 +1169,7 @@ fn unsafe_directory_or_existing_report_refuses_before_provider_contact() {
 #[test]
 fn serialized_report_is_bounded_and_contains_only_coarse_observation() {
     let report = Report {
-        outcome: "admitted_index_experiment",
+        outcome: "admitted_index_diagnostic_experiment",
         body_sha256: Some(sha256(PAGE).unwrap()),
         schema: Some(observe(PAGE).unwrap()),
         ..Report::default()
@@ -995,7 +1203,7 @@ async fn source_owned_us_base_is_selected_only_from_validated_bootstrap() {
         }
     });
     let report = run_experiment(&server.transport(), Instant::now() + Duration::from_secs(2)).await;
-    assert_eq!(report.outcome, "admitted_index_experiment");
+    assert_eq!(report.outcome, "admitted_index_diagnostic_experiment");
     let requests = server.requests.lock().unwrap();
     assert_eq!(requests.len(), 2);
     assert!(requests[1].starts_with("GET /api/us/content/lander/index HTTP/1.1\r\n"));
@@ -1015,6 +1223,7 @@ async fn normal_tls_roots_reject_fixture_certificate_before_http_delivery() {
     assert!(server.requests.lock().unwrap().is_empty());
     assert_eq!(report.home_attempts, 0);
     assert!(report.schema.is_none());
+    assert!(report.diagnostic.is_none());
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1034,6 +1243,8 @@ async fn bounded_malformed_home_keeps_only_hash_status_and_refuses_schema() {
         Some("830f9340622765925331c78459bf64dcc8866d69c5639df970eacc9057ae2520")
     );
     assert!(report.schema.is_none());
+    let value = serde_json::to_value(&report).unwrap();
+    assert_eq!(value["diagnostic"]["category"], "syntax");
     assert_eq!(server.requests.lock().unwrap().len(), 2);
     assert!(
         !String::from_utf8(encoded_report(&report).unwrap())
