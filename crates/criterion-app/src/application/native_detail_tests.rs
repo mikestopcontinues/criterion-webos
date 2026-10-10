@@ -107,6 +107,73 @@ fn saved_episode_opens_series_and_selects_its_native_resume_child_then_logout_re
 }
 
 #[test]
+fn empty_first_season_disables_primary_but_displays_saved_later_season_then_retires_to_empty_default()
+ {
+    let mut fixture = Fixture::new(
+        true,
+        vec![
+            Step {
+                kind: Kind::ContinueWatching,
+                gate: None,
+            },
+            detail("Listed01", None),
+        ],
+        5,
+    );
+    // Literal admitted HTTP shape, not an observed account/catalog response.
+    *fixture.script.continue_body.lock().unwrap() = Some(br#"{"playlist":[{"contentType":"episode","mediaid":"Ep000003","title":"Synthetic clicked Episode","series_id":"Listed01"}],"positions":[{"media_id":"Ep000003","pos":20,"dur":100}]}"#.to_vec());
+    *fixture.script.detail_body.lock().unwrap() = Some(br#"{"contentType":"series","mediaid":"Listed01","title":"Synthetic empty-first Series","playlists":[{"type":"seasons","title":"Episodes","playlist":[{"season_number":20,"season_title":"Synthetic empty season","episodes":[]},{"season_number":3,"season_title":"Synthetic saved season","episodes":[{"mediaid":"Ep000003","title":"Synthetic saved Episode"}]}]}]}"#.to_vec());
+    fixture.wait(|fixture| fixture.saved().len() == 1);
+    fixture.key(81, 1_073_741_905);
+    fixture.key(81, 1_073_741_905);
+    assert_eq!(fixture.app.ui.focus(), Focus::Card { row: 1, column: 0 });
+    fixture.key(40, 13);
+    fixture.wait(|fixture| fixture.native_ready("Listed01"));
+    fixture
+        .app
+        .controller
+        .view
+        .with_view(fixture.app.authentication.view(), |view| {
+            let detail = view.detail.as_ref().unwrap();
+            assert_eq!(detail.primary_playback_target, None);
+            assert_eq!(detail.primary_action, "WATCH FIRST EPISODE");
+            assert_eq!(detail.seasons.as_ref().unwrap().selected, 1);
+            assert_eq!(view.rails[0].cards.len(), 1);
+            assert_eq!(
+                view.rails[0].cards[0].key.media_id().unwrap().as_str(),
+                "Ep000003"
+            );
+            assert_eq!(view.rails[0].cards[0].saved_fraction, Some(0.2));
+        });
+    assert_eq!(fixture.app.ui.focus(), Focus::DetailAction(1));
+    for _ in 0..4 {
+        fixture.key(81, 1_073_741_905);
+    }
+    assert_eq!(fixture.app.ui.focus(), Focus::Card { row: 0, column: 0 });
+    fixture
+        .app
+        .command(Command::Logout, fixture.runtime.handle());
+    fixture.wait(|fixture| fixture.issuer.revokes.load(Ordering::SeqCst) == 1);
+    fixture
+        .app
+        .controller
+        .view
+        .with_view(fixture.app.authentication.view(), |view| {
+            let detail = view.detail.as_ref().unwrap();
+            assert_eq!(detail.primary_playback_target, None);
+            assert_eq!(detail.primary_action, "WATCH FIRST EPISODE");
+            assert_eq!(detail.seasons.as_ref().unwrap().selected, 0);
+            assert!(view.rails[0].cards.is_empty());
+        });
+    assert!(fixture.app.positions.is_none());
+    assert_eq!(fixture.app.ui.focus(), Focus::DetailSeason(0));
+    assert_eq!(
+        *fixture.script.calls.lock().unwrap(),
+        [Kind::ContinueWatching, Kind::NativeDetail("Listed01")]
+    );
+}
+
+#[test]
 fn native_input_opens_exact_listed_detail_and_signed_out_related_detail_anonymously() {
     let mut fixture = Fixture::new(
         false,

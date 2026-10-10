@@ -133,10 +133,25 @@ pub(crate) fn resolve_series(
         action: "WATCH FIRST EPISODE".into(),
         initial_season: 0,
     };
-    let Some(group) = first.filter(|g| g.seasons.first().is_some_and(|s| !s.episodes.is_empty()))
-    else {
+    let Some(group) = first else {
         return default;
     };
+    // Displayed q is independent of the primary first-Episode gate: an empty
+    // first season can still initialize a later saved season in this group.
+    let mut displayed = HashMap::new();
+    for season in &group.seasons {
+        insert_progress(&mut displayed, &season.episodes, positions);
+    }
+    let initial_season = match select(group, &displayed) {
+        Selection::Next { entry, .. } => entry.season,
+        Selection::First | Selection::Complete => 0,
+    };
+    if group.seasons.first().is_none_or(|s| s.episodes.is_empty()) {
+        return SeriesResolution {
+            initial_season,
+            ..default
+        };
+    }
     // Primary Play reads every group; initial UI selection independently reads
     // the displayed first Seasons group. Do not substitute one result for both.
     let mut primary = HashMap::new();
@@ -152,15 +167,7 @@ pub(crate) fn resolve_series(
             }
         }
     }
-    let mut displayed = HashMap::new();
-    for season in &group.seasons {
-        insert_progress(&mut displayed, &season.episodes, positions);
-    }
     let selected = select(group, &primary);
-    let initial_season = match select(group, &displayed) {
-        Selection::Next { entry, .. } => entry.season,
-        Selection::First | Selection::Complete => 0,
-    };
     let (selected, resume) = match selected {
         Selection::Next { entry, resume } => (entry, resume),
         Selection::First => {

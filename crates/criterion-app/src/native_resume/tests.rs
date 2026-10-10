@@ -164,12 +164,12 @@ fn episode_float_duration_cutoff_and_saved_float_progress_have_distinct_owners()
 }
 
 #[test]
-fn empty_first_season_is_a_gate_and_root_equal_targets_are_refused() {
+fn empty_first_season_gates_primary_only_and_root_equal_targets_are_refused() {
     let detail = series(vec![season(20, &[]), season(3, &["Ep000003"])]);
     let progress = snapshot(vec![position("Ep000003", 20, 100)]);
     assert_eq!(
         outcome(&detail, Some(&progress)),
-        (None, "WATCH FIRST EPISODE".into(), 0)
+        (None, "WATCH FIRST EPISODE".into(), 1)
     );
     let mut detail = series(vec![season(20, &[])]);
     detail
