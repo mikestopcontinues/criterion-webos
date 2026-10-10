@@ -569,6 +569,9 @@ mod subscriber_admission_tests;
 mod public_paging_tests;
 
 #[cfg(all(test, feature = "sdl"))]
+mod sdl_render_tests;
+
+#[cfg(all(test, feature = "sdl"))]
 mod my_list_render_tests;
 #[cfg(test)]
 mod my_list_tests;
@@ -938,12 +941,9 @@ mod tests {
     #[test]
     #[ignore = "live anonymous provider/artwork and serialized SDL/GLES; root executor only"]
     fn native_public_catalog_search_artwork_and_detail_roundtrip_end_to_end() {
-        use criterion_ui::GlowRenderer;
+        use super::sdl_render_tests::{Display, push_key};
         use glow::HasContext;
-        use std::{
-            ffi::{CString, c_void},
-            time::Instant,
-        };
+        use std::{ffi::c_void, time::Instant};
         unsafe extern "C" {
             fn SDL_PushEvent(event: *mut c_void) -> i32;
         }
@@ -956,21 +956,7 @@ mod tests {
             now: Duration,
         ) {
             for pressed in [true, false] {
-                let mut raw = [0u8; 56];
-                raw[..4].copy_from_slice(&(if pressed { 0x300u32 } else { 0x301 }).to_le_bytes());
-                raw[12] = u8::from(pressed);
-                raw[16..20].copy_from_slice(&scancode.to_le_bytes());
-                raw[20..24].copy_from_slice(&keycode.to_le_bytes());
-                let mut aligned = [0u64; 7];
-                for (word, bytes) in aligned.iter_mut().zip(raw.as_chunks::<8>().0) {
-                    *word = u64::from_le_bytes(*bytes);
-                }
-                // SAFETY: initialized56-byte stock desktopSDL event, eight-byte
-                // alignment; SDL synchronously copies it on the window thread.
-                assert_eq!(
-                    unsafe { SDL_PushEvent(aligned.as_mut_ptr().cast::<c_void>()) },
-                    1
-                );
+                push_key(scancode, keycode, pressed);
                 for _ in 0..128 {
                     let Some(event) = window.poll_event().unwrap() else {
                         break;
@@ -1024,15 +1010,12 @@ mod tests {
             }
         }
         super::super::prepare_process();
-        let mut window =
-            criterion_platform::Window::open("Criterion Unofficial Public E2E").unwrap();
-        // SAFETY: this thread owns the live SDL context until painter destruction.
-        let gl = Arc::new(unsafe {
-            glow::Context::from_loader_function(|name| {
-                window.gl_proc_address(&CString::new(name).unwrap())
-            })
-        });
-        let mut painter = unsafe { GlowRenderer::new(gl.clone()) }.unwrap();
+        let mut display = Display::open("Criterion Unofficial Public E2E");
+        let Display {
+            window,
+            gl,
+            painter,
+        } = &mut display;
         let runtime = runtime();
         let mut app = Application::new(window.surface().unwrap(), runtime.handle()).unwrap();
         let start = Instant::now();
@@ -1044,7 +1027,7 @@ mod tests {
             (40, 13),
         ] {
             key(
-                &mut window,
+                window,
                 &mut app,
                 &runtime,
                 scancode,
@@ -1055,7 +1038,7 @@ mod tests {
         assert_eq!(app.ui.page(), Page::AllFilms);
         ready(&mut app, &runtime, start, false);
         let origin = app.ui.focus();
-        key(&mut window, &mut app, &runtime, 40, 13, start.elapsed());
+        key(window, &mut app, &runtime, 40, 13, start.elapsed());
         assert_eq!(app.ui.page(), Page::Detail);
         ready(&mut app, &runtime, start, true);
         let drawable = window.surface().unwrap().drawable;
@@ -1102,7 +1085,7 @@ mod tests {
             .save(directory.join("native-public-detail.png"))
             .unwrap();
         window.present().unwrap();
-        key(&mut window, &mut app, &runtime, 41, 27, start.elapsed());
+        key(window, &mut app, &runtime, 41, 27, start.elapsed());
         assert_eq!(app.ui.page(), Page::AllFilms);
         assert_eq!(app.ui.focus(), origin);
         // Continue through actual SDL input and the production anonymous Search
@@ -1115,7 +1098,7 @@ mod tests {
             (40, 13),
         ] {
             key(
-                &mut window,
+                window,
                 &mut app,
                 &runtime,
                 scancode,
@@ -1154,7 +1137,7 @@ mod tests {
         // preserve the ready display and provider counts in the same frame.
         for _ in 0..7 {
             key(
-                &mut window,
+                window,
                 &mut app,
                 &runtime,
                 79,
@@ -1165,7 +1148,7 @@ mod tests {
         assert_eq!(app.ui.focus(), Focus::SearchField);
         for (scancode, keycode) in [(81, 1_073_741_905), (79, 1_073_741_903), (40, 13)] {
             key(
-                &mut window,
+                window,
                 &mut app,
                 &runtime,
                 scancode,
@@ -1212,7 +1195,7 @@ mod tests {
             .unwrap();
         window.present().unwrap();
         key(
-            &mut window,
+            window,
             &mut app,
             &runtime,
             81,
@@ -1221,10 +1204,10 @@ mod tests {
         );
         let search_origin = app.ui.focus();
         assert_eq!(search_origin, Focus::Card { row: 0, column: 0 });
-        key(&mut window, &mut app, &runtime, 40, 13, start.elapsed());
+        key(window, &mut app, &runtime, 40, 13, start.elapsed());
         assert_eq!(app.ui.page(), Page::Detail);
         ready(&mut app, &runtime, start, true);
-        key(&mut window, &mut app, &runtime, 41, 27, start.elapsed());
+        key(window, &mut app, &runtime, 41, 27, start.elapsed());
         assert_eq!(app.ui.page(), Page::Search);
         assert_eq!(app.ui.query(), "godard");
         assert_eq!(app.ui.search_group(), criterion_ui::SearchGroup::Films);
@@ -1240,7 +1223,6 @@ mod tests {
         app.background();
         assert!(app.finish(&runtime));
         drop(app);
-        painter.destroy();
         println!(
             "live anonymous catalog + Search groups + artwork + native SDL detail/Back + GLES passed"
         );

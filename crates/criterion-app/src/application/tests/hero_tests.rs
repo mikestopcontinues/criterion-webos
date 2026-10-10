@@ -763,3 +763,7 @@ fn supplied_nonmedia_cta_commits_the_destination_then_warm_back_restores_its_ori
     assert_eq!(&*public.calls.lock().unwrap(), &["/", "/new"]);
     assert!(app.finish(&runtime));
 }
+
+#[cfg(feature = "sdl")]
+#[path = "hero_render_tests.rs"]
+mod hero_render_tests;
