@@ -6,7 +6,7 @@ Deliver every acceptance criterion in [the product contract](docs/product.md). T
 
 ## Checkpoint
 
-Root owns integration, provider access, product acceptance and publication. Public discovery rail actions are integrated, and their host SDL/GLES journey passes See All, Discovery and exact warm Back restoration. Original-frame inspection found rail headings overlapping the preceding film metadata on New; correcting the shared rail geometry and repeating visual verification is the next browsing checkpoint. Captured metadata and synthetic artwork in that journey remain distinct from live provider and TV evidence.
+Root owns integration, provider access, product acceptance and publication. Public discovery rail actions and their shared rail geometry are integrated. Their host SDL/GLES journey passes See All, Discovery and exact warm Back restoration; individually inspected frames show clear New rail captions and restored selection. That journey uses captured metadata and synthetic artwork; live provider and TV acceptance remain separate.
 
 The inert MAIN packaging export and explicit packaged Widevine access probe are integrated. The maintained MAIN producer is being implemented with checked Git source, verified offline build inputs and the existing packaging owner. Its consumer must be [Elgee's canonical deployment entry point](/Users/mike/Code/elgee-tv/TASKS.md#deployment-pipeline). The first device checkpoint remains MAIN prerequisite inspection, exact-package install, launch/render and complete cleanup. No Criterion package has been installed on the C4. Caller, service, EME and licensed playback require separate device checkpoints.
 
@@ -16,7 +16,6 @@ Public source and the GitHub Pages landing page are live. [Native packaging](doc
 
 ## Unfinished work
 
-- [ ] Fix public rail caption/header spacing, verify painted geometry and repeat the rendered See All/Back journey.
 - [ ] Complete the maintained MAIN producer and canonical deployment adapter; verify prerequisite facts and the exact installed MAIN package through launch/render and cleanup.
 - [ ] Verify native caller, service lifetime, foreground/return and packaged Widevine access on the C4; establish secure session storage and licensed playback feasibility.
 - [ ] Establish official native Home identity and delivery, remaining Featured delivery and native Detail origins/subtypes; complete reference-app comparison.
