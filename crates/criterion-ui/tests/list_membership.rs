@@ -10,7 +10,7 @@ fn data<'a>(target: &'a Target, membership: ListMembership, login: LoginView<'a>
         artwork_key: None,
         title: "Membership fixture",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: CardAction::Open,
     };

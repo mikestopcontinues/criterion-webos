@@ -4,11 +4,25 @@ use super::*;
 
 #[test]
 fn native_child_runtime_is_painted_after_actual_remote_navigation() {
-    let mut fixture = Fixture::new(false, vec![list(), detail("Listed01", None)], 5);
+    let mut fixture = Fixture::new(
+        false,
+        vec![
+            list(),
+            detail("Listed01", None),
+            Step {
+                kind: Kind::MyListIds,
+                gate: None,
+            },
+        ],
+        5,
+    );
     *fixture.script.detail_body.lock().unwrap() = Some(br#"{"contentType":"film","mediaid":"Listed01","title":"Native runtime root","duration":3600,"playlists":[{"type":"GENERIC_PLAYLIST","title":"Related","playlistId":"related","playlist":[{"contentType":"film","mediaid":"Related1","title":"Native runtime child","duration":7199}]}]}"#.to_vec());
     fixture.open_list();
     select_listed(&mut fixture);
     fixture.wait(|fixture| fixture.native_ready("Listed01"));
+    fixture.wait(|fixture| {
+        fixture.app.membership_view() == criterion_ui::ListMembership::Known { present: true }
+    });
     for _ in 0..3 {
         fixture.key(81, 1_073_741_905);
     }
@@ -35,7 +49,11 @@ fn native_child_runtime_is_painted_after_actual_remote_navigation() {
     assert_eq!(fixture.app.ui.page(), Page::MyList);
     assert_eq!(
         *fixture.script.calls.lock().unwrap(),
-        [Kind::WatchList, Kind::NativeDetail("Listed01")]
+        [
+            Kind::WatchList,
+            Kind::NativeDetail("Listed01"),
+            Kind::MyListIds,
+        ]
     );
 }
 
@@ -66,11 +84,25 @@ fn native_child_card_captions_preserve_zero_omission_subtypes_and_int32_saturati
         let duration = duration
             .map(|value| format!(",\"duration\":{value}"))
             .unwrap_or_default();
-        let mut fixture = Fixture::new(false, vec![list(), detail("Listed01", None)], 5);
+        let mut fixture = Fixture::new(
+            false,
+            vec![
+                list(),
+                detail("Listed01", None),
+                Step {
+                    kind: Kind::MyListIds,
+                    gate: None,
+                },
+            ],
+            5,
+        );
         *fixture.script.detail_body.lock().unwrap() = Some(format!(r#"{{"contentType":"film","mediaid":"Listed01","title":"Native runtime root","duration":3600,"playlists":[{{"type":"GENERIC_PLAYLIST","title":"Related","playlistId":"related","playlist":[{{"contentType":"{kind}","mediaid":"Related1","title":"Native runtime child","release_date":"2000-01-01"{duration}}}]}}]}}"#).into_bytes());
         fixture.open_list();
         select_listed(&mut fixture);
         fixture.wait(|fixture| fixture.native_ready("Listed01"));
+        fixture.wait(|fixture| {
+            fixture.app.membership_view() == criterion_ui::ListMembership::Known { present: true }
+        });
         for _ in 0..3 {
             fixture.key(81, 1_073_741_905);
         }
@@ -108,7 +140,11 @@ fn native_child_card_captions_preserve_zero_omission_subtypes_and_int32_saturati
         }
         assert_eq!(
             *fixture.script.calls.lock().unwrap(),
-            [Kind::WatchList, Kind::NativeDetail("Listed01")]
+            [
+                Kind::WatchList,
+                Kind::NativeDetail("Listed01"),
+                Kind::MyListIds,
+            ]
         );
     }
 }
