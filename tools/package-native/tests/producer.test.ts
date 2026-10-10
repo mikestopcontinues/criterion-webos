@@ -69,7 +69,7 @@ async function sourceFixture(initial: SourceFile[]): Promise<ProjectSnapshot> {
   const files = new Map(initial.map(file => [file.name, file]));
   async function visit(name: string): Promise<void> {
     for (const entry of await readdir(join("/workspace", name), { withFileTypes: true })) {
-      if (entry.name === "node_modules") continue;
+      if (entry.name === "node_modules" || entry.name === "dist") continue;
       const path = name + "/" + entry.name;
       if (entry.isDirectory()) await visit(path);
       else if (entry.isFile()) files.set(path, { name: path, bytes: await readFile(join("/workspace", path)), mode: 0o644 });
