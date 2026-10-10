@@ -6,6 +6,9 @@ mod detail_wire;
 mod model;
 mod native_wire;
 mod object;
+mod playback;
+mod playback_number;
+mod playback_wire;
 mod transport;
 mod wire;
 pub use client::AccountClient;
@@ -19,6 +22,7 @@ pub use model::{
     SyncReceipt, TypeCount, WatchList, WatchListContentType, WatchListFilter, WatchListRequest,
     WriteFailure, WriteStatus,
 };
+pub use playback::{NativePlayback, NativePlaybackSelection};
 pub use transport::HttpTransport;
 pub use wire::{BOOTSTRAP_URL, CA_BASE, US_BASE};
 
@@ -142,3 +146,6 @@ mod detail_client_tests;
 
 #[cfg(test)]
 mod entitlement_tests;
+
+#[cfg(test)]
+mod playback_tests;
