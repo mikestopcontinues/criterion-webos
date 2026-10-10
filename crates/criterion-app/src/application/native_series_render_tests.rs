@@ -4,6 +4,8 @@ use super::*;
 
 #[path = "native_featured_render_tests.rs"]
 mod native_featured_render_tests;
+#[path = "native_sort_render_tests.rs"]
+mod native_sort_render_tests;
 use criterion_ui::{DetailKind, GlowRenderer, Target};
 use glow::HasContext;
 use std::{
@@ -42,6 +44,7 @@ fn require(condition: bool, message: &'static str) -> Result<(), &'static str> {
 enum Journey {
     Series,
     Featured,
+    Sort,
 }
 
 #[derive(Clone, Copy)]
@@ -52,6 +55,7 @@ enum Capture {
     RetiredEpisode,
     RetiredPrimary,
     Featured(native_featured_render_tests::Capture),
+    Sort(native_sort_render_tests::Capture),
 }
 const CAPTURES: [Capture; 5] = [
     Capture::Resume,
@@ -69,6 +73,7 @@ impl Capture {
             Self::RetiredEpisode => "synthetic-series-retired-episode.png",
             Self::RetiredPrimary => "synthetic-series-retired-primary.png",
             Self::Featured(stage) => stage.name(),
+            Self::Sort(stage) => stage.name(),
         }
     }
     fn retired(self) -> bool {
@@ -84,6 +89,7 @@ impl Capture {
             },
             Self::RetiredEpisode => Focus::Card { row: 0, column: 0 },
             Self::Featured(_) => Focus::FeaturedCard(0),
+            Self::Sort(stage) => stage.focus(),
         }
     }
     fn focus_region(self) -> (Range<usize>, Range<usize>) {
@@ -93,6 +99,7 @@ impl Capture {
             Self::Episode => (1384..1778, 527..756),
             Self::RetiredEpisode => (142..536, 527..756),
             Self::Featured(_) => (142..536, 407..636),
+            Self::Sort(stage) => stage.focus_region(),
         }
     }
 }
@@ -117,6 +124,7 @@ impl Captures {
         let prefix = match journey {
             Journey::Series => "native-synthetic-series",
             Journey::Featured => "native-synthetic-featured",
+            Journey::Sort => "native-synthetic-sort",
         };
         let directory = parent.join(format!("{prefix}-{}-{captured_at}", std::process::id()));
         std::fs::create_dir(&directory).map_err(|_| "fresh synthetic capture directory")?;
@@ -131,6 +139,9 @@ impl Captures {
             Journey::Series => CAPTURES.map(Capture::name).to_vec(),
             Journey::Featured => native_featured_render_tests::CAPTURES
                 .map(native_featured_render_tests::Capture::name)
+                .to_vec(),
+            Journey::Sort => native_sort_render_tests::CAPTURES
+                .map(native_sort_render_tests::Capture::name)
                 .to_vec(),
         };
         for name in names {
@@ -199,6 +210,7 @@ fn frame_oracle(output: &egui::FullOutput, stage: Capture) -> Result<(), &'stati
             egui::Rect::from_min_size(egui::pos2(150.0, 756.0), egui::vec2(346.0, 44.0))
         }
         Capture::Featured(_) => return Err("Feature stage cannot use Series shape oracle"),
+        Capture::Sort(_) => return Err("Sort stage cannot use Series shape oracle"),
     };
     let text = match stage {
         Capture::Resume | Capture::Information => RESUME,
@@ -206,6 +218,7 @@ fn frame_oracle(output: &egui::FullOutput, stage: Capture) -> Result<(), &'stati
         Capture::Episode => "Synthetic final Episode 511",
         Capture::RetiredEpisode => "First Episode",
         Capture::Featured(_) => return Err("Feature stage cannot use Series text oracle"),
+        Capture::Sort(_) => return Err("Sort stage cannot use Series text oracle"),
     };
     require(
         text_inside(output, text, area),
@@ -300,6 +313,7 @@ impl Rendered<'_> {
                 && match self.captures.journey {
                     Journey::Series => self.fixture.script.calls.lock().unwrap().len() <= 3,
                     Journey::Featured => native_featured_render_tests::reads_bounded(self.fixture),
+                    Journey::Sort => native_sort_render_tests::reads_bounded(self.fixture),
                 }
                 && self.fixture.script.bootstrap.load(Ordering::SeqCst) <= 1
                 && self.fixture.script.maximum.load(Ordering::SeqCst) <= 1
@@ -328,9 +342,9 @@ impl Rendered<'_> {
         if let Some(stage) = capture {
             let admitted = match (self.captures.journey, stage) {
                 (Journey::Featured, Capture::Featured(stage)) => stage.admit(self.fixture, &output),
-                (Journey::Series, Capture::Featured(_)) | (Journey::Featured, _) => {
-                    Err("capture journey mismatch")
-                }
+                (Journey::Sort, Capture::Sort(stage)) => stage.admit(self.fixture, &output),
+                (Journey::Series, Capture::Featured(_) | Capture::Sort(_))
+                | (Journey::Featured | Journey::Sort, _) => Err("capture journey mismatch"),
                 (Journey::Series, _) => require(
                     self.fixture.app.ui.page() == Page::Detail
                         && exact_series(self.fixture, stage.retired()),
@@ -393,6 +407,12 @@ impl Rendered<'_> {
                 require(
                     stage.pixels(&pixels),
                     "current Feature artwork/progress framebuffer mismatch",
+                )?;
+            }
+            if let Capture::Sort(stage) = stage {
+                require(
+                    stage.pixels(&pixels),
+                    "current Sort modal/order/progress framebuffer mismatch",
                 )?;
             }
             let image = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(1920, 1080, pixels)
@@ -641,11 +661,13 @@ fn run(journey: Journey) {
     let mut captures = match journey {
         Journey::Series => Captures::new(),
         Journey::Featured => Captures::for_journey(journey),
+        Journey::Sort => Captures::for_journey(journey),
     }
     .unwrap();
     let title = match journey {
         Journey::Series => "Criterion Unofficial Synthetic Series E2E",
         Journey::Featured => "Criterion Unofficial Synthetic Featured E2E",
+        Journey::Sort => "Criterion Unofficial Synthetic Sort E2E",
     };
     let mut window = criterion_platform::Window::open(title).unwrap();
     // SAFETY: the current main-thread context outlives fixture disposal and painter destruction.
@@ -658,6 +680,7 @@ fn run(journey: Journey) {
     let mut fixture = match std::panic::catch_unwind(|| match journey {
         Journey::Series => series_fixture(),
         Journey::Featured => native_featured_render_tests::fixture(),
+        Journey::Sort => native_sort_render_tests::fixture(),
     }) {
         Ok(fixture) => fixture,
         Err(panic) => {
@@ -677,13 +700,14 @@ fn run(journey: Journey) {
         match journey {
             Journey::Series => rendered.journey(),
             Journey::Featured => native_featured_render_tests::journey(&mut rendered),
+            Journey::Sort => native_sort_render_tests::journey(&mut rendered),
         }
     }));
     // Fixture disposal joins the real worker and issuer on every outcome. A
     // cleanup assertion cannot skip GL destruction or owned-file retirement.
     let failed = !matches!(outcome, Ok(Ok(())));
     let disposed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if matches!(journey, Journey::Featured) && failed {
+        if matches!(journey, Journey::Featured | Journey::Sort) && failed {
             // Retire unissued synthetic steps on failure inside the protected
             // disposal path, so even a fixture assertion cannot skip GL cleanup.
             fixture.script.steps.lock().unwrap().clear();

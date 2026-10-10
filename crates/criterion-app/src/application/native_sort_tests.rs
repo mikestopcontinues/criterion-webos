@@ -5,7 +5,7 @@ use super::*;
 fn sort_fixture() -> Fixture {
     sort_fixture_with_positions(false)
 }
-fn sort_fixture_with_positions(positions: bool) -> Fixture {
+pub(super) fn sort_fixture_with_positions(positions: bool) -> Fixture {
     let mut steps = vec![
         list(),
         detail("Listed01", None),
