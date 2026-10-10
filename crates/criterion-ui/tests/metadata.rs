@@ -24,6 +24,8 @@ fn unavailable_duration_is_omitted_from_grid_detail_and_information() {
         title: "Fixture",
         year: "1986",
         duration_seconds: 0,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     };
     let cards = [card];
     let data = ViewData {
@@ -37,6 +39,9 @@ fn unavailable_duration_is_omitted_from_grid_detail_and_information() {
             countries: "",
             languages: "",
             primary_action: "WATCH NOW",
+            primary_playback_target: Some(target.media_id().unwrap()),
+            selected_playlist: None,
+            seasons: None,
             kind: DetailKind::Film,
         }),
         ..Default::default()

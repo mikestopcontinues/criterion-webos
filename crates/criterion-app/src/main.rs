@@ -3,6 +3,7 @@
 mod account;
 mod artwork;
 mod authentication;
+mod continue_watching;
 mod controller;
 mod jobs;
 mod my_list;

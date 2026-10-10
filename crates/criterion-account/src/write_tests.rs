@@ -1,4 +1,4 @@
-use crate::native_tests::linked;
+use crate::native_tests::{Observation, linked};
 use crate::*;
 use criterion_provider::MediaId;
 use std::sync::{
@@ -13,36 +13,44 @@ fn id() -> MediaId {
 struct Fixture {
     body: Vec<u8>,
     status: u16,
-    requests: Arc<Mutex<Vec<Target>>>,
+    requests: Arc<Mutex<Vec<Observation>>>,
 }
 impl Transport for Fixture {
     async fn send(&self, request: Request) -> Result<Response, Error> {
-        self.requests.lock().unwrap().push(request.target.clone());
-        let body = match request.target {
-            Target::Bootstrap => {
-                assert!(request.credentials.is_none());
-                INIT.to_vec()
+        let (observation, status, body) = match request {
+            Request::Bootstrap => (Observation::Bootstrap, 200, INIT.to_vec()),
+            Request::Subscriber {
+                target,
+                credentials,
+            } => {
+                assert_eq!(
+                    credentials.bootstrap.as_bytes(),
+                    b"Bearer synthetic-bootstrap"
+                );
+                assert!(
+                    credentials.bootstrap.is_sensitive() && credentials.subscriber.is_sensitive()
+                );
+                let (status, body) = if matches!(&target, SubscriberTarget::MyListIds(_)) {
+                    (200, IDS.to_vec())
+                } else {
+                    (self.status, self.body.clone())
+                };
+                (Observation::Subscriber(target), status, body)
             }
-            Target::MyListIds(_) => IDS.to_vec(),
-            _ => {
-                let headers = request.credentials.unwrap();
-                assert_eq!(headers.bootstrap.as_bytes(), b"Bearer synthetic-bootstrap");
-                assert!(headers.bootstrap.is_sensitive() && headers.subscriber.is_sensitive());
-                self.body.clone()
-            }
+            Request::Detail { .. } => panic!("subscriber fixture cannot serve Detail"),
         };
+        self.requests.lock().unwrap().push(observation);
         Ok(Response {
-            status: if matches!(request.target, Target::Bootstrap | Target::MyListIds(_)) {
-                200
-            } else {
-                self.status
-            },
+            status,
             body: SecretBody::new(body),
         })
     }
 }
-async fn account(body: &[u8], status: u16) -> (AccountClient<Fixture>, Arc<Mutex<Vec<Target>>>) {
-    let requests: Arc<Mutex<Vec<Target>>> = Arc::default();
+async fn account(
+    body: &[u8],
+    status: u16,
+) -> (AccountClient<Fixture>, Arc<Mutex<Vec<Observation>>>) {
+    let requests: Arc<Mutex<Vec<Observation>>> = Arc::default();
     let account = AccountClient::with_transport(Fixture {
         body: body.to_vec(),
         status,
@@ -73,11 +81,11 @@ async fn list_writes_use_explicit_native_types_and_return_receipts_without_appli
         assert_eq!(account.write_status(), WriteStatus::Ready);
         assert_eq!(
             requests.lock().unwrap().last(),
-            Some(&Target::AddWatchList {
+            Some(&Observation::Subscriber(SubscriberTarget::AddWatchList {
                 region: Region::Ca,
                 media_id: id(),
                 content_type
-            })
+            }))
         );
     }
     assert_eq!(
@@ -86,10 +94,12 @@ async fn list_writes_use_explicit_native_types_and_return_receipts_without_appli
     );
     assert_eq!(
         requests.lock().unwrap().last(),
-        Some(&Target::RemoveWatchList {
-            region: Region::Ca,
-            media_id: id()
-        })
+        Some(&Observation::Subscriber(
+            SubscriberTarget::RemoveWatchList {
+                region: Region::Ca,
+                media_id: id()
+            }
+        ))
     );
     let diagnostic = format!(
         "{:?} {:?}",
@@ -131,7 +141,7 @@ async fn omitted_and_false_sync_are_valid_receipts_while_null_wrong_and_duplicat
 #[tokio::test]
 async fn write_preflight_rejects_missing_bootstrap_or_disposed_session_without_contact() {
     let (session, _) = linked().await;
-    let requests: Arc<Mutex<Vec<Target>>> = Arc::default();
+    let requests: Arc<Mutex<Vec<Observation>>> = Arc::default();
     let account = AccountClient::with_transport(Fixture {
         body: b"{}".to_vec(),
         status: 200,
@@ -162,8 +172,12 @@ struct FailsOnce {
 impl Transport for FailsOnce {
     async fn send(&self, request: Request) -> Result<Response, Error> {
         if matches!(
-            request.target,
-            Target::AddWatchList { .. } | Target::RemoveWatchList { .. }
+            &request,
+            Request::Subscriber {
+                target: SubscriberTarget::AddWatchList { .. }
+                    | SubscriberTarget::RemoveWatchList { .. },
+                ..
+            }
         ) && self.count.fetch_add(1, Ordering::SeqCst) == 0
         {
             return Err(self.error);
@@ -242,8 +256,12 @@ struct Held {
 impl Transport for Held {
     async fn send(&self, request: Request) -> Result<Response, Error> {
         if matches!(
-            request.target,
-            Target::AddWatchList { .. } | Target::RemoveWatchList { .. }
+            &request,
+            Request::Subscriber {
+                target: SubscriberTarget::AddWatchList { .. }
+                    | SubscriberTarget::RemoveWatchList { .. },
+                ..
+            }
         ) {
             self.entered.notify_one();
             self.release.notified().await;

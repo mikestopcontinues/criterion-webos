@@ -151,6 +151,8 @@ fn fixed_subscriber_rail_back_restores_the_originating_card_and_scroll() {
         title: "Explore",
         year: "",
         duration_seconds: 0,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     }];
     let rails = [Rail {
         title: "Explore",
@@ -247,6 +249,8 @@ fn signed_out_my_list_shows_activation_and_cancel_restores_the_home_card_once() 
         title: "My List",
         year: "",
         duration_seconds: 0,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     }];
     let rails = [Rail {
         title: "Explore",
@@ -317,6 +321,8 @@ fn signed_in_my_list_opens_the_grid_and_back_restores_its_origin() {
         title: "My List",
         year: "",
         duration_seconds: 0,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     }];
     let rails = [Rail {
         title: "Explore",
@@ -375,6 +381,8 @@ fn my_list_hero_requires_an_active_session_and_subscribe_stays_on_login() {
                         title: "Explore",
                         year: "",
                         duration_seconds: 0,
+                        saved_fraction: None,
+                        action: criterion_ui::CardAction::Open,
                     },
                     description: "",
                     action: "SEE MORE",
@@ -410,6 +418,8 @@ fn signed_out_my_list_pointer_activation_uses_the_same_login_route() {
         title: "My List",
         year: "",
         duration_seconds: 0,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     }];
     let rails = [Rail {
         title: "Explore",

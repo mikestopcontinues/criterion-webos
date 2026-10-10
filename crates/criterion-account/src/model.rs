@@ -109,6 +109,10 @@ pub struct MediaSummary {
     /// Native Float32 value; interpretation depends on the subtype. Admission preserves it.
     pub duration: Option<f32>,
     pub release_date: Option<time::Date>,
+    /// Native Episode metadata, distinct from a saved Position override.
+    /// Other subtypes have no series association in this summary projection.
+    pub series_id: Option<MediaId>,
+    pub series_title: Option<String>,
 }
 impl std::fmt::Debug for MediaSummary {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

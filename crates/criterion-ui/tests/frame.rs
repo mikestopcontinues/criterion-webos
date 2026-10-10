@@ -18,7 +18,9 @@ fn cpu_frame_uses_observed_four_landscape_columns_and_visible_budget() {
             artwork_key: Some("qvwT6mJ4/default_16x9/480"),
             title: "The Hitcher",
             year: "1986",
-            duration_seconds: 5820
+            duration_seconds: 5820,
+            saved_fraction: None,
+            action: criterion_ui::CardAction::Open,
         };
         1000
     ];

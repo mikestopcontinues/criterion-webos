@@ -11,11 +11,20 @@ pub(crate) const MUTED: Color32 = Color32::from_rgb(151, 151, 151);
 /// Provider-admitted metadata. Media identity and optional public artwork identity are distinct.
 #[derive(Clone, Copy)]
 pub struct Card<'a> {
+    pub action: CardAction,
     pub key: &'a crate::Target,
     pub artwork_key: Option<&'a str>,
     pub title: &'a str,
     pub year: &'a str,
     pub duration_seconds: u32,
+    /// Immutable normalized saved progress, supplied by the application projection.
+    pub saved_fraction: Option<f32>,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CardAction {
+    #[default]
+    Open,
+    Play,
 }
 pub struct Rail<'a> {
     pub title: &'a str,
@@ -41,6 +50,15 @@ pub struct FilterGroup<'a> {
 pub struct FilterMenu<'a> {
     pub groups: &'a [FilterGroup<'a>],
 }
+pub struct SeasonChoice<'a> {
+    pub number: i32,
+    pub title: &'a str,
+    pub episode_count: usize,
+}
+pub struct SeasonView<'a> {
+    pub selected: usize,
+    pub choices: &'a [SeasonChoice<'a>],
+}
 pub struct Detail<'a> {
     pub card: Card<'a>,
     pub directors: &'a str,
@@ -49,6 +67,9 @@ pub struct Detail<'a> {
     pub countries: &'a str,
     pub languages: &'a str,
     pub primary_action: &'a str,
+    pub primary_playback_target: Option<&'a criterion_provider::MediaId>,
+    pub selected_playlist: Option<usize>,
+    pub seasons: Option<SeasonView<'a>>,
     pub kind: crate::DetailKind,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,8 +158,7 @@ impl AppUi {
             self.set_filter_option_counts(counts);
         }
         if let Some(detail) = &data.detail {
-            self.set_detail_kind(detail.kind);
-            self.set_information_content(detail.description);
+            self.sync_detail(detail);
         }
         let events = if input.focused {
             input.events.clone()
@@ -639,6 +659,24 @@ pub(crate) fn paint_card(
             Color32::WHITE,
         );
     }
+    if let Some(fraction) = card
+        .saved_fraction
+        .filter(|fraction| fraction.is_finite() && *fraction > 0.0)
+    {
+        // The native renderer supplies a 3.0 Compose height and 0.4 track alpha.
+        // Exact density, themed RGB values and placement remain unmeasured:
+        // use our thumbnail bottom and white palette in logical canvas units.
+        let track = Rect::from_min_max(
+            Pos2::new(rect.left(), rect.bottom() - 3.0),
+            rect.right_bottom(),
+        );
+        p.rect_filled(track, 0, WHITE.gamma_multiply(0.4));
+        p.rect_filled(
+            Rect::from_min_size(track.min, Vec2::new(track.width() * fraction.min(1.0), 3.0)),
+            0,
+            WHITE,
+        );
+    }
     if focused {
         p.rect_stroke(
             rect.expand(8.0),
@@ -963,7 +1001,7 @@ impl AppUi {
             WHITE,
             1200.0,
         );
-        if detail.kind != crate::DetailKind::Collection {
+        if detail.primary_playback_target.is_some() {
             button(
                 p,
                 Rect::from_min_size(Pos2::new(150.0, y + 620.0), Vec2::new(460.0, 80.0)),
@@ -971,7 +1009,7 @@ impl AppUi {
                 self.focus() == Focus::DetailAction(0),
             );
         }
-        let info_x = if detail.kind == crate::DetailKind::Collection {
+        let info_x = if detail.primary_playback_target.is_none() {
             150.0
         } else {
             630.0
@@ -997,22 +1035,29 @@ impl AppUi {
             1250.0,
             (2, 360),
         );
-        label(
-            p,
-            [150.0, y + 895.0],
-            &format!(
-                "Starring: {}",
-                detail.starring.chars().take(128).collect::<String>()
-            ),
-            25.0,
-            WHITE,
-            1250.0,
-        );
-        for (index, rail) in rails.iter().take(8).enumerate() {
+        if !detail.starring.is_empty() {
             label(
                 p,
-                [150.0 + index as f32 * 280.0, y + 966.0],
-                rail.title,
+                [150.0, y + 895.0],
+                &format!(
+                    "Starring: {}",
+                    detail.starring.chars().take(128).collect::<String>()
+                ),
+                25.0,
+                WHITE,
+                1250.0,
+            );
+        }
+        for (index, area) in detail_tab_rects(
+            rails.len(),
+            self.detail_state.selected_tab,
+            self.layout_focus(),
+            self.scroll_y(),
+        ) {
+            label(
+                p,
+                [area.left(), area.top()],
+                rails[index].title,
                 26.0,
                 if matches!(self.focus(),Focus::DetailTab(i)|Focus::Card{row:i,..} if i==index) {
                     GOLD
@@ -1026,10 +1071,41 @@ impl AppUi {
             [Pos2::new(150.0, y + 1018.0), Pos2::new(1770.0, y + 1018.0)],
             Stroke::new(1.0, Color32::from_gray(45)),
         );
-        let selected_row = match self.focus() {
-            Focus::Card { row, .. } | Focus::DetailTab(row) => row,
-            _ => 0,
-        };
+        let selected_row = self.detail_state.selected_tab;
+        if let Some(seasons) = &detail.seasons {
+            for (index, area) in season_rects(seasons, self.layout_focus(), self.scroll_y()) {
+                let choice = &seasons.choices[index];
+                let color = if self.focus() == Focus::DetailSeason(index) {
+                    GOLD
+                } else {
+                    WHITE
+                };
+                button_background(p, area, self.focus() == Focus::DetailSeason(index));
+                let count = choice.episode_count.to_string();
+                let count_width = if count.len() <= 5 { 68.0 } else { 0.0 };
+                label(
+                    p,
+                    [area.left() + 16.0, area.top() + 15.0],
+                    choice.title,
+                    24.0,
+                    color,
+                    area.width() - 32.0 - count_width,
+                );
+                if count_width > 0.0 {
+                    p.text(
+                        Pos2::new(area.right() - 14.0, area.top() + 15.0),
+                        egui::Align2::RIGHT_TOP,
+                        count,
+                        FontId::proportional(24.0),
+                        if index == seasons.selected {
+                            GOLD
+                        } else {
+                            MUTED
+                        },
+                    );
+                }
+            }
+        }
         if let Some(rail) = rails.get(selected_row) {
             let selected = match self.layout_focus() {
                 Focus::Card { column, .. } => column,
@@ -1038,7 +1114,10 @@ impl AppUi {
             let first = selected.saturating_sub(3);
             for (column, card) in rail.cards.iter().enumerate().skip(first).take(5) {
                 let rect = Rect::from_min_size(
-                    Pos2::new(150.0 + (column - first) as f32 * 414.0, y + 1067.0),
+                    Pos2::new(
+                        150.0 + (column - first) as f32 * 414.0,
+                        y + 1067.0 + if detail.seasons.is_some() { 100.0 } else { 0.0 },
+                    ),
                     Vec2::new(378.0, 213.0),
                 );
                 if rect.bottom() > 0.0 && rect.top() < 1080.0 {
@@ -1127,7 +1206,7 @@ impl AppUi {
             Icon::Close,
             self.focus() == Focus::InformationClose,
         );
-        if detail.kind != crate::DetailKind::Collection {
+        if detail.primary_playback_target.is_some() {
             button(
                 &p,
                 Rect::from_min_size(Pos2::new(348.0, 903.0), Vec2::new(1224.0, 80.0)),
@@ -1149,4 +1228,49 @@ fn duration(seconds: u32) -> String {
 
 pub(crate) fn catalog_retry_rect() -> Rect {
     Rect::from_min_size(Pos2::new(150.0, 970.0), Vec2::new(650.0, 80.0))
+}
+
+pub(crate) fn season_rects(
+    view: &SeasonView<'_>,
+    focus: Focus,
+    scroll: f32,
+) -> impl Iterator<Item = (usize, Rect)> {
+    let selected = match focus {
+        Focus::DetailSeason(index) => index,
+        _ => view.selected,
+    }
+    .min(view.choices.len().saturating_sub(1));
+    let first = selected.saturating_sub(3);
+    (first..view.choices.len()).take(6).map(move |index| {
+        (
+            index,
+            Rect::from_min_size(
+                Pos2::new(150.0 + (index - first) as f32 * 274.0, 1067.0 - scroll),
+                Vec2::new(254.0, 80.0),
+            ),
+        )
+    })
+}
+
+pub(crate) fn detail_tab_rects(
+    count: usize,
+    selected: usize,
+    focus: Focus,
+    scroll: f32,
+) -> impl Iterator<Item = (usize, Rect)> {
+    let selected = match focus {
+        Focus::DetailTab(index) | Focus::Card { row: index, .. } => index,
+        _ => selected,
+    }
+    .min(count.saturating_sub(1));
+    let first = selected.saturating_sub(3);
+    (first..count).take(6).map(move |index| {
+        (
+            index,
+            Rect::from_min_size(
+                Pos2::new(150.0 + (index - first) as f32 * 280.0, 966.0 - scroll),
+                Vec2::new(260.0, 52.0),
+            ),
+        )
+    })
 }

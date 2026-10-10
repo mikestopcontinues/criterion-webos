@@ -302,6 +302,7 @@ dependencies = [
  "egui",
  "glow",
  "image",
+ "serde_json",
  "time",
  "tokio",
 ]

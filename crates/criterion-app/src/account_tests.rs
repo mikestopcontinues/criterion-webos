@@ -2,7 +2,7 @@
 //! CPU application journeys through real Session/Account adapters and synthetic transports.
 use super::*;
 use crate::presentation::Presentation;
-use criterion_account::{AccountClient, Region, SecretBody, Target};
+use criterion_account::{AccountClient, Region, SecretBody, SubscriberTarget};
 use criterion_platform::{KeyEvent, Size};
 use criterion_provider::{
     ContentTarget, DiscoveryArtwork, DiscoveryBlock, DiscoveryNavItem, DiscoveryPage,
@@ -65,10 +65,15 @@ impl Transport for Issuer {
 }
 #[derive(Clone, Default)]
 struct Middleware {
-    calls: Arc<Mutex<Vec<Target>>>,
+    calls: Arc<Mutex<Vec<Observation>>>,
     hold: Arc<AtomicBool>,
     retired: Arc<AtomicUsize>,
     release: Arc<Notify>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Observation {
+    Bootstrap,
+    Subscriber(SubscriberTarget),
 }
 struct Retire(Arc<AtomicUsize>);
 impl Drop for Retire {
@@ -81,29 +86,47 @@ impl criterion_account::Transport for Middleware {
         &self,
         request: criterion_account::Request,
     ) -> Result<criterion_account::Response, criterion_account::Error> {
-        self.calls.lock().unwrap().push(request.target.clone());
-        let body = match request.target {
-            Target::Bootstrap => {
-                assert!(request.credentials.is_none());
+        let body = match request {
+            criterion_account::Request::Bootstrap => {
+                self.calls.lock().unwrap().push(Observation::Bootstrap);
                 br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec()
             }
-            Target::WatchList {
-                region: Region::Us, ..
+            criterion_account::Request::Subscriber {
+                target,
+                credentials,
             } => {
-                if self.hold.swap(false, Ordering::SeqCst) {
-                    let _retire = Retire(self.retired.clone());
-                    self.release.notified().await;
-                }
-                br#"{"paging":{"page_limit":60},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private selection","duration":90.5}]}"#.to_vec()
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(Observation::Subscriber(target.clone()));
+                let body = match target {
+                    SubscriberTarget::WatchList {
+                        region: Region::Us, ..
+                    } => {
+                        if self.hold.swap(false, Ordering::SeqCst) {
+                            let _retire = Retire(self.retired.clone());
+                            self.release.notified().await;
+                        }
+                        br#"{"paging":{"page_limit":60},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private selection","duration":90.5}]}"#.to_vec()
+                    }
+                    _ => panic!("read-only application must not issue a mutation"),
+                };
+                assert_eq!(
+                    credentials.bootstrap().to_str().unwrap(),
+                    "Bearer synthetic-bootstrap"
+                );
+                assert!(credentials.bootstrap().is_sensitive());
+                assert_eq!(
+                    credentials.subscriber().to_str().unwrap(),
+                    "synthetic-same-token"
+                );
+                assert!(credentials.subscriber().is_sensitive());
+                body
             }
-            _ => panic!("read-only application must not issue a mutation"),
+            criterion_account::Request::Detail { .. } => {
+                panic!("read-only application must not issue Detail")
+            }
         };
-        if let Some(credentials) = request.credentials {
-            assert_eq!(
-                credentials.subscriber().to_str().unwrap(),
-                "synthetic-same-token"
-            );
-        }
         Ok(criterion_account::Response {
             status: 200,
             body: SecretBody::new(body),
@@ -268,11 +291,11 @@ fn native_subscriber_rail_reads_list_without_home_cards_and_back_restores_displa
         assert_eq!(
             *middleware.calls.lock().unwrap(),
             vec![
-                Target::Bootstrap,
-                Target::WatchList {
+                Observation::Bootstrap,
+                Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: criterion_account::WatchListRequest::default()
-                }
+                })
             ]
         );
         native_key(&mut app, &runtime, (41, 27));
@@ -325,11 +348,11 @@ fn native_account_to_my_list_to_explicit_logout_ignores_loading_home() {
     assert_eq!(
         *middleware.calls.lock().unwrap(),
         vec![
-            Target::Bootstrap,
-            Target::WatchList {
+            Observation::Bootstrap,
+            Observation::Subscriber(SubscriberTarget::WatchList {
                 region: Region::Us,
                 request: criterion_account::WatchListRequest::default()
-            }
+            })
         ]
     );
     for key in [
@@ -573,11 +596,11 @@ fn signed_subscriber_reads_native_shelf_and_renders_real_adapter_projection() {
     assert_eq!(
         *middleware.calls.lock().unwrap(),
         vec![
-            Target::Bootstrap,
-            Target::WatchList {
+            Observation::Bootstrap,
+            Observation::Subscriber(SubscriberTarget::WatchList {
                 region: Region::Us,
                 request: criterion_account::WatchListRequest::default()
-            }
+            })
         ]
     );
     assert!(app.finish(&runtime));
@@ -758,7 +781,12 @@ fn identical_token_reauthentication_requires_a_fresh_list_intent_in_the_new_epoc
             .lock()
             .unwrap()
             .iter()
-            .filter(|target| matches!(target, Target::WatchList { .. }))
+            .filter(|target| {
+                matches!(
+                    target,
+                    Observation::Subscriber(SubscriberTarget::WatchList { .. })
+                )
+            })
             .count(),
         2
     );

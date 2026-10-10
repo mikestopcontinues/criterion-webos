@@ -42,6 +42,7 @@ pub enum Focus {
     DetailAction(usize),
     DetailDescription,
     DetailTab(usize),
+    DetailSeason(usize),
     InformationPrimary,
     InformationClose,
     FilterGroup(usize),
@@ -65,6 +66,7 @@ pub(crate) enum Intent {
     Play,
     ToggleList,
     SelectPlaylist(usize),
+    SelectSeason(usize),
     Authenticate,
     VoiceSearch,
     Search {

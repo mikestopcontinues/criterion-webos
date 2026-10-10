@@ -1,5 +1,5 @@
 use crate::{
-    Credentials, Error, Region, Request, Response, SecretBody, Target, Transport,
+    Credentials, Error, Region, Request, Response, SecretBody, SubscriberTarget, Transport,
     WatchListContentType,
 };
 use std::sync::Arc;
@@ -8,6 +8,7 @@ use zeroize::Zeroizing;
 
 const MAX_REQUEST_BYTES: usize = 256;
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+const MAX_DETAIL_RESPONSE_BYTES: usize = 512 * 1024;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Fixed middleware HTTPS transport with verified static roots, no proxy,
@@ -64,46 +65,62 @@ impl HttpTransport {
         Ok(transport)
     }
 
-    fn target(&self, target: &Target) -> Result<url::Url, Error> {
-        let target = match target {
-            Target::AddWatchList { region, .. } => account_target(*region, "/content/watch-list")?,
-            Target::RemoveWatchList { region, media_id } => {
-                let mut target = account_target(*region, "/content/watch-list")?;
+    fn target(&self, request: &Request) -> Result<url::Url, Error> {
+        let target = match request {
+            Request::Bootstrap => {
+                url::Url::parse(crate::BOOTSTRAP_URL).map_err(|_| Error::InvalidRequest)?
+            }
+            Request::Detail {
+                region, media_id, ..
+            } => {
+                let mut target = account_target(*region, "/content/media")?;
                 target
                     .path_segments_mut()
                     .map_err(|_| Error::InvalidRequest)?
                     .push(media_id.as_str());
                 target
             }
-            Target::Bootstrap => {
-                url::Url::parse(crate::BOOTSTRAP_URL).map_err(|_| Error::InvalidRequest)?
-            }
-            Target::WatchList { region, request } => {
-                let mut target = account_target(*region, "/content/watch-list")?;
-                {
-                    let mut query = target.query_pairs_mut();
-                    query.append_pair("page_limit", "50");
-                    if let Some(filter) = request.filter.as_str() {
-                        query.append_pair("content_type", filter);
-                    }
-                    if let Some(cursor) = &request.cursor {
-                        query.append_pair("pagination_key", cursor.as_str());
-                    }
+            Request::Subscriber { target, .. } => match target {
+                SubscriberTarget::AddWatchList { region, .. } => {
+                    account_target(*region, "/content/watch-list")?
                 }
-                // The maintained URL form encoder escapes the native raw-query
-                // set, but represents spaces as '+'. Raw plus is already %2B,
-                // so normalize only that form-space marker to native %20.
-                let query = target
-                    .query()
-                    .ok_or(Error::InvalidRequest)?
-                    .replace('+', "%20");
-                target.set_query(Some(&query));
-                target
-            }
-            Target::MyListIds(region) => account_target(*region, "/content/my-stuff-ids")?,
-            Target::ContinueWatching(region) => {
-                account_target(*region, "/content/continue-watching")?
-            }
+                SubscriberTarget::RemoveWatchList { region, media_id } => {
+                    let mut target = account_target(*region, "/content/watch-list")?;
+                    target
+                        .path_segments_mut()
+                        .map_err(|_| Error::InvalidRequest)?
+                        .push(media_id.as_str());
+                    target
+                }
+                SubscriberTarget::WatchList { region, request } => {
+                    let mut target = account_target(*region, "/content/watch-list")?;
+                    {
+                        let mut query = target.query_pairs_mut();
+                        query.append_pair("page_limit", "50");
+                        if let Some(filter) = request.filter.as_str() {
+                            query.append_pair("content_type", filter);
+                        }
+                        if let Some(cursor) = &request.cursor {
+                            query.append_pair("pagination_key", cursor.as_str());
+                        }
+                    }
+                    // The maintained URL form encoder escapes the native raw-query
+                    // set, but represents spaces as '+'. Raw plus is already %2B,
+                    // so normalize only that form-space marker to native %20.
+                    let query = target
+                        .query()
+                        .ok_or(Error::InvalidRequest)?
+                        .replace('+', "%20");
+                    target.set_query(Some(&query));
+                    target
+                }
+                SubscriberTarget::MyListIds(region) => {
+                    account_target(*region, "/content/my-stuff-ids")?
+                }
+                SubscriberTarget::ContinueWatching(region) => {
+                    account_target(*region, "/content/continue-watching")?
+                }
+            },
         };
         #[cfg(test)]
         if let Some(origin) = &self.test_origin {
@@ -159,21 +176,26 @@ fn add_body(
     Ok(SecretBody::new(std::mem::take(&mut *bytes)))
 }
 
-fn valid_credentials(credentials: &Credentials) -> Result<(), Error> {
-    if !credentials.bootstrap.is_sensitive() || !credentials.subscriber.is_sensitive() {
+fn valid_authorization(value: &reqwest::header::HeaderValue) -> Result<(), Error> {
+    if !value.is_sensitive() {
         return Err(Error::InvalidRequest);
     }
-    let bootstrap = credentials
-        .bootstrap
+    let token = value
         .to_str()
         .map_err(|_| Error::InvalidRequest)?
         .strip_prefix("Bearer ")
         .ok_or(Error::InvalidRequest)?;
+    crate::wire::valid_token(token).map_err(|_| Error::InvalidRequest)
+}
+fn valid_credentials(credentials: &Credentials) -> Result<(), Error> {
+    valid_authorization(&credentials.bootstrap)?;
+    if !credentials.subscriber.is_sensitive() {
+        return Err(Error::InvalidRequest);
+    }
     let subscriber = credentials
         .subscriber
         .to_str()
         .map_err(|_| Error::InvalidRequest)?;
-    crate::wire::valid_token(bootstrap).map_err(|_| Error::InvalidRequest)?;
     crate::wire::valid_token(subscriber).map_err(|_| Error::InvalidRequest)
 }
 
@@ -255,37 +277,37 @@ impl Transport for HttpTransport {
     async fn send(&self, request: Request) -> Result<Response, Error> {
         // Refuse confused credential roles and malformed private capabilities
         // before taking capacity or constructing any outbound HTTP request.
-        let Request {
-            target,
-            credentials,
-        } = request;
-        let credentials = match &target {
-            Target::Bootstrap if credentials.is_some() => return Err(Error::InvalidRequest),
-            Target::Bootstrap => None,
-            Target::MyListIds(_)
-            | Target::ContinueWatching(_)
-            | Target::WatchList { .. }
-            | Target::AddWatchList { .. }
-            | Target::RemoveWatchList { .. } => {
-                let credentials = credentials.ok_or(Error::InvalidRequest)?;
-                valid_credentials(&credentials)?;
-                Some(credentials)
-            }
-        };
-        let (method, body) = match &target {
-            Target::AddWatchList {
-                media_id,
-                content_type,
+        match &request {
+            Request::Bootstrap => {}
+            Request::Detail { authorization, .. } => valid_authorization(authorization.header())?,
+            Request::Subscriber { credentials, .. } => valid_credentials(credentials)?,
+        }
+        let (method, body) = match &request {
+            Request::Subscriber {
+                target:
+                    SubscriberTarget::AddWatchList {
+                        media_id,
+                        content_type,
+                        ..
+                    },
                 ..
             } => (
                 reqwest::Method::POST,
                 Some(add_body(media_id, *content_type)?),
             ),
-            Target::RemoveWatchList { .. } => (reqwest::Method::DELETE, None),
+            Request::Subscriber {
+                target: SubscriberTarget::RemoveWatchList { .. },
+                ..
+            } => (reqwest::Method::DELETE, None),
             _ => (reqwest::Method::GET, None),
         };
+        let maximum = if matches!(&request, Request::Detail { .. }) {
+            MAX_DETAIL_RESPONSE_BYTES
+        } else {
+            MAX_RESPONSE_BYTES
+        };
         let _permit = self.permit.try_acquire().map_err(|_| Error::Busy)?;
-        let target = self.target(&target)?;
+        let target = self.target(&request)?;
         let mut outbound = self
             .client
             .request(method, target)
@@ -298,12 +320,17 @@ impl Transport for HttpTransport {
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
                 .body(bytes::Bytes::from_owner(body));
         }
-        if let Some(credentials) = credentials {
-            // Move the existing sensitive HeaderValue owners into this request;
-            // never store either private value in client-wide default headers.
-            outbound = outbound
-                .header(reqwest::header::AUTHORIZATION, credentials.bootstrap)
-                .header("x-auth-token", credentials.subscriber);
+        match request {
+            Request::Bootstrap => {}
+            Request::Detail { authorization, .. } => {
+                outbound = outbound.header(reqwest::header::AUTHORIZATION, authorization.value);
+            }
+            Request::Subscriber { credentials, .. } => {
+                // Request-owned sensitive values, never client default headers.
+                outbound = outbound
+                    .header(reqwest::header::AUTHORIZATION, credentials.bootstrap)
+                    .header("x-auth-token", credentials.subscriber);
+            }
         }
         let mut response = outbound.send().await.map_err(request_error)?;
         let status = response.status().as_u16();
@@ -312,7 +339,7 @@ impl Transport for HttpTransport {
         }
         if response
             .content_length()
-            .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+            .is_some_and(|length| length > maximum as u64)
         {
             return Err(Error::ResponseTooLarge);
         }
@@ -332,9 +359,9 @@ impl Transport for HttpTransport {
         }
         // Reserve the whole bound so reallocations cannot abandon a partially
         // private body. HTTP/TLS internal scratch remains outside this guarantee.
-        let mut body = Zeroizing::new(Vec::with_capacity(MAX_RESPONSE_BYTES));
+        let mut body = Zeroizing::new(Vec::with_capacity(maximum));
         while let Some(chunk) = response.chunk().await.map_err(request_error)? {
-            if chunk.len() > MAX_RESPONSE_BYTES - body.len() {
+            if chunk.len() > maximum - body.len() {
                 return Err(Error::ResponseTooLarge);
             }
             body.extend_from_slice(&chunk);

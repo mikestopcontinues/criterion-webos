@@ -1,6 +1,6 @@
 use crate::{
-    Credentials, Error, Region, Request, Target, Transport, WriteFailure, WriteStatus, native_wire,
-    wire,
+    Credentials, Error, Region, Request, SubscriberTarget, Transport, WriteFailure, WriteStatus,
+    native_wire, wire,
 };
 use criterion_session::{MonotonicClock, Session};
 use std::sync::{Mutex, MutexGuard};
@@ -77,6 +77,48 @@ impl<T: Transport> AccountClient<T> {
             state: Mutex::new(State::default()),
         }
     }
+    /// Native Detail requires only the admitted regional bootstrap capability.
+    pub async fn detail(
+        &self,
+        media_id: &criterion_provider::MediaId,
+    ) -> Result<crate::NativeDetail, Error> {
+        let (mut reservation, request) = self.reserve_detail(media_id)?;
+        let response = self.transport.send(request).await;
+        // Hold ownership through final identity/budget admission. A lifecycle
+        // change cannot publish the prior generation's metadata.
+        let _state = reservation.finish()?;
+        crate::detail_wire::detail(&response?, media_id)
+    }
+    fn reserve_detail(
+        &self,
+        media_id: &criterion_provider::MediaId,
+    ) -> Result<(Reservation<'_>, Request), Error> {
+        let mut state = lock(&self.state);
+        if state.disposed {
+            return Err(Error::Disposed);
+        }
+        if state.in_flight.is_some() {
+            return Err(Error::Busy);
+        }
+        let bootstrap = state.bootstrap.as_ref().ok_or(Error::NoBootstrap)?;
+        let request = Request::Detail {
+            region: bootstrap.region,
+            media_id: media_id.clone(),
+            authorization: crate::BootstrapAuthorization {
+                value: wire::token_header(b"Bearer ", bootstrap.token.expose())?,
+            },
+        };
+        state.in_flight = Some(Operation::Read);
+        Ok((
+            Reservation {
+                state: &self.state,
+                generation: state.generation,
+                operation: Operation::Read,
+                complete: false,
+            },
+            request,
+        ))
+    }
     pub fn write_status(&self) -> crate::WriteStatus {
         lock(&self.state).write_status
     }
@@ -86,7 +128,7 @@ impl<T: Transport> AccountClient<T> {
         media_id: &criterion_provider::MediaId,
         content_type: crate::WatchListContentType,
     ) -> Result<crate::SyncReceipt, crate::WriteFailure> {
-        self.write(session, |region| Target::AddWatchList {
+        self.write(session, |region| SubscriberTarget::AddWatchList {
             region,
             media_id: media_id.clone(),
             content_type,
@@ -98,7 +140,7 @@ impl<T: Transport> AccountClient<T> {
         session: &Session<S, C>,
         media_id: &criterion_provider::MediaId,
     ) -> Result<crate::SyncReceipt, crate::WriteFailure> {
-        self.write(session, |region| Target::RemoveWatchList {
+        self.write(session, |region| SubscriberTarget::RemoveWatchList {
             region,
             media_id: media_id.clone(),
         })
@@ -107,7 +149,7 @@ impl<T: Transport> AccountClient<T> {
     async fn write<S: criterion_session::Transport, C: MonotonicClock>(
         &self,
         session: &Session<S, C>,
-        target: impl FnOnce(Region) -> Target,
+        target: impl FnOnce(Region) -> SubscriberTarget,
     ) -> Result<crate::SyncReceipt, WriteFailure> {
         let (mut reservation, request, subscriber) = self
             .reserve_authenticated(session, target, Operation::Write)
@@ -152,13 +194,7 @@ impl<T: Transport> AccountClient<T> {
     }
     pub async fn bootstrap(&self) -> Result<Region, Error> {
         let mut reservation = self.reserve_bootstrap()?;
-        let response = self
-            .transport
-            .send(Request {
-                target: Target::Bootstrap,
-                credentials: None,
-            })
-            .await;
+        let response = self.transport.send(Request::Bootstrap).await;
         let mut state = reservation.finish()?;
         let bootstrap = wire::bootstrap(&response?)?;
         let region = bootstrap.region;
@@ -169,8 +205,12 @@ impl<T: Transport> AccountClient<T> {
         &self,
         session: &Session<S, C>,
     ) -> Result<crate::MyListIds, Error> {
-        self.read(session, Target::MyListIds, native_wire::my_list_ids)
-            .await
+        self.read(
+            session,
+            SubscriberTarget::MyListIds,
+            native_wire::my_list_ids,
+        )
+        .await
     }
     pub async fn continue_watching<S: criterion_session::Transport, C: MonotonicClock>(
         &self,
@@ -178,7 +218,7 @@ impl<T: Transport> AccountClient<T> {
     ) -> Result<crate::ContinueWatching, Error> {
         self.read(
             session,
-            Target::ContinueWatching,
+            SubscriberTarget::ContinueWatching,
             native_wire::continue_watching,
         )
         .await
@@ -190,7 +230,7 @@ impl<T: Transport> AccountClient<T> {
     ) -> Result<crate::WatchList, Error> {
         self.read(
             session,
-            move |region| Target::WatchList { region, request },
+            move |region| SubscriberTarget::WatchList { region, request },
             native_wire::watch_list,
         )
         .await
@@ -198,7 +238,7 @@ impl<T: Transport> AccountClient<T> {
     async fn read<S: criterion_session::Transport, C: MonotonicClock, R>(
         &self,
         session: &Session<S, C>,
-        target: impl FnOnce(Region) -> Target,
+        target: impl FnOnce(Region) -> SubscriberTarget,
         parse: impl FnOnce(&crate::Response) -> Result<R, Error>,
     ) -> Result<R, Error> {
         let (mut reservation, request, subscriber) =
@@ -210,7 +250,7 @@ impl<T: Transport> AccountClient<T> {
     fn reserve_authenticated<S: criterion_session::Transport, C: MonotonicClock>(
         &self,
         session: &Session<S, C>,
-        target: impl FnOnce(Region) -> Target,
+        target: impl FnOnce(Region) -> SubscriberTarget,
         operation: Operation,
     ) -> Result<(Reservation<'_>, Request, reqwest::header::HeaderValue), Error> {
         {
@@ -227,9 +267,9 @@ impl<T: Transport> AccountClient<T> {
             let bootstrap = state.bootstrap.as_ref().ok_or(Error::NoBootstrap)?;
             let credentials = Self::headers(bootstrap, session)?;
             let subscriber = credentials.subscriber.clone();
-            let request = Request {
+            let request = Request::Subscriber {
                 target: target(bootstrap.region),
-                credentials: Some(credentials),
+                credentials,
             };
             state.in_flight = Some(operation);
             if operation == Operation::Write {

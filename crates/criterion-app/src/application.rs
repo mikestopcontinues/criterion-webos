@@ -19,15 +19,20 @@ pub(crate) struct Application<
     T: Transport = criterion_session::HttpTransport,
     C: MonotonicClock = SystemClock,
     A: criterion_account::Transport = criterion_account::HttpTransport,
+    D: MonotonicClock = SystemClock,
 > {
     ui: AppUi,
-    controller: Controller<P>,
+    controller: Controller<P, D>,
     authentication: Authentication<T, C>,
     accounts: Accounts<A, T, C>,
     account_epoch: Option<u64>,
     account_signed_in: bool,
     shelf_pending: Option<crate::my_list::Read>,
     shelf_generation: Option<ShelfRead>,
+    continue_watching_pending: Option<crate::controller::ContinueWatchingRead>,
+    continue_watching_generation: Option<ContinueWatchingRead>,
+    native_detail_pending: Option<crate::controller::NativeDetailRead>,
+    native_detail_generation: Option<NativeDetailRead>,
     artwork: Artwork,
     input: InputAdapter,
     output: Option<egui::FullOutput>,
@@ -40,8 +45,16 @@ struct ShelfRead {
     epoch: u64,
     generation: u64,
 }
-impl<P, T: Transport, C: MonotonicClock, A: criterion_account::Transport> Drop
-    for Application<P, T, C, A>
+struct NativeDetailRead {
+    read: crate::controller::NativeDetailRead,
+    generation: u64,
+}
+struct ContinueWatchingRead {
+    read: crate::controller::ContinueWatchingRead,
+    generation: u64,
+}
+impl<P, T: Transport, C: MonotonicClock, A: criterion_account::Transport, D: MonotonicClock> Drop
+    for Application<P, T, C, A, D>
 {
     fn drop(&mut self) {
         // Exiting/background disposal intentionally drops unpainted texture work.
@@ -70,11 +83,12 @@ impl<
     T: Transport + 'static,
     C: MonotonicClock + Clone + 'static,
     A: criterion_account::Transport + 'static,
-> Application<P, T, C, A>
+    D: MonotonicClock,
+> Application<P, T, C, A, D>
 {
     fn with_parts(
         surface: Surface,
-        controller: Controller<P>,
+        controller: Controller<P, D>,
         authentication: Authentication<T, C>,
         accounts: Accounts<A, T, C>,
         artwork: Artwork,
@@ -88,6 +102,10 @@ impl<
             account_signed_in: false,
             shelf_pending: None,
             shelf_generation: None,
+            continue_watching_pending: None,
+            continue_watching_generation: None,
+            native_detail_pending: None,
+            native_detail_generation: None,
             artwork,
             input: InputAdapter::new(surface),
             output: None,
@@ -227,6 +245,8 @@ impl<
             Effect::VoiceSearch => self.controller.view.set_status(LoadState::Error),
         }
         self.retire_departed_shelf();
+        self.retire_departed_continue_watching();
+        self.retire_departed_native_detail();
         if let Some(search) = retained_search {
             // A fresh rail visit keeps the visible query/group. Only Navigate
             // pushes history; replay its typed request without another snapshot.
@@ -241,6 +261,12 @@ impl<
         self.authentication.poll(runtime, active);
         self.sync_account_session();
         self.retire_departed_shelf();
+        self.retire_departed_continue_watching();
+        self.retire_departed_native_detail();
+        if active {
+            self.poll_continue_watching(runtime);
+            self.poll_native_detail(runtime);
+        }
         if active && self.controller.shelf_expired() {
             let read = self
                 .shelf_pending
@@ -261,10 +287,11 @@ impl<
             && let Some(read) = self.shelf_pending.take()
             && self.controller.shelf_owns(epoch, &read)
         {
-            match self
-                .accounts
-                .request_shelf(runtime.handle(), epoch, read.request.clone())
-            {
+            match self.accounts.request(
+                runtime.handle(),
+                epoch,
+                crate::account::ReadRequest::WatchList(read.request.clone()),
+            ) {
                 Ok(generation) => {
                     self.shelf_generation = Some(ShelfRead {
                         read,
@@ -275,11 +302,21 @@ impl<
                 Err(error) => self.controller.fail_shelf(epoch, &read, error),
             }
         }
-        if let Some(result) =
-            self.accounts
-                .poll(runtime, active, self.account_epoch.unwrap_or(u64::MAX))
-        {
+        let result = if let Some(epoch) = self.account_epoch {
+            self.accounts.poll(runtime, active, epoch)
+        } else {
+            // Exhaustion permanently closes this owner; it cannot manufacture
+            // a usable unsigned epoch or leave issued work unjoined.
+            self.accounts.dispose(runtime);
+            None
+        };
+        if let Some(result) = result {
+            if self.native_detail_generation.is_some() {
+                self.complete_native_detail(result);
+                return;
+            }
             let Some(issued) = self.shelf_generation.take() else {
+                self.complete_continue_watching(result);
                 return;
             };
             if !active
@@ -293,11 +330,16 @@ impl<
                     if self.authentication.access_ready()
                         && issued.generation == loaded.generation()
                         && issued.epoch == loaded.session_generation()
-                        && &issued.read.request == loaded.request() =>
+                        && loaded.matches_request(&crate::account::ReadRequest::WatchList(
+                            issued.read.request.clone(),
+                        )) =>
                 {
+                    let crate::account::Loaded::WatchList { page, .. } = loaded.data else {
+                        unreachable!("typed account request matched WatchList")
+                    };
                     if let Some(next) =
                         self.controller
-                            .admit_shelf(issued.epoch, &issued.read, loaded.watch_list)
+                            .admit_shelf(issued.epoch, &issued.read, page)
                     {
                         self.stage_shelf(next);
                     }
@@ -323,6 +365,8 @@ impl<
         }
     }
     fn stage_shelf(&mut self, read: crate::my_list::Read) {
+        self.cancel_native_detail_read();
+        self.cancel_continue_watching_read();
         if self.shelf_generation.take().is_some() {
             self.accounts.background();
         }
@@ -363,6 +407,11 @@ impl<
         self.account_signed_in = false;
         self.shelf_pending = None;
         self.shelf_generation = None;
+        self.continue_watching_pending = None;
+        self.continue_watching_generation = None;
+        self.native_detail_pending = None;
+        self.native_detail_generation = None;
+        self.controller.abandon_native_detail();
         self.accounts.background();
         self.controller.set_account_session(None);
         if let Some(output) = &mut self.output {
@@ -382,6 +431,11 @@ impl<
         self.controller.background();
         self.shelf_pending = None;
         self.shelf_generation = None;
+        self.continue_watching_pending = None;
+        self.continue_watching_generation = None;
+        self.native_detail_pending = None;
+        self.native_detail_generation = None;
+        self.controller.abandon_native_detail();
         self.accounts.background();
     }
     pub(crate) fn finish(&mut self, runtime: &Runtime) -> bool {
@@ -404,6 +458,11 @@ impl<
         self.output.take()
     }
 }
+
+mod continue_watching;
+#[cfg(test)]
+mod continue_watching_tests;
+mod native_detail;
 
 #[cfg(test)]
 #[path = "account_tests.rs"]

@@ -155,11 +155,31 @@ fn fingerprint(media: &MediaSummary) -> [u8; 32] {
             hash.update(&[date.month() as u8, date.day()]);
         }
     }
+    match &media.series_id {
+        None => hash.update(&[0]),
+        Some(id) => {
+            hash.update(&[1]);
+            hash.update(id.as_str().as_bytes());
+        }
+    }
+    match &media.series_title {
+        None => hash.update(&[0]),
+        Some(title) => {
+            hash.update(&[1]);
+            hash.update(&(title.len() as u64).to_le_bytes());
+            hash.update(title.as_bytes());
+        }
+    }
     hash.finish().as_ref().try_into().expect("SHA256 length")
 }
+fn row_heap_bytes(media: &MediaSummary) -> usize {
+    media.id.as_str().len()
+        + media.title.capacity()
+        + media.series_id.as_ref().map_or(0, |id| id.as_str().len())
+        + media.series_title.as_ref().map_or(0, String::capacity)
+}
 fn row_bytes(rows: &[MediaSummary], capacity: usize) -> usize {
-    capacity * size_of::<MediaSummary>()
-        + rows.iter().map(|r| r.title.capacity() + 8).sum::<usize>()
+    capacity * size_of::<MediaSummary>() + rows.iter().map(row_heap_bytes).sum::<usize>()
 }
 fn cursor_bytes(cursor: &Option<PageCursor>) -> usize {
     usize::from(cursor.is_some()) * CURSOR_BYTES
@@ -489,10 +509,7 @@ impl MyListState {
             || row_bytes(
                 &group.rows[if append { drop_rows } else { group.rows.len() }..],
                 old_len - drop_rows + incoming.len(),
-            ) + incoming
-                .iter()
-                .map(|r| r.title.capacity() + 8)
-                .sum::<usize>()
+            ) + incoming.iter().map(row_heap_bytes).sum::<usize>()
                 > CARD_BYTES
         {
             let Some(span) = spans.first().copied() else {
@@ -562,10 +579,7 @@ impl MyListState {
         let candidate_bytes = row_bytes(
             &group.rows[if append { drop_rows } else { group.rows.len() }..],
             rows_len,
-        ) + incoming
-            .iter()
-            .map(|r| r.title.capacity() + 8)
-            .sum::<usize>();
+        ) + incoming.iter().map(row_heap_bytes).sum::<usize>();
         let mut evict = [false; 6];
         let mut total_rows = rows_len
             + self
@@ -724,6 +738,8 @@ mod tests {
             kind,
             duration: Some(90.5),
             release_date: None,
+            series_id: None,
+            series_title: None,
         }
     }
     fn page(rows: Vec<MediaSummary>, next: Option<&str>) -> WatchList {
@@ -1183,6 +1199,161 @@ mod tests {
     }
 
     #[test]
+    fn episode_series_title_allocation_is_refused_before_duplicate_projection() {
+        for duplicate in [false, true] {
+            let mut state = MyListState::new();
+            let first = state.select(WatchListFilter::All).unwrap().unwrap();
+            state
+                .admit(&first, page(films(0, 1), Some("series allocation input")))
+                .unwrap();
+            let read = state.demand(0, 1).unwrap().unwrap();
+            let id = if duplicate { "F0000000" } else { "Episode1" };
+            let mut episode = media(id, "Episode", criterion_account::MediaKind::Episode);
+            let mut series_title = String::with_capacity(512 * 1024);
+            series_title.push_str("Parent");
+            episode.series_title = Some(series_title);
+            assert!(matches!(
+                state.admit(&read, page(vec![episode], None)),
+                Err(Failure::ResourceLimit)
+            ));
+            assert_eq!(state.view().rows.len(), 1);
+            assert_eq!(state.view().rows[0].title, "Film 0");
+            assert_eq!(state.view().tail, Tail::Error(Failure::ResourceLimit));
+            assert_eq!(state.retry().unwrap().unwrap().request, read.request);
+        }
+    }
+
+    fn allocated_episode(id: &str, allocation: usize) -> MediaSummary {
+        let mut episode = media(id, "Episode", criterion_account::MediaKind::Episode);
+        episode.series_id = Some(criterion_provider::MediaId::new("Series01").unwrap());
+        let mut title = String::with_capacity(allocation);
+        title.push_str("Parent");
+        episode.series_title = Some(title);
+        episode
+    }
+
+    #[test]
+    fn retained_card_charge_includes_episode_parent_allocations() {
+        let mut plain = MyListState::new();
+        let read = plain.select(WatchListFilter::All).unwrap().unwrap();
+        plain
+            .admit(
+                &read,
+                page(
+                    vec![media(
+                        "Episode1",
+                        "Episode",
+                        criterion_account::MediaKind::Episode,
+                    )],
+                    None,
+                ),
+            )
+            .unwrap();
+        let mut associated = MyListState::new();
+        let read = associated.select(WatchListFilter::All).unwrap().unwrap();
+        associated
+            .admit(
+                &read,
+                page(vec![allocated_episode("Episode1", 64 * 1024)], None),
+            )
+            .unwrap();
+        assert!(associated.retained_bytes() >= plain.retained_bytes() + 64 * 1024 + 8);
+        assert_eq!(
+            associated.view().rows[0].series_title.as_deref(),
+            Some("Parent")
+        );
+        assert_eq!(
+            associated.view().rows[0]
+                .series_id
+                .as_ref()
+                .unwrap()
+                .as_str(),
+            "Series01"
+        );
+    }
+
+    #[test]
+    fn episode_parent_bytes_evict_the_previous_page_span_before_publication() {
+        let mut state = MyListState::new();
+        let read = state.select(WatchListFilter::All).unwrap().unwrap();
+        state
+            .admit(
+                &read,
+                page(
+                    vec![allocated_episode("Episode1", 300 * 1024)],
+                    Some("parent-byte span"),
+                ),
+            )
+            .unwrap();
+        let next = state.demand(0, 1).unwrap().unwrap();
+        state
+            .admit(
+                &next,
+                page(vec![allocated_episode("Episode2", 300 * 1024)], None),
+            )
+            .unwrap();
+        let view = state.view();
+        assert_eq!(
+            (view.first, view.anchor, view.target, view.rows.len()),
+            (1, 1, 1, 1)
+        );
+        assert_eq!(view.rows[0].id.as_str(), "Episode2");
+        assert_eq!(view.rows[0].series_title.as_deref(), Some("Parent"));
+        assert_eq!(view.tail, Tail::End);
+        assert!(state.retained_bytes() < 512 * 1024 + 192 * 1024);
+    }
+
+    #[test]
+    fn appended_episode_parent_bytes_evict_other_groups_before_publication() {
+        let mut state = MyListState::new();
+        let all = state.select(WatchListFilter::All).unwrap().unwrap();
+        state
+            .admit(
+                &all,
+                page(vec![allocated_episode("Episode1", 250 * 1024)], None),
+            )
+            .unwrap();
+        let filtered = state.select(WatchListFilter::FilmSeries).unwrap().unwrap();
+        state
+            .admit(
+                &filtered,
+                page(
+                    vec![allocated_episode("Episode2", 100 * 1024)],
+                    Some("parent-byte append"),
+                ),
+            )
+            .unwrap();
+        let next = state.demand(0, 1).unwrap().unwrap();
+        state
+            .admit(
+                &next,
+                page(vec![allocated_episode("Episode3", 250 * 1024)], None),
+            )
+            .unwrap();
+        assert_eq!(state.view().first, 0);
+        assert_eq!(state.view().rows.len(), 2);
+        assert_eq!(state.view().rows[0].id.as_str(), "Episode2");
+        assert_eq!(state.view().rows[1].id.as_str(), "Episode3");
+        assert!(state.retained_bytes() < 512 * 1024 + 192 * 1024);
+        let restore = state.select(WatchListFilter::All).unwrap().unwrap();
+        assert!(restore.request.cursor.is_none());
+        assert!(state.view().rows.is_empty());
+        assert_eq!((state.view().anchor, state.view().target), (0, 0));
+        state
+            .admit(
+                &restore,
+                page(vec![allocated_episode("Episode1", 250 * 1024)], None),
+            )
+            .unwrap();
+        assert_eq!(
+            state.view().rows[0].series_id.as_ref().unwrap().as_str(),
+            "Series01"
+        );
+        assert_eq!(state.view().rows[0].series_title.as_deref(), Some("Parent"));
+        assert!(state.retained_bytes() < 512 * 1024 + 192 * 1024);
+    }
+
+    #[test]
     fn aggregate_windows_evict_cards_but_preserve_other_group_identity_and_anchor() {
         let mut state = MyListState::new();
         let all = state.select(WatchListFilter::All).unwrap().unwrap();
@@ -1297,6 +1468,63 @@ mod tests {
             state.admit(&retry, page(vec![original], None)).unwrap();
             assert_eq!(state.view().first, 0);
             assert_eq!(state.view().rows[0].title, "Original");
+        }
+    }
+
+    #[test]
+    fn evicted_episode_replay_preserves_exact_optional_series_identity_and_title() {
+        for (original_id, original_title, changed_id, changed_title) in [
+            (
+                Some("Series01"),
+                Some("Parent"),
+                Some("Series02"),
+                Some("Parent"),
+            ),
+            (Some("Series01"), Some("Parent"), None, Some("Parent")),
+            (None, Some("Parent"), Some("Series01"), Some("Parent")),
+            (
+                Some("Series01"),
+                Some("Parent"),
+                Some("Series01"),
+                Some("Other"),
+            ),
+            (Some("Series01"), Some("Parent"), Some("Series01"), None),
+            (Some("Series01"), None, Some("Series01"), Some("Parent")),
+            (None, None, None, Some("")),
+            (None, Some(""), None, None),
+        ] {
+            let mut state = MyListState::new();
+            let read = state.select(WatchListFilter::All).unwrap().unwrap();
+            let mut original = media("Episode1", "Episode", criterion_account::MediaKind::Episode);
+            original.series_id =
+                original_id.map(|id| criterion_provider::MediaId::new(id).unwrap());
+            original.series_title = original_title.map(str::to_owned);
+            state
+                .admit(&read, page(vec![original.clone()], None))
+                .unwrap();
+            state.evict_windows();
+            let restore = state.select(WatchListFilter::All).unwrap().unwrap();
+            let mut changed = original.clone();
+            changed.series_id = changed_id.map(|id| criterion_provider::MediaId::new(id).unwrap());
+            changed.series_title = changed_title.map(str::to_owned);
+            assert!(matches!(
+                state.admit(&restore, page(vec![changed], None)),
+                Err(Failure::Changed)
+            ));
+            assert!(state.view().rows.is_empty());
+            assert_eq!(state.view().tail, Tail::Error(Failure::Changed));
+            let retry = state.retry().unwrap().unwrap();
+            assert_eq!(retry.request, restore.request);
+            state.admit(&retry, page(vec![original], None)).unwrap();
+            assert_eq!(state.view().first, 0);
+            assert_eq!(
+                state.view().rows[0]
+                    .series_id
+                    .as_ref()
+                    .map(|id| id.as_str()),
+                original_id
+            );
+            assert_eq!(state.view().rows[0].series_title.as_deref(), original_title);
         }
     }
 

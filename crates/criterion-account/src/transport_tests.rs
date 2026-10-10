@@ -1,5 +1,6 @@
 use crate::{
-    Credentials, Error, HttpTransport, Region, Request, Target, Transport, WatchListContentType,
+    BootstrapAuthorization, Credentials, Error, HttpTransport, Region, Request, SubscriberTarget,
+    Transport, WatchListContentType,
 };
 use reqwest::header::HeaderValue;
 use std::io::{Read, Write};
@@ -179,10 +180,7 @@ fn read_request(stream: &mut TlsStream) -> Option<Received> {
 }
 
 fn request() -> Request {
-    Request {
-        target: Target::Bootstrap,
-        credentials: None,
-    }
+    Request::Bootstrap
 }
 
 #[tokio::test]
@@ -212,25 +210,29 @@ async fn verified_tls_gets_fixed_bootstrap_without_credentials_and_returns_priva
 }
 
 #[tokio::test]
-async fn bootstrap_credentials_are_rejected_before_any_network_contact() {
+async fn detail_authorization_rejects_malformed_or_nonsensitive_capabilities_before_contact() {
     let server = Server::json(200, b"{}");
-    let private_request = Request {
-        target: Target::Bootstrap,
-        credentials: Some(Credentials {
-            bootstrap: HeaderValue::from_static("Bearer fixture-bootstrap-secret"),
-            subscriber: HeaderValue::from_static("fixture-subscriber-secret"),
-        }),
-    };
-    assert!(!format!("{private_request:?}").contains("fixture-bootstrap-secret"));
-    assert!(!format!("{private_request:?}").contains("fixture-subscriber-secret"));
-    assert_eq!(
-        server
-            .transport(Duration::from_secs(1))
-            .send(private_request)
-            .await
-            .err(),
-        Some(Error::InvalidRequest)
-    );
+    for (value, sensitive) in [
+        ("Basic fixture-bootstrap-secret", true),
+        ("Bearer fixture-bootstrap-secret", false),
+    ] {
+        let mut value = HeaderValue::from_bytes(value.as_bytes()).unwrap();
+        value.set_sensitive(sensitive);
+        let private_request = Request::Detail {
+            region: Region::Us,
+            media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
+            authorization: BootstrapAuthorization { value },
+        };
+        assert!(!format!("{private_request:?}").contains("fixture-bootstrap-secret"));
+        assert_eq!(
+            server
+                .transport(Duration::from_secs(1))
+                .send(private_request)
+                .await
+                .err(),
+            Some(Error::InvalidRequest)
+        );
+    }
     assert_eq!(server.connections.load(Ordering::Acquire), 0);
     assert!(server.requests.lock().unwrap().is_empty());
 }
@@ -604,13 +606,13 @@ fn private_credentials(bootstrap: &[u8], subscriber: &[u8]) -> Credentials {
     }
 }
 
-fn account_request(target: Target) -> Request {
-    Request {
+fn account_request(target: SubscriberTarget) -> Request {
+    Request::Subscriber {
         target,
-        credentials: Some(private_credentials(
+        credentials: private_credentials(
             b"Bearer synthetic-bootstrap-capability",
             b"synthetic-subscriber-capability",
-        )),
+        ),
     }
 }
 
@@ -627,19 +629,19 @@ fn header_values<'a>(head: &'a str, name: &str) -> Vec<&'a str> {
 async fn verified_account_gets_use_exact_regional_routes_and_distinct_private_headers() {
     for (target, path) in [
         (
-            Target::MyListIds(Region::Us),
+            SubscriberTarget::MyListIds(Region::Us),
             "/api/us/content/my-stuff-ids",
         ),
         (
-            Target::MyListIds(Region::Ca),
+            SubscriberTarget::MyListIds(Region::Ca),
             "/api/ca/content/my-stuff-ids",
         ),
         (
-            Target::ContinueWatching(Region::Us),
+            SubscriberTarget::ContinueWatching(Region::Us),
             "/api/us/content/continue-watching",
         ),
         (
-            Target::ContinueWatching(Region::Ca),
+            SubscriberTarget::ContinueWatching(Region::Ca),
             "/api/ca/content/continue-watching",
         ),
     ] {
@@ -689,12 +691,9 @@ async fn maximal_valid_private_headers_survive_the_bounded_request_path() {
     let server = Server::json(200, b"{}");
     let response = server
         .transport(Duration::from_secs(1))
-        .send(Request {
-            target: Target::MyListIds(Region::Us),
-            credentials: Some(private_credentials(
-                bootstrap.as_bytes(),
-                subscriber.as_bytes(),
-            )),
+        .send(Request::Subscriber {
+            target: SubscriberTarget::MyListIds(Region::Us),
+            credentials: private_credentials(bootstrap.as_bytes(), subscriber.as_bytes()),
         })
         .await
         .unwrap();
@@ -716,38 +715,28 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
     let oversized_bootstrap = format!("Bearer {}", "b".repeat(16_385));
     let oversized_subscriber = "s".repeat(16_385);
     for target in [
-        Target::MyListIds(Region::Us),
-        Target::ContinueWatching(Region::Ca),
-        Target::WatchList {
+        SubscriberTarget::MyListIds(Region::Us),
+        SubscriberTarget::ContinueWatching(Region::Ca),
+        SubscriberTarget::WatchList {
             region: Region::Us,
             request: crate::WatchListRequest::default(),
         },
-        Target::WatchList {
+        SubscriberTarget::WatchList {
             region: Region::Ca,
             request: crate::WatchListRequest::default(),
         },
-        Target::AddWatchList {
+        SubscriberTarget::AddWatchList {
             region: Region::Us,
             media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
             content_type: WatchListContentType::Film,
         },
-        Target::RemoveWatchList {
+        SubscriberTarget::RemoveWatchList {
             region: Region::Ca,
             media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
         },
     ] {
         let server = Server::json(200, b"{}");
         let transport = server.transport(Duration::from_secs(1));
-        assert_eq!(
-            transport
-                .send(Request {
-                    target: target.clone(),
-                    credentials: None
-                })
-                .await
-                .err(),
-            Some(Error::InvalidRequest)
-        );
         for (bootstrap, subscriber) in [
             (&b""[..], &b"subscriber"[..]),
             (&b"Bearer "[..], &b"subscriber"[..]),
@@ -764,9 +753,9 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
             (oversized_bootstrap.as_bytes(), &b"subscriber"[..]),
             (&b"Bearer bootstrap"[..], oversized_subscriber.as_bytes()),
         ] {
-            let request = Request {
+            let request = Request::Subscriber {
                 target: target.clone(),
-                credentials: Some(private_credentials(bootstrap, subscriber)),
+                credentials: private_credentials(bootstrap, subscriber),
             };
             assert_eq!(
                 transport.send(request).await.err(),
@@ -782,9 +771,9 @@ async fn account_targets_require_both_sensitive_correctly_framed_bounded_headers
             }
             assert_eq!(
                 transport
-                    .send(Request {
+                    .send(Request::Subscriber {
                         target: target.clone(),
-                        credentials: Some(credentials)
+                        credentials
                     })
                     .await
                     .err(),
@@ -801,22 +790,22 @@ async fn account_redirects_never_reissue_private_headers_to_bootstrap_or_another
     for status in [302, 307, 308] {
         for (target, path) in [
             (
-                Target::MyListIds(Region::Us),
+                SubscriberTarget::MyListIds(Region::Us),
                 "/api/us/content/my-stuff-ids",
             ),
             (
-                Target::ContinueWatching(Region::Ca),
+                SubscriberTarget::ContinueWatching(Region::Ca),
                 "/api/ca/content/continue-watching",
             ),
             (
-                Target::WatchList {
+                SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: crate::WatchListRequest::default(),
                 },
                 "/api/us/content/watch-list?page_limit=50",
             ),
             (
-                Target::WatchList {
+                SubscriberTarget::WatchList {
                     region: Region::Ca,
                     request: crate::WatchListRequest::default(),
                 },
@@ -885,7 +874,9 @@ async fn subscriber_errors_do_not_retry_and_later_bootstrap_has_no_stale_headers
         let transport = server.transport(Duration::from_secs(1));
         assert_eq!(
             transport
-                .send(account_request(Target::ContinueWatching(Region::Us)))
+                .send(account_request(SubscriberTarget::ContinueWatching(
+                    Region::Us
+                )))
                 .await
                 .err(),
             Some(Error::HttpStatus(status))
@@ -905,14 +896,14 @@ async fn subscriber_errors_do_not_retry_and_later_bootstrap_has_no_stale_headers
 async fn default_watch_list_gets_send_native_limit_and_omit_optional_queries() {
     for (target, path) in [
         (
-            Target::WatchList {
+            SubscriberTarget::WatchList {
                 region: Region::Us,
                 request: crate::WatchListRequest::default(),
             },
             "/api/us/content/watch-list?page_limit=50",
         ),
         (
-            Target::WatchList {
+            SubscriberTarget::WatchList {
                 region: Region::Ca,
                 request: crate::WatchListRequest::default(),
             },
@@ -979,7 +970,7 @@ async fn watch_list_filters_and_raw_cursors_use_ordered_native_query_encoding() 
                 ),
             ] {
                 let server = Server::json(200, b"{}");
-                let target = Target::WatchList {
+                let target = SubscriberTarget::WatchList {
                     region,
                     request: WatchListRequest {
                         filter,
@@ -1181,14 +1172,14 @@ async fn held_watch_list_continuations_reject_departed_session_or_account_over_r
     }
 }
 
-fn write_targets(region: Region) -> [Target; 2] {
+fn write_targets(region: Region) -> [SubscriberTarget; 2] {
     [
-        Target::AddWatchList {
+        SubscriberTarget::AddWatchList {
             region,
             media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
             content_type: WatchListContentType::Film,
         },
-        Target::RemoveWatchList {
+        SubscriberTarget::RemoveWatchList {
             region,
             media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
         },
@@ -1212,7 +1203,7 @@ async fn add_watch_list_posts_only_the_verified_id_and_nine_exact_content_types(
             (WatchListContentType::Live, "live"),
             (WatchListContentType::Original, "original"),
         ] {
-            let target = Target::AddWatchList {
+            let target = SubscriberTarget::AddWatchList {
                 region,
                 media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
                 content_type,
@@ -1263,7 +1254,7 @@ async fn remove_watch_list_deletes_the_verified_id_with_no_query_or_body() {
         (Region::Us, "/api/us/content/watch-list/W1rA2bC3"),
         (Region::Ca, "/api/ca/content/watch-list/W1rA2bC3"),
     ] {
-        let target = Target::RemoveWatchList {
+        let target = SubscriberTarget::RemoveWatchList {
             region,
             media_id: criterion_provider::MediaId::new("W1rA2bC3").unwrap(),
         };
@@ -1429,5 +1420,121 @@ async fn one_active_list_write_refuses_another_before_contact_and_releases_after
         assert_eq!(first.await.unwrap().unwrap().status, 200);
         assert!(transport.send(request()).await.is_ok());
         assert_eq!(server.requests.lock().unwrap().len(), 2);
+    }
+}
+
+fn detail_request(region: Region) -> Request {
+    let mut value = HeaderValue::from_static("Bearer synthetic-detail-capability");
+    value.set_sensitive(true);
+    Request::Detail {
+        region,
+        media_id: criterion_provider::MediaId::new("Film0001").unwrap(),
+        authorization: BootstrapAuthorization { value },
+    }
+}
+
+#[tokio::test]
+async fn native_detail_tls_gets_exact_regional_path_with_bootstrap_only_and_no_query_or_body() {
+    for (region, path) in [
+        (Region::Us, "/api/us/content/media/Film0001"),
+        (Region::Ca, "/api/ca/content/media/Film0001"),
+    ] {
+        let server = Server::json(200, b"{}");
+        let response = server
+            .transport(Duration::from_secs(1))
+            .send(detail_request(region))
+            .await
+            .unwrap();
+        assert_eq!(response.body.expose(), b"{}");
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .head
+                .starts_with(&format!("GET {path} HTTP/1.1\r\n"))
+        );
+        assert_eq!(
+            header_values(&requests[0].head, "authorization"),
+            ["Bearer synthetic-detail-capability"]
+        );
+        for absent in [
+            "x-auth-token",
+            "cookie",
+            "content-type",
+            "content-length",
+            "transfer-encoding",
+        ] {
+            assert!(
+                header_values(&requests[0].head, absent).is_empty(),
+                "{absent}"
+            );
+        }
+        assert!(requests[0].body.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn native_detail_body_cap_is_distinct_from_smaller_subscriber_body_cap() {
+    let body = Arc::new(vec![b' '; 64 * 1024 + 1]);
+    let server_body = body.clone();
+    let server = Server::new("127.0.0.1", move |tls, _| {
+        let _ = write!(
+            tls,
+            "HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            server_body.len()
+        );
+        let _ = tls.write_all(&server_body);
+    });
+    let transport = server.transport(Duration::from_secs(1));
+    let result = transport.send(detail_request(Region::Us)).await.unwrap();
+    assert_eq!(result.body.expose(), &body[..]);
+    assert_eq!(
+        transport
+            .send(account_request(SubscriberTarget::ContinueWatching(
+                Region::Us
+            )))
+            .await
+            .err(),
+        Some(Error::ResponseTooLarge)
+    );
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn native_detail_declared_and_streamed_oversized_bodies_fail_atomically() {
+    for declared in [true, false] {
+        let server = Server::new("127.0.0.1", move |tls, _| {
+            if declared {
+                let _ = write!(
+                    tls,
+                    "HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nContent-Length: 524289\r\nConnection: close\r\n\r\n"
+                );
+            } else {
+                let _ = write!(
+                    tls,
+                    "HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+                );
+                let chunk = vec![b' '; 64 * 1024];
+                for _ in 0..9 {
+                    if write!(tls, "{:x}\r\n", chunk.len())
+                        .and_then(|()| tls.write_all(&chunk))
+                        .and_then(|()| tls.write_all(b"\r\n"))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                let _ = tls.write_all(b"0\r\n\r\n");
+            }
+        });
+        assert_eq!(
+            server
+                .transport(Duration::from_secs(2))
+                .send(detail_request(Region::Ca))
+                .await
+                .err(),
+            Some(Error::ResponseTooLarge)
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
     }
 }

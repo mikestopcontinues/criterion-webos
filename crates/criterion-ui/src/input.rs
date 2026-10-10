@@ -5,6 +5,8 @@ pub(crate) struct PointerTarget {
     page: Page,
     focus: Focus,
     identity: Option<crate::Target>,
+    action: Option<crate::CardAction>,
+    primary: Option<criterion_provider::MediaId>,
 }
 fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
     Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, h))
@@ -114,6 +116,9 @@ impl AppUi {
                         }
                         if let Some(target) = &target {
                             self.pointer_focus(target.focus);
+                            if let Focus::DetailSeason(index) = target.focus {
+                                commands.push(Command::SelectSeason(index));
+                            }
                         }
                         self.pointer_press = target;
                     } else if let Some(prior) = self.pointer_press.take()
@@ -169,10 +174,20 @@ impl AppUi {
                     Focus::DetailAction(_)
                     | Focus::InformationPrimary
                     | Focus::DetailTab(_)
+                    | Focus::DetailSeason(_)
                     | Focus::DetailDescription => {
                         data.detail.as_ref().map(|detail| detail.card.key.clone())
                     }
                     _ => None,
+                },
+                action: None,
+                primary: if matches!(focus, Focus::DetailAction(0) | Focus::InformationPrimary) {
+                    data.detail
+                        .as_ref()
+                        .and_then(|detail| detail.primary_playback_target)
+                        .cloned()
+                } else {
+                    None
                 },
             })
         };
@@ -236,9 +251,7 @@ impl AppUi {
             if rect(1490.0, 108.0, 82.0, 82.0).contains(pos) {
                 return target(Focus::InformationClose);
             }
-            if self.detail_state.kind != crate::DetailKind::Collection
-                && rect(348.0, 903.0, 1224.0, 80.0).contains(pos)
-            {
+            if self.detail_state.primary_enabled && rect(348.0, 903.0, 1224.0, 80.0).contains(pos) {
                 return target(Focus::InformationPrimary);
             }
             return None;
@@ -326,7 +339,7 @@ impl AppUi {
             && let Some(detail) = &data.detail
         {
             let y = 620.0 - self.scroll_y();
-            let collection = detail.kind == crate::DetailKind::Collection;
+            let collection = detail.primary_playback_target.is_none();
             let x = if collection { 150.0 } else { 630.0 };
             if !collection && rect(150.0, y, 460.0, 80.0).contains(pos) {
                 return target(Focus::DetailAction(0));
@@ -339,15 +352,22 @@ impl AppUi {
             if rect(150.0, 805.0 - self.scroll_y(), 1250.0, 100.0).contains(pos) {
                 return target(Focus::DetailDescription);
             }
-            for index in 0..data.rails.len().min(8) {
-                if rect(
-                    150.0 + index as f32 * 280.0,
-                    966.0 - self.scroll_y(),
-                    260.0,
-                    52.0,
-                )
-                .contains(pos)
+            if let Some(seasons) = &detail.seasons {
+                for (index, area) in
+                    crate::view::season_rects(seasons, self.layout_focus(), self.scroll_y())
                 {
+                    if area.contains(pos) {
+                        return target(Focus::DetailSeason(index));
+                    }
+                }
+            }
+            for (index, area) in crate::view::detail_tab_rects(
+                data.rails.len(),
+                self.detail_state.selected_tab,
+                self.layout_focus(),
+                self.scroll_y(),
+            ) {
+                if area.contains(pos) {
                     return target(Focus::DetailTab(index));
                 }
             }
@@ -371,6 +391,9 @@ impl AppUi {
                     column: card.column,
                 },
                 identity: Some(card.key.clone()),
+                action: crate::commands::card_at(data, self.page(), card.row, card.column)
+                    .map(|card| card.action),
+                primary: None,
             })
     }
 }

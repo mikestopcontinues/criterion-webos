@@ -8,6 +8,7 @@ pub enum Command {
     Play(MediaId),
     ToggleList(MediaId),
     SelectPlaylist(usize),
+    SelectSeason(usize),
     Authenticate,
     RetryAuthentication,
     CancelAuthentication,
@@ -38,6 +39,17 @@ impl AppUi {
         if let Some(commands) = self.handle_my_list(action, data) {
             return commands;
         }
+        if action == Action::Select
+            && let Focus::Card { row, column } = self.focus()
+            && let Some(card) = card_at(data, self.page(), row, column)
+            && card.action == crate::CardAction::Play
+        {
+            return card
+                .key
+                .media_id()
+                .map(|id| vec![Command::Play(id.clone())])
+                .unwrap_or_default();
+        }
         if let Some(commands) = self.handle_catalog(action, data) {
             return commands;
         }
@@ -45,8 +57,7 @@ impl AppUi {
             return commands;
         }
         if let Some(detail) = &data.detail {
-            self.set_detail_kind(detail.kind);
-            self.set_information_content(detail.description);
+            self.sync_detail(detail);
         }
         if action == Action::Select && self.focus() == Focus::Hero && data.hero.is_none() {
             return Vec::new();
@@ -83,19 +94,7 @@ impl AppUi {
                 Intent::Navigate(page) => Some(Command::Navigate(page)),
                 Intent::Restore(page) => Some(Command::Restore(page)),
                 Intent::OpenCard { page, row, column } => {
-                    let card = if matches!(
-                        page,
-                        Page::Home | Page::New | Page::Discovery | Page::Detail
-                    ) {
-                        data.rails.get(row).and_then(|rail| rail.cards.get(column))
-                    } else {
-                        row.checked_mul(if page == Page::Search { 3 } else { 4 })
-                            .and_then(|index| index.checked_add(column))
-                            .and_then(|index| {
-                                index.checked_sub(data.catalog.map_or(0, |w| w.first))
-                            })
-                            .and_then(|index| data.cards.get(index))
-                    };
+                    let card = card_at(data, page, row, column);
                     card.map(|card| {
                         self.activate_target(card.key, data.login);
                         Command::Open(card.key.clone())
@@ -108,7 +107,7 @@ impl AppUi {
                 Intent::Play => data
                     .detail
                     .as_ref()
-                    .and_then(|detail| detail.card.key.media_id())
+                    .and_then(|detail| detail.primary_playback_target)
                     .map(|id| Command::Play(id.clone())),
                 Intent::ToggleList => data
                     .detail
@@ -116,6 +115,7 @@ impl AppUi {
                     .and_then(|detail| detail.card.key.media_id())
                     .map(|id| Command::ToggleList(id.clone())),
                 Intent::SelectPlaylist(index) => Some(Command::SelectPlaylist(index)),
+                Intent::SelectSeason(index) => Some(Command::SelectSeason(index)),
                 Intent::Authenticate => Some(
                     if matches!(
                         data.login,
@@ -160,5 +160,24 @@ impl AppUi {
             self.search.select_all = false;
         }
         commands
+    }
+}
+
+pub(crate) fn card_at<'a, 'b>(
+    data: &'b ViewData<'a>,
+    page: Page,
+    row: usize,
+    column: usize,
+) -> Option<&'b crate::Card<'a>> {
+    if matches!(
+        page,
+        Page::Home | Page::New | Page::Discovery | Page::Detail
+    ) {
+        data.rails.get(row).and_then(|rail| rail.cards.get(column))
+    } else {
+        row.checked_mul(if page == Page::Search { 3 } else { 4 })
+            .and_then(|index| index.checked_add(column))
+            .and_then(|index| index.checked_sub(data.catalog.map_or(0, |w| w.first)))
+            .and_then(|index| data.cards.get(index))
     }
 }

@@ -10,6 +10,8 @@ fn activated_card_emits_its_validated_media_identity() {
         title: "The Hitcher",
         year: "1986",
         duration_seconds: 5820,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     }];
     let data = ViewData {
         cards: &cards,
@@ -38,6 +40,8 @@ fn hero_watch_action_emits_play_without_changing_the_discovery_page() {
                 title: "Fixture",
                 year: "1986",
                 duration_seconds: 5820,
+                saved_fraction: None,
+                action: criterion_ui::CardAction::Open,
             },
             description: "",
             action: "WATCH NOW",
@@ -63,6 +67,8 @@ fn discovery_navigation_forwards_validated_content_without_a_fake_media_id() {
         title: "Popular Movies",
         year: "",
         duration_seconds: 0,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     }];
     let rails = [criterion_ui::Rail {
         title: "Explore",
@@ -93,6 +99,8 @@ fn my_list_keeps_visible_grid_focus_above_the_first_row() {
                 title: "My List",
                 year: "",
                 duration_seconds: 0,
+                saved_fraction: None,
+                action: criterion_ui::CardAction::Open,
             },
             description: "",
             action: "SEE MORE",
@@ -123,6 +131,8 @@ fn same_page_content_activation_ends_the_departed_pointer_batch() {
         title: "Explore",
         year: "",
         duration_seconds: 0,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     };
     let entry = ViewData {
         hero: Some(criterion_ui::Hero {

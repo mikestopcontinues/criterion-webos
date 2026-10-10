@@ -1,18 +1,44 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Native My List reads. The application owns Session epochs and UI
+//! Typed native account reads. The application owns Session epochs and UI
 //! privacy; departed generations never publish or start replacement reads.
 use crate::jobs::Jobs;
-use criterion_account::{AccountClient, Error, WatchList, WatchListRequest};
+use criterion_account::{
+    AccountClient, ContinueWatching, Error, NativeDetail, WatchList, WatchListRequest,
+};
 use criterion_session::{MonotonicClock, Session, SystemClock};
 use std::sync::Arc;
 use tokio::runtime::{Handle, Runtime};
 
 #[derive(Debug)]
+pub(crate) enum Loaded {
+    WatchList {
+        request: WatchListRequest,
+        page: WatchList,
+    },
+    ContinueWatching(ContinueWatching),
+    NativeDetail(Box<NativeDetail>),
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ReadRequest {
+    WatchList(WatchListRequest),
+    ContinueWatching,
+    NativeDetail {
+        media_id: criterion_provider::MediaId,
+    },
+}
+impl ReadRequest {
+    pub(crate) fn requires_subscriber(&self) -> bool {
+        match self {
+            Self::WatchList(_) | Self::ContinueWatching => true,
+            Self::NativeDetail { .. } => false,
+        }
+    }
+}
+#[derive(Debug)]
 pub(crate) struct LoadedAccount {
     generation: u64,
     session_generation: u64,
-    request: WatchListRequest,
-    pub(crate) watch_list: WatchList,
+    pub(crate) data: Loaded,
 }
 impl LoadedAccount {
     pub(crate) fn generation(&self) -> u64 {
@@ -21,8 +47,17 @@ impl LoadedAccount {
     pub(crate) fn session_generation(&self) -> u64 {
         self.session_generation
     }
-    pub(crate) fn request(&self) -> &WatchListRequest {
-        &self.request
+    pub(crate) fn matches_request(&self, expected: &ReadRequest) -> bool {
+        match (&self.data, expected) {
+            (Loaded::WatchList { request, .. }, ReadRequest::WatchList(expected)) => {
+                request == expected
+            }
+            (Loaded::ContinueWatching(_), ReadRequest::ContinueWatching) => true,
+            (Loaded::NativeDetail(detail), ReadRequest::NativeDetail { media_id }) => {
+                detail.media.id == *media_id
+            }
+            _ => false,
+        }
     }
 }
 pub(crate) struct Accounts<
@@ -44,7 +79,7 @@ pub(crate) struct Accounts<
 struct Intent {
     generation: u64,
     session_generation: u64,
-    request: WatchListRequest,
+    request: ReadRequest,
 }
 impl Accounts {
     pub(crate) fn new(
@@ -81,11 +116,11 @@ impl<
     /// intent, logout or invalidation. Token bytes are not a lifecycle identity.
     /// Before an active poll and while backgrounded this records only the latest
     /// intent, without contact.
-    pub(crate) fn request_shelf(
+    pub(crate) fn request(
         &mut self,
         runtime: &Handle,
         session_generation: u64,
-        request: WatchListRequest,
+        request: ReadRequest,
     ) -> Result<u64, Error> {
         if self.disposed {
             return Err(Error::Disposed);
@@ -97,7 +132,9 @@ impl<
             return Err(Error::Stale);
         }
         self.observe_epoch(session_generation);
-        if let Err(error) = self.session.with_access_token(|_| ()) {
+        if request.requires_subscriber()
+            && let Err(error) = self.session.with_access_token(|_| ())
+        {
             self.retire();
             return Err(Error::Session(error));
         }
@@ -137,7 +174,10 @@ impl<
             let _ = runtime.block_on(self.jobs.take_ready());
             return None;
         }
-        if self.requested.is_some()
+        if self
+            .requested
+            .as_ref()
+            .is_some_and(|intent| intent.request.requires_subscriber())
             && let Err(error) = self.session.with_access_token(|_| ())
         {
             self.retire();
@@ -152,7 +192,9 @@ impl<
         if !active {
             return None;
         }
-        if let Err(error) = self.session.with_access_token(|_| ()) {
+        if intent.request.requires_subscriber()
+            && let Err(error) = self.session.with_access_token(|_| ())
+        {
             return Some(Err(Error::Session(error)));
         }
         Some(match completed {
@@ -160,7 +202,7 @@ impl<
                 if loaded.generation == intent.generation
                     && loaded.session_generation == intent.session_generation
                     && loaded.session_generation == session_generation
-                    && loaded.request() == &intent.request =>
+                    && loaded.matches_request(&intent.request) =>
             {
                 Ok(loaded)
             }
@@ -176,7 +218,9 @@ impl<
         let account = self.account.clone();
         let session = self.session.clone();
         self.jobs.replace(runtime, async move {
-            session.with_access_token(|_| ()).map_err(Error::Session)?;
+            if intent.request.requires_subscriber() {
+                session.with_access_token(|_| ()).map_err(Error::Session)?;
+            }
             match account.region() {
                 Ok(_) => {}
                 Err(Error::NoBootstrap) => {
@@ -184,12 +228,22 @@ impl<
                 }
                 Err(error) => return Err(error),
             }
-            let watch_list = account.watch_list(&session, intent.request.clone()).await?;
+            let data = match intent.request {
+                ReadRequest::WatchList(request) => {
+                    let page = account.watch_list(&session, request.clone()).await?;
+                    Loaded::WatchList { request, page }
+                }
+                ReadRequest::ContinueWatching => {
+                    Loaded::ContinueWatching(account.continue_watching(&session).await?)
+                }
+                ReadRequest::NativeDetail { media_id } => {
+                    Loaded::NativeDetail(Box::new(account.detail(&media_id).await?))
+                }
+            };
             Ok(LoadedAccount {
                 generation: intent.generation,
                 session_generation: intent.session_generation,
-                request: intent.request,
-                watch_list,
+                data,
             })
         });
     }
@@ -238,9 +292,14 @@ impl<A: criterion_account::Transport, S: criterion_session::Transport, C: Monoto
 }
 
 #[cfg(test)]
+mod continue_watching_tests;
+#[cfg(test)]
+mod native_detail_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use criterion_account::{Region, Request, Response, SecretBody, Target};
+    use criterion_account::{Region, Request, Response, SecretBody, SubscriberTarget};
     use criterion_session::{Configuration, Endpoint};
     use std::{
         sync::{
@@ -250,6 +309,12 @@ mod tests {
         time::Duration,
     };
     use tokio::sync::Notify;
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    enum Observation {
+        Bootstrap,
+        Subscriber(SubscriberTarget),
+        Detail,
+    }
 
     #[derive(Clone)]
     struct Clock(Arc<AtomicU64>);
@@ -283,7 +348,7 @@ mod tests {
     }
     #[derive(Clone)]
     struct Middleware {
-        calls: Arc<Mutex<Vec<Target>>>,
+        calls: Arc<Mutex<Vec<Observation>>>,
         hold_at: Option<usize>,
         fail_at: Option<usize>,
         entered: Arc<AtomicUsize>,
@@ -304,11 +369,30 @@ mod tests {
     }
     impl criterion_account::Transport for Middleware {
         async fn send(&self, request: Request) -> Result<Response, Error> {
+            let (observed, credentials) = match request {
+                Request::Bootstrap => (Observation::Bootstrap, None),
+                Request::Subscriber {
+                    target,
+                    credentials,
+                } => (Observation::Subscriber(target), Some(credentials)),
+                Request::Detail { .. } => {
+                    self.calls.lock().unwrap().push(Observation::Detail);
+                    return Err(Error::InvalidRequest);
+                }
+            };
             let count = {
                 let mut calls = self.calls.lock().unwrap();
-                calls.push(request.target.clone());
+                calls.push(observed.clone());
                 calls.len()
             };
+            if let Some(headers) = credentials {
+                assert_eq!(
+                    headers.bootstrap().as_bytes(),
+                    b"Bearer synthetic-bootstrap"
+                );
+                assert_eq!(headers.subscriber().as_bytes(), b"synthetic-same-token");
+                assert!(headers.bootstrap().is_sensitive() && headers.subscriber().is_sensitive());
+            }
             if self.hold_at == Some(count) {
                 let _retire = Retire(self.retired.clone());
                 self.entered.fetch_add(1, Ordering::SeqCst);
@@ -317,12 +401,11 @@ mod tests {
             if self.fail_at == Some(count) {
                 return Err(Error::Unavailable);
             }
-            let body = match request.target {
-                Target::Bootstrap => {
-                    assert!(request.credentials.is_none());
+            let body = match observed {
+                Observation::Bootstrap => {
                     br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec()
                 }
-                Target::WatchList { region: Region::Us, .. } => br#"{"paging":{"page_limit":60},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private film"}]}"#.to_vec(),
+                Observation::Subscriber(SubscriberTarget::WatchList { region: Region::Us, .. }) => br#"{"paging":{"page_limit":60},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private film"}]}"#.to_vec(),
                 _ => panic!("unexpected typed request"),
             };
             Ok(Response {
@@ -387,12 +470,19 @@ mod tests {
         let runtime = runtime();
         let (mut owner, middleware, _, _) = fixture(&runtime, None, None, true);
         let generation = owner
-            .request_shelf(runtime.handle(), 7, WatchListRequest::default())
+            .request(
+                runtime.handle(),
+                7,
+                ReadRequest::WatchList(WatchListRequest::default()),
+            )
             .unwrap();
         let loaded = result(&mut owner, &runtime, 7).unwrap();
         assert_eq!(loaded.generation(), generation);
         assert_eq!(loaded.session_generation(), 7);
-        assert_eq!(loaded.watch_list.playlist[0].duration, None);
+        let Loaded::WatchList { page, .. } = &loaded.data else {
+            panic!("native Watch List payload");
+        };
+        assert_eq!(page.playlist[0].duration, None);
         assert!(
             !format!("{loaded:?}").contains("Synthetic")
                 && !format!("{loaded:?}").contains("AbCd1234")
@@ -400,29 +490,33 @@ mod tests {
         assert_eq!(
             *middleware.calls.lock().unwrap(),
             [
-                Target::Bootstrap,
-                Target::WatchList {
+                Observation::Bootstrap,
+                Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: criterion_account::WatchListRequest::default()
-                }
+                })
             ]
         );
         owner
-            .request_shelf(runtime.handle(), 7, WatchListRequest::default())
+            .request(
+                runtime.handle(),
+                7,
+                ReadRequest::WatchList(WatchListRequest::default()),
+            )
             .unwrap();
         result(&mut owner, &runtime, 7).unwrap();
         assert_eq!(
             *middleware.calls.lock().unwrap(),
             [
-                Target::Bootstrap,
-                Target::WatchList {
+                Observation::Bootstrap,
+                Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: criterion_account::WatchListRequest::default()
-                },
-                Target::WatchList {
+                }),
+                Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: criterion_account::WatchListRequest::default()
-                }
+                })
             ]
         );
         owner.dispose(&runtime);
@@ -436,21 +530,21 @@ mod tests {
             cursor: Some(criterion_provider::PageCursor::new("synthetic/next+%opaque é").unwrap()),
         };
         let generation = owner
-            .request_shelf(runtime.handle(), 7, request.clone())
+            .request(runtime.handle(), 7, ReadRequest::WatchList(request.clone()))
             .unwrap();
         let loaded = result(&mut owner, &runtime, 7).unwrap();
         assert_eq!(loaded.generation(), generation);
         assert_eq!(loaded.session_generation(), 7);
-        assert_eq!(loaded.request(), &request);
+        assert!(loaded.matches_request(&ReadRequest::WatchList(request.clone())));
         assert!(!format!("{loaded:?}").contains("synthetic/next+%opaque"));
         assert_eq!(
             *middleware.calls.lock().unwrap(),
             [
-                Target::Bootstrap,
-                Target::WatchList {
+                Observation::Bootstrap,
+                Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Us,
                     request
-                },
+                }),
             ]
         );
         owner.dispose(&runtime);
@@ -461,7 +555,11 @@ mod tests {
         let runtime = runtime();
         let (mut owner, middleware, _, _) = fixture(&runtime, None, Some(2), true);
         owner
-            .request_shelf(runtime.handle(), 1, WatchListRequest::default())
+            .request(
+                runtime.handle(),
+                1,
+                ReadRequest::WatchList(WatchListRequest::default()),
+            )
             .unwrap();
         assert!(matches!(
             result(&mut owner, &runtime, 1),
@@ -487,25 +585,33 @@ mod tests {
             cursor: Some(criterion_provider::PageCursor::new("synthetic-latest/%2B é").unwrap()),
         };
         owner
-            .request_shelf(runtime.handle(), 4, first_request.clone())
+            .request(
+                runtime.handle(),
+                4,
+                ReadRequest::WatchList(first_request.clone()),
+            )
             .unwrap();
         pump(&runtime);
         assert_eq!(middleware.entered.load(Ordering::SeqCst), 1);
         assert_eq!(middleware.retired.load(Ordering::SeqCst), 0);
         owner
-            .request_shelf(
+            .request(
                 runtime.handle(),
                 4,
-                WatchListRequest {
+                ReadRequest::WatchList(WatchListRequest {
                     filter: criterion_account::WatchListFilter::Collection,
                     cursor: Some(
                         criterion_provider::PageCursor::new("synthetic-superseded").unwrap(),
                     ),
-                },
+                }),
             )
             .unwrap();
         let latest = owner
-            .request_shelf(runtime.handle(), 4, latest_request.clone())
+            .request(
+                runtime.handle(),
+                4,
+                ReadRequest::WatchList(latest_request.clone()),
+            )
             .unwrap();
         assert_eq!(middleware.calls.lock().unwrap().len(), 2);
         assert_eq!(middleware.retired.load(Ordering::SeqCst), 0);
@@ -518,20 +624,20 @@ mod tests {
         let loaded = result(&mut owner, &runtime, 4).unwrap();
         assert_eq!(loaded.generation(), latest);
         assert_eq!(loaded.session_generation(), 4);
-        assert_eq!(loaded.request(), &latest_request);
+        assert!(loaded.matches_request(&ReadRequest::WatchList(latest_request.clone())));
         assert!(!format!("{loaded:?}").contains("synthetic-latest"));
         assert_eq!(
             *middleware.calls.lock().unwrap(),
             [
-                Target::Bootstrap,
-                Target::WatchList {
+                Observation::Bootstrap,
+                Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: first_request
-                },
-                Target::WatchList {
+                }),
+                Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: latest_request
-                },
+                }),
             ]
         );
         assert!(owner.poll(&runtime, true, 4).is_none());
@@ -550,7 +656,11 @@ mod tests {
             cursor: Some(criterion_provider::PageCursor::new("synthetic-background/+%").unwrap()),
         };
         owner
-            .request_shelf(runtime.handle(), 3, first_request.clone())
+            .request(
+                runtime.handle(),
+                3,
+                ReadRequest::WatchList(first_request.clone()),
+            )
             .unwrap();
         pump(&runtime);
         assert_eq!(middleware.entered.load(Ordering::SeqCst), 1);
@@ -561,7 +671,11 @@ mod tests {
         }
         assert_eq!(middleware.retired.load(Ordering::SeqCst), 1);
         let latest = owner
-            .request_shelf(runtime.handle(), 3, latest_request.clone())
+            .request(
+                runtime.handle(),
+                3,
+                ReadRequest::WatchList(latest_request.clone()),
+            )
             .unwrap();
         for _ in 0..4 {
             pump(&runtime);
@@ -570,19 +684,19 @@ mod tests {
         assert_eq!(middleware.calls.lock().unwrap().len(), 2);
         let loaded = result(&mut owner, &runtime, 3).unwrap();
         assert_eq!(loaded.generation(), latest);
-        assert_eq!(loaded.request(), &latest_request);
+        assert!(loaded.matches_request(&ReadRequest::WatchList(latest_request.clone())));
         assert_eq!(
             *middleware.calls.lock().unwrap(),
             [
-                Target::Bootstrap,
-                Target::WatchList {
+                Observation::Bootstrap,
+                Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: first_request
-                },
-                Target::WatchList {
+                }),
+                Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: latest_request
-                },
+                }),
             ]
         );
         owner.dispose(&runtime);
@@ -598,7 +712,7 @@ mod tests {
             ),
         };
         owner
-            .request_shelf(runtime.handle(), 9, request.clone())
+            .request(runtime.handle(), 9, ReadRequest::WatchList(request.clone()))
             .unwrap();
         pump(&runtime);
         assert_eq!(middleware.calls.lock().unwrap().len(), 2);
@@ -612,28 +726,32 @@ mod tests {
         assert_eq!(middleware.calls.lock().unwrap().len(), 2);
         // Matching request and credential bytes still cannot revive epoch9.
         assert_eq!(
-            owner.request_shelf(runtime.handle(), 9, request.clone()),
+            owner.request(runtime.handle(), 9, ReadRequest::WatchList(request.clone())),
             Err(Error::Stale)
         );
         let generation = owner
-            .request_shelf(runtime.handle(), 10, request.clone())
+            .request(
+                runtime.handle(),
+                10,
+                ReadRequest::WatchList(request.clone()),
+            )
             .unwrap();
         let loaded = result(&mut owner, &runtime, 10).unwrap();
         assert_eq!(loaded.generation(), generation);
         assert_eq!(loaded.session_generation(), 10);
-        assert_eq!(loaded.request(), &request);
+        assert!(loaded.matches_request(&ReadRequest::WatchList(request.clone())));
         assert_eq!(
             *middleware.calls.lock().unwrap(),
             [
-                Target::Bootstrap,
-                Target::WatchList {
+                Observation::Bootstrap,
+                Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: request.clone()
-                },
-                Target::WatchList {
+                }),
+                Observation::Subscriber(SubscriberTarget::WatchList {
                     region: Region::Us,
                     request
-                },
+                }),
             ]
         );
         owner.dispose(&runtime);
@@ -643,7 +761,11 @@ mod tests {
         let runtime = runtime();
         let (mut owner, middleware, session, time) = fixture(&runtime, None, None, false);
         assert!(matches!(
-            owner.request_shelf(runtime.handle(), 1, WatchListRequest::default()),
+            owner.request(
+                runtime.handle(),
+                1,
+                ReadRequest::WatchList(WatchListRequest::default())
+            ),
             Err(Error::Session(criterion_session::Error::NoSession))
         ));
         assert!(middleware.calls.lock().unwrap().is_empty());
@@ -652,12 +774,20 @@ mod tests {
         runtime.block_on(session.poll_once()).unwrap();
         time.store(3605, Ordering::SeqCst);
         assert!(matches!(
-            owner.request_shelf(runtime.handle(), 2, WatchListRequest::default()),
+            owner.request(
+                runtime.handle(),
+                2,
+                ReadRequest::WatchList(WatchListRequest::default())
+            ),
             Err(Error::Session(criterion_session::Error::Expired))
         ));
         session.dispose();
         assert!(matches!(
-            owner.request_shelf(runtime.handle(), 3, WatchListRequest::default()),
+            owner.request(
+                runtime.handle(),
+                3,
+                ReadRequest::WatchList(WatchListRequest::default())
+            ),
             Err(Error::Session(criterion_session::Error::Disposed))
         ));
         assert!(middleware.calls.lock().unwrap().is_empty());
@@ -669,7 +799,11 @@ mod tests {
         let (mut owner, middleware, session, _) = fixture(&runtime, Some(2), None, true);
         let account = owner.account.clone();
         owner
-            .request_shelf(runtime.handle(), 2, WatchListRequest::default())
+            .request(
+                runtime.handle(),
+                2,
+                ReadRequest::WatchList(WatchListRequest::default()),
+            )
             .unwrap();
         pump(&runtime);
         assert_eq!(middleware.entered.load(Ordering::SeqCst), 1);
@@ -678,7 +812,11 @@ mod tests {
         assert_eq!(account.region(), Err(Error::Disposed));
         assert!(session.with_access_token(|_| ()).is_ok());
         assert_eq!(
-            owner.request_shelf(runtime.handle(), 2, WatchListRequest::default()),
+            owner.request(
+                runtime.handle(),
+                2,
+                ReadRequest::WatchList(WatchListRequest::default())
+            ),
             Err(Error::Disposed)
         );
         assert!(owner.poll(&runtime, true, 2).is_none());
@@ -701,7 +839,11 @@ mod tests {
             let runtime = runtime();
             let (mut owner, middleware, session, time) = fixture(&runtime, None, None, true);
             owner
-                .request_shelf(runtime.handle(), 8, WatchListRequest::default())
+                .request(
+                    runtime.handle(),
+                    8,
+                    ReadRequest::WatchList(WatchListRequest::default()),
+                )
                 .unwrap();
             pump(&runtime);
             assert_eq!(middleware.calls.lock().unwrap().len(), 2);
@@ -726,7 +868,11 @@ mod tests {
         let runtime = runtime();
         let (mut owner, middleware, _, _) = fixture(&runtime, None, None, true);
         owner
-            .request_shelf(runtime.handle(), 5, WatchListRequest::default())
+            .request(
+                runtime.handle(),
+                5,
+                ReadRequest::WatchList(WatchListRequest::default()),
+            )
             .unwrap();
         pump(&runtime);
         assert_eq!(middleware.calls.lock().unwrap().len(), 2);
@@ -741,7 +887,11 @@ mod tests {
         let runtime = runtime();
         let (mut owner, middleware, session, _) = fixture(&runtime, Some(2), None, true);
         owner
-            .request_shelf(runtime.handle(), 6, WatchListRequest::default())
+            .request(
+                runtime.handle(),
+                6,
+                ReadRequest::WatchList(WatchListRequest::default()),
+            )
             .unwrap();
         pump(&runtime);
         assert_eq!(middleware.entered.load(Ordering::SeqCst), 1);
@@ -762,12 +912,20 @@ mod tests {
         let (mut owner, middleware, _, _) = fixture(&runtime, None, None, true);
         assert!(owner.poll(&runtime, true, 10).is_none());
         assert_eq!(
-            owner.request_shelf(runtime.handle(), 9, WatchListRequest::default()),
+            owner.request(
+                runtime.handle(),
+                9,
+                ReadRequest::WatchList(WatchListRequest::default())
+            ),
             Err(Error::Stale)
         );
         assert!(middleware.calls.lock().unwrap().is_empty());
         owner
-            .request_shelf(runtime.handle(), 10, WatchListRequest::default())
+            .request(
+                runtime.handle(),
+                10,
+                ReadRequest::WatchList(WatchListRequest::default()),
+            )
             .unwrap();
         assert_eq!(
             result(&mut owner, &runtime, 10)
@@ -782,19 +940,31 @@ mod tests {
         let runtime = runtime();
         let (mut owner, middleware, session, time) = fixture(&runtime, None, None, false);
         assert!(matches!(
-            owner.request_shelf(runtime.handle(), 10, WatchListRequest::default()),
+            owner.request(
+                runtime.handle(),
+                10,
+                ReadRequest::WatchList(WatchListRequest::default())
+            ),
             Err(Error::Session(criterion_session::Error::NoSession))
         ));
         runtime.block_on(session.start_link()).unwrap();
         time.store(5, Ordering::SeqCst);
         runtime.block_on(session.poll_once()).unwrap();
         assert_eq!(
-            owner.request_shelf(runtime.handle(), 9, WatchListRequest::default()),
+            owner.request(
+                runtime.handle(),
+                9,
+                ReadRequest::WatchList(WatchListRequest::default())
+            ),
             Err(Error::Stale)
         );
         assert!(middleware.calls.lock().unwrap().is_empty());
         owner
-            .request_shelf(runtime.handle(), 10, WatchListRequest::default())
+            .request(
+                runtime.handle(),
+                10,
+                ReadRequest::WatchList(WatchListRequest::default()),
+            )
             .unwrap();
         assert_eq!(
             result(&mut owner, &runtime, 10)
@@ -809,12 +979,20 @@ mod tests {
         let runtime = runtime();
         let (mut owner, middleware, _, _) = fixture(&runtime, Some(2), None, true);
         let current = owner
-            .request_shelf(runtime.handle(), 10, WatchListRequest::default())
+            .request(
+                runtime.handle(),
+                10,
+                ReadRequest::WatchList(WatchListRequest::default()),
+            )
             .unwrap();
         pump(&runtime);
         assert_eq!(middleware.entered.load(Ordering::SeqCst), 1);
         assert_eq!(
-            owner.request_shelf(runtime.handle(), 9, WatchListRequest::default()),
+            owner.request(
+                runtime.handle(),
+                9,
+                ReadRequest::WatchList(WatchListRequest::default())
+            ),
             Err(Error::Stale)
         );
         middleware.release.notify_one();
@@ -833,7 +1011,11 @@ mod tests {
             session,
         );
         let generation = owner
-            .request_shelf(runtime.handle(), 3, WatchListRequest::default())
+            .request(
+                runtime.handle(),
+                3,
+                ReadRequest::WatchList(WatchListRequest::default()),
+            )
             .unwrap();
         pump(&runtime);
         assert!(middleware.calls.lock().unwrap().is_empty());

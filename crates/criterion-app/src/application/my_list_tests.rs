@@ -3,7 +3,7 @@
 //! All credentials, rows, cursors and responses here are synthetic fixtures.
 use super::*;
 use criterion_account::{
-    AccountClient, Region, SecretBody, Target as AccountTarget, WatchListFilter, WatchListRequest,
+    AccountClient, Region, SecretBody, SubscriberTarget, WatchListFilter, WatchListRequest,
 };
 use criterion_platform::{KeyEvent, Size};
 use criterion_provider::{MediaId, PageCursor};
@@ -68,21 +68,14 @@ impl Transport for Issuer {
 }
 
 #[derive(Clone, Default)]
-struct Public(Arc<Mutex<Vec<MediaId>>>);
+struct Public(Arc<Mutex<Vec<String>>>);
 impl RequestTransport for Public {
     async fn get(
         &self,
         request: criterion_provider::Request,
     ) -> Result<criterion_provider::Response, criterion_provider::Error> {
-        let Some(id) = request.url.path().strip_prefix("/api/media/") else {
-            return Err(criterion_provider::Error::Unavailable);
-        };
-        self.0.lock().unwrap().push(MediaId::new(id).unwrap());
-        Ok(criterion_provider::Response {
-            status: 200,
-            content_type: "application/json".into(),
-            body: format!(r#"{{"mediaid":"{id}","title":"Synthetic selected detail","contentType":"film","duration":90}}"#).into_bytes(),
-        })
+        self.0.lock().unwrap().push(request.url.path().to_owned());
+        Err(criterion_provider::Error::Unavailable)
     }
 }
 
@@ -92,15 +85,31 @@ struct Gate {
     retired: AtomicUsize,
     release: Notify,
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Expected {
+    WatchList(WatchListRequest),
+    NativeFilmDetail(MediaId),
+}
 struct Step {
-    request: WatchListRequest,
+    request: Expected,
     response: Result<Vec<u8>, criterion_account::Error>,
     gate: Option<Arc<Gate>>,
 }
 impl Step {
     fn page(filter: WatchListFilter, cursor: Option<&str>, body: Vec<u8>) -> Self {
         Self {
-            request: requested(filter, cursor),
+            request: Expected::WatchList(requested(filter, cursor)),
+            response: Ok(body),
+            gate: None,
+        }
+    }
+    fn native_film(media_id: MediaId) -> Self {
+        let body = format!(
+            r#"{{"contentType":"film","mediaid":"{}","title":"Synthetic selected detail","description_long":"Synthetic native selected detail","duration":90.5}}"#,
+            media_id.as_str()
+        ).into_bytes();
+        Self {
+            request: Expected::NativeFilmDetail(media_id),
             response: Ok(body),
             gate: None,
         }
@@ -114,21 +123,24 @@ impl Step {
 struct Script {
     steps: Arc<Mutex<VecDeque<Step>>>,
     calls: Arc<Mutex<Vec<WatchListRequest>>>,
+    native_details: Arc<Mutex<Vec<MediaId>>>,
     active: Arc<AtomicUsize>,
     maximum: Arc<AtomicUsize>,
     bootstrap: Arc<AtomicUsize>,
     violation: Arc<Mutex<Option<&'static str>>>,
     trace: Arc<Mutex<Vec<Trace>>>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Trace {
     Started(WatchListFilter),
     Retired(WatchListFilter),
+    StartedDetail(MediaId),
+    RetiredDetail(MediaId),
 }
 struct Flight {
     active: Arc<AtomicUsize>,
     gate: Option<Arc<Gate>>,
-    filter: WatchListFilter,
+    retired: Trace,
     trace: Arc<Mutex<Vec<Trace>>>,
 }
 impl Drop for Flight {
@@ -136,7 +148,7 @@ impl Drop for Flight {
         if let Some(gate) = &self.gate {
             gate.retired.fetch_add(1, Ordering::SeqCst);
         }
-        self.trace.lock().unwrap().push(Trace::Retired(self.filter));
+        self.trace.lock().unwrap().push(self.retired.clone());
         self.active.fetch_sub(1, Ordering::SeqCst);
     }
 }
@@ -145,6 +157,7 @@ impl Script {
         Self {
             steps: Arc::new(Mutex::new(steps.into())),
             calls: Arc::default(),
+            native_details: Arc::default(),
             active: Arc::default(),
             maximum: Arc::default(),
             bootstrap: Arc::default(),
@@ -165,18 +178,18 @@ impl criterion_account::Transport for Script {
         &self,
         request: criterion_account::Request,
     ) -> Result<criterion_account::Response, criterion_account::Error> {
-        let intent = match request.target {
-            AccountTarget::Bootstrap => {
-                if request.credentials.is_some() {
-                    return Err(self.violation("bootstrap received subscriber credentials"));
-                }
+        let intent = match request {
+            criterion_account::Request::Bootstrap => {
                 self.bootstrap.fetch_add(1, Ordering::SeqCst);
                 return Ok(criterion_account::Response {
                     status: 200,
                     body: SecretBody::new(br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec()),
                 });
             }
-            AccountTarget::WatchList { region, request } => {
+            criterion_account::Request::Subscriber {
+                target: SubscriberTarget::WatchList { region, request },
+                credentials,
+            } => {
                 // Record attempted work before any fixture check. Worker panics
                 // become product errors, so request-count proof cannot rely on them.
                 self.calls.lock().unwrap().push(request.clone());
@@ -187,30 +200,63 @@ impl criterion_account::Transport for Script {
                 if region != Region::Us {
                     return Err(self.violation("unexpected native request region"));
                 }
-                request
+                if credentials.bootstrap().as_bytes() != b"Bearer synthetic-bootstrap"
+                    || !credentials.bootstrap().is_sensitive()
+                {
+                    return Err(
+                        self.violation("native bootstrap credentials differ from the fixture")
+                    );
+                }
+                if credentials.subscriber().as_bytes() != b"synthetic-same-token"
+                    || !credentials.subscriber().is_sensitive()
+                {
+                    return Err(
+                        self.violation("native subscriber credentials differ from the fixture")
+                    );
+                }
+                Expected::WatchList(request)
             }
-            _ => return Err(self.violation("unexpected read-only account operation")),
+            criterion_account::Request::Detail {
+                region,
+                media_id,
+                authorization,
+            } => {
+                self.native_details.lock().unwrap().push(media_id.clone());
+                self.trace
+                    .lock()
+                    .unwrap()
+                    .push(Trace::StartedDetail(media_id.clone()));
+                if region != Region::Us
+                    || authorization.header().as_bytes() != b"Bearer synthetic-bootstrap"
+                    || !authorization.header().is_sensitive()
+                {
+                    return Err(self.violation(
+                        "anonymous native Detail region or bootstrap capability changed",
+                    ));
+                }
+                Expected::NativeFilmDetail(media_id)
+            }
+            criterion_account::Request::Subscriber { .. } => {
+                return Err(self.violation("unexpected read-only account operation"));
+            }
         };
-        let Some(credentials) = request.credentials else {
-            return Err(self.violation("native request omitted subscriber credentials"));
-        };
-        if credentials.subscriber().to_str().ok() != Some("synthetic-same-token")
-            || !credentials.subscriber().is_sensitive()
-        {
-            return Err(self.violation("native subscriber credentials differ from the fixture"));
-        }
         let Some(step) = self.steps.lock().unwrap().pop_front() else {
             return Err(self.violation("unexpected native request beyond the script"));
         };
         if intent != step.request {
-            return Err(self.violation("native filter or observed cursor differs from the script"));
+            return Err(self.violation(
+                "native method, identity, filter or observed cursor differs from the script",
+            ));
         }
         let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
         self.maximum.fetch_max(active, Ordering::SeqCst);
         let _flight = Flight {
             active: self.active.clone(),
             gate: step.gate.clone(),
-            filter: intent.filter,
+            retired: match &intent {
+                Expected::WatchList(request) => Trace::Retired(request.filter),
+                Expected::NativeFilmDetail(media_id) => Trace::RetiredDetail(media_id.clone()),
+            },
             trace: self.trace.clone(),
         };
         if active != 1 {
@@ -516,7 +562,7 @@ pub(super) fn rendered_fixture() -> Fixture {
             page(rows(100, 50, "Synthetic grouped ", "film"), Some(NEXT)),
         ),
         Step {
-            request: requested(WatchListFilter::FilmSeries, Some(NEXT)),
+            request: Expected::WatchList(requested(WatchListFilter::FilmSeries, Some(NEXT))),
             response: Err(criterion_account::Error::Unavailable),
             gate: None,
         },
@@ -525,6 +571,7 @@ pub(super) fn rendered_fixture() -> Fixture {
             Some(NEXT),
             page(rows(150, 10, "Synthetic grouped ", "film"), None),
         ),
+        Step::native_film(id(152)),
     ])
 }
 
@@ -574,6 +621,15 @@ impl Fixture {
     }
     pub(super) fn render_calls(&self) -> Vec<WatchListRequest> {
         self.script.calls()
+    }
+    pub(super) fn render_native_details(&self) -> Vec<MediaId> {
+        self.script.native_details.lock().unwrap().clone()
+    }
+    pub(super) fn render_public_calls(&self) -> Vec<String> {
+        self.public.0.lock().unwrap().clone()
+    }
+    pub(super) fn render_bootstraps(&self) -> usize {
+        self.script.bootstrap.load(Ordering::SeqCst)
     }
     pub(super) fn render_revokes(&self) -> usize {
         self.issuer.revokes.load(Ordering::SeqCst)
@@ -653,7 +709,7 @@ fn native_my_list_six_groups_issue_their_native_filter_and_warm_all_reuses_rows(
         fixture.choose(*group);
         fixture.ready(*group);
         let view = fixture.snapshot();
-        assert_eq!(view.cards[0].0, Target::Media(id(index * 100)));
+        assert_eq!(view.cards[0].0, Target::Native(id(index * 100)));
         assert_eq!(view.choices, GROUPS.map(|(group, _)| group));
         assert_eq!(view.tail, CatalogTail::End);
     }
@@ -696,7 +752,7 @@ fn native_my_list_continuation_preserves_older_first_keys_and_uses_observed_curs
             .map(|card| card.0.clone())
             .collect::<Vec<_>>(),
         (0..55)
-            .map(|index| Target::Media(id(index)))
+            .map(|index| Target::Native(id(index)))
             .collect::<Vec<_>>()
     );
     assert_eq!(view.cards[49].1, "First49");
@@ -794,6 +850,7 @@ fn native_my_list_detail_back_preserves_selected_group_window_and_has_no_redunda
             Some(NEXT),
             page(rows(150, 50, "Selected", "film"), None),
         ),
+        Step::native_film(id(148)),
     ]);
     fixture.open_list();
     fixture.choose(MyListGroup::FilmsAndSeries);
@@ -806,7 +863,11 @@ fn native_my_list_detail_back_preserves_selected_group_window_and_has_no_redunda
     let saved = fixture.snapshot();
     assert_eq!(saved.focus, Focus::Card { row: 12, column: 0 });
     let selected = saved.cards[48].0.clone();
+    assert_eq!(selected, Target::Native(id(148)));
     let issued = fixture.script.calls();
+    let public_before = fixture.public.0.lock().unwrap().clone();
+    assert_eq!(public_before, vec!["/".to_owned()]);
+    assert!(fixture.script.native_details.lock().unwrap().is_empty());
     fixture.select();
     assert_eq!(fixture.app.ui.page(), Page::Detail);
     fixture.wait(|fixture| {
@@ -830,7 +891,16 @@ fn native_my_list_detail_back_preserves_selected_group_window_and_has_no_redunda
     }
     assert_eq!(fixture.snapshot(), saved);
     assert_eq!(fixture.script.calls(), issued);
-    assert_eq!(*fixture.public.0.lock().unwrap(), vec![id(148)]);
+    assert_eq!(
+        *fixture.script.native_details.lock().unwrap(),
+        vec![id(148)]
+    );
+    assert_eq!(
+        *fixture.public.0.lock().unwrap(),
+        public_before,
+        "native selection and warm Back never contact public website Detail"
+    );
+    assert_eq!(fixture.script.bootstrap.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -920,7 +990,7 @@ fn native_my_list_tail_error_keeps_committed_rows_until_explicit_observed_cursor
             page(rows(0, 50, "Committed", "film"), Some(NEXT)),
         ),
         Step {
-            request: requested(WatchListFilter::All, Some(NEXT)),
+            request: Expected::WatchList(requested(WatchListFilter::All, Some(NEXT))),
             response: Err(criterion_account::Error::Unavailable),
             gate: None,
         },

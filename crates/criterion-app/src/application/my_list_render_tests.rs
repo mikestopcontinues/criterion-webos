@@ -37,6 +37,7 @@ const SLOTS: [(f32, f32); 6] = [
 enum Capture {
     TailError,
     GroupPage,
+    NativeDetail,
     SignedOut,
 }
 impl Capture {
@@ -44,6 +45,7 @@ impl Capture {
         match self {
             Self::TailError => "native-my-list-tail-error.png",
             Self::GroupPage => "native-my-list-group-paging.png",
+            Self::NativeDetail => "native-my-list-detail.png",
             Self::SignedOut => "native-my-list-logout.png",
         }
     }
@@ -114,6 +116,27 @@ impl Rendered<'_> {
                         )?;
                     }
                 }
+                Capture::NativeDetail => {
+                    for value in [
+                        "Synthetic selected detail",
+                        "Synthetic native selected detail",
+                        "WATCH NOW",
+                    ] {
+                        require(
+                            text.iter().any(|text| text.galley.job.text == value),
+                            "native Detail must paint exact title, description and primary action",
+                        )?;
+                    }
+                    require(
+                        self.fixture.render_page() == Page::Detail
+                            && self.fixture.render_status() == LoadState::Ready,
+                        "native Detail capture must represent the settled actual page",
+                    )?;
+                    require(
+                        !text.iter().any(|text| text.galley.job.text == "Starring: "),
+                        "absent native cast must not paint an empty metadata label",
+                    )?;
+                }
                 Capture::SignedOut => {
                     require(
                         text.iter().any(|text| text.galley.job.text == "LOG IN"),
@@ -154,7 +177,7 @@ impl Rendered<'_> {
                     glow::PixelPackData::Slice(Some(&mut pixels)),
                 );
             }
-            if !matches!(capture, Capture::SignedOut) {
+            if matches!(capture, Capture::TailError | Capture::GroupPage) {
                 require(
                     gold_pixels(&pixels, 290..546, 199..206) > 100,
                     "selected Films & Series underline must appear in its framebuffer slot",
@@ -183,6 +206,13 @@ impl Rendered<'_> {
                         "settled card focus must appear in framebuffer",
                     )?;
                 }
+            }
+            if matches!(capture, Capture::NativeDetail) {
+                require(
+                    self.fixture.render_focus() == Focus::DetailAction(0)
+                        && gold_pixels(&pixels, 150..610, 620..700) > 200,
+                    "native Detail primary focus must appear in the actual framebuffer",
+                )?;
             }
             let image = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(1920, 1080, pixels)
                 .ok_or("synthetic capture allocation")?;
@@ -362,8 +392,14 @@ impl Rendered<'_> {
         self.capture(Capture::GroupPage)?;
         let target = saved.cards[52].0.clone();
         require(
-            target == Target::Media(MediaId::new("M0000152").unwrap()),
+            target == Target::Native(MediaId::new("M0000152").unwrap()),
             "synthetic exact native selected target",
+        )?;
+        let public_before = self.fixture.render_public_calls();
+        require(
+            public_before == vec!["/".to_owned()]
+                && self.fixture.render_native_details().is_empty(),
+            "no native Detail contact before exact card activation",
         )?;
         self.key(40, 13)?;
         self.wait(|fixture| {
@@ -371,12 +407,22 @@ impl Rendered<'_> {
                 && fixture.render_status() == LoadState::Ready
                 && fixture.render_detail() == Some(target.clone())
         })?;
+        let native_details = vec![MediaId::new("M0000152").unwrap()];
+        require(
+            self.fixture.render_native_details() == native_details
+                && self.fixture.render_public_calls() == public_before
+                && self.fixture.render_bootstraps() == 1,
+            "exact anonymous native Detail shares bootstrap without website Detail",
+        )?;
+        self.capture(Capture::NativeDetail)?;
         self.key(41, 27)?;
         require(
             self.fixture.render_page() == Page::MyList
                 && self.fixture.snapshot() == saved
-                && self.fixture.render_calls() == requests,
-            "warm Detail/Back must preserve exact grouped window without native read",
+                && self.fixture.render_calls() == requests
+                && self.fixture.render_native_details() == native_details
+                && self.fixture.render_public_calls() == public_before,
+            "warm Detail/Back preserves exact grouped window without another read",
         )?;
         for (scan, key) in [
             (80, 1_073_741_904),
@@ -393,7 +439,10 @@ impl Rendered<'_> {
                 && fixture.render_revokes() == 1
         })?;
         require(
-            self.fixture.render_page() == Page::Login && self.fixture.render_calls() == requests,
+            self.fixture.render_page() == Page::Login
+                && self.fixture.render_calls() == requests
+                && self.fixture.render_native_details() == native_details
+                && self.fixture.render_public_calls() == public_before,
             "logout retains no synthetic shelf projection or extra read",
         )?;
         self.capture(Capture::SignedOut)

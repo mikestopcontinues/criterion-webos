@@ -1,6 +1,8 @@
-//! Native middleware bootstrap and bounded subscriber-account capabilities.
+//! Native middleware bootstrap, anonymous Detail and bounded subscriber capabilities.
 use std::future::Future;
 mod client;
+mod detail;
+mod detail_wire;
 mod model;
 mod native_wire;
 mod object;
@@ -8,6 +10,10 @@ mod transport;
 mod wire;
 pub use client::AccountClient;
 pub use criterion_session::SecretBody;
+pub use detail::{
+    NativeDetail, NativeDetailMetadata, NativeFeatured, NativeGenericPlaylist, NativePlaylist,
+    NativePlaylistKey, NativeSeason, NativeSeasonsPlaylist,
+};
 pub use model::{
     ContinueWatching, MediaKind, MediaSummary, MyListIds, PagingInfo, Position, SyncReceipt,
     TypeCount, WatchList, WatchListContentType, WatchListFilter, WatchListRequest, WriteFailure,
@@ -44,8 +50,7 @@ pub enum Region {
     Ca,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Target {
-    Bootstrap,
+pub enum SubscriberTarget {
     MyListIds(Region),
     ContinueWatching(Region),
     WatchList {
@@ -79,10 +84,32 @@ impl Credentials {
         &self.subscriber
     }
 }
+/// Single-purpose native Detail authorization. No subscriber token is carried.
+pub struct BootstrapAuthorization {
+    pub(crate) value: reqwest::header::HeaderValue,
+}
+impl BootstrapAuthorization {
+    pub fn header(&self) -> &reqwest::header::HeaderValue {
+        &self.value
+    }
+}
+impl std::fmt::Debug for BootstrapAuthorization {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("BootstrapAuthorization([redacted])")
+    }
+}
 #[derive(Debug)]
-pub struct Request {
-    pub target: Target,
-    pub credentials: Option<Credentials>,
+pub enum Request {
+    Bootstrap,
+    Detail {
+        region: Region,
+        media_id: criterion_provider::MediaId,
+        authorization: BootstrapAuthorization,
+    },
+    Subscriber {
+        target: SubscriberTarget,
+        credentials: Credentials,
+    },
 }
 #[derive(Debug)]
 pub struct Response {
@@ -102,3 +129,9 @@ mod native_tests;
 mod transport_tests;
 #[cfg(test)]
 mod write_tests;
+
+#[cfg(test)]
+mod detail_tests;
+
+#[cfg(test)]
+mod detail_client_tests;

@@ -14,6 +14,8 @@ fn approaching_the_catalog_tail_requests_continuation_without_navigation() {
             title: "Synthetic",
             year: "",
             duration_seconds: 0,
+            saved_fraction: None,
+            action: criterion_ui::CardAction::Open,
         })
         .collect();
     let data = ViewData {
@@ -57,7 +59,9 @@ fn retry_completion_restores_the_requested_card_and_keeps_back_history() {
             artwork_key: None,
             title: "Synthetic",
             year: "",
-            duration_seconds: 0
+            duration_seconds: 0,
+            saved_fraction: None,
+            action: criterion_ui::CardAction::Open,
         };
         60
     ];
@@ -121,6 +125,8 @@ fn window_offset_preserves_global_card_identity_geometry_and_back() {
             title: "Synthetic",
             year: "",
             duration_seconds: 0,
+            saved_fraction: None,
+            action: criterion_ui::CardAction::Open,
         })
         .collect();
     let initial = ViewData {
@@ -173,7 +179,9 @@ fn moving_away_before_append_completion_does_not_apply_the_pending_down() {
             artwork_key: None,
             title: "Synthetic",
             year: "",
-            duration_seconds: 0
+            duration_seconds: 0,
+            saved_fraction: None,
+            action: criterion_ui::CardAction::Open,
         };
         120
     ];
@@ -215,7 +223,9 @@ fn terminal_short_row_clamps_and_initial_error_has_remote_retry() {
             artwork_key: None,
             title: "Synthetic",
             year: "",
-            duration_seconds: 0
+            duration_seconds: 0,
+            saved_fraction: None,
+            action: criterion_ui::CardAction::Open,
         };
         5
     ];
@@ -258,7 +268,9 @@ fn leaving_filter_header_waits_for_page_zero_without_focusing_an_absent_card() {
             artwork_key: None,
             title: "Synthetic",
             year: "",
-            duration_seconds: 0
+            duration_seconds: 0,
+            saved_fraction: None,
+            action: criterion_ui::CardAction::Open,
         };
         60
     ];
@@ -304,7 +316,9 @@ fn rehydration_error_and_retry_preserve_the_saved_global_focus() {
             artwork_key: None,
             title: "Synthetic",
             year: "",
-            duration_seconds: 0
+            duration_seconds: 0,
+            saved_fraction: None,
+            action: criterion_ui::CardAction::Open,
         };
         180
     ];
@@ -364,7 +378,9 @@ fn pending_down_clamps_to_a_short_final_row_after_continuation() {
             artwork_key: None,
             title: "Synthetic",
             year: "",
-            duration_seconds: 0
+            duration_seconds: 0,
+            saved_fraction: None,
+            action: criterion_ui::CardAction::Open,
         };
         61
     ];
@@ -408,7 +424,9 @@ fn pending_down_after_rehydration_demands_the_still_absent_position() {
             artwork_key: None,
             title: "Synthetic",
             year: "",
-            duration_seconds: 0
+            duration_seconds: 0,
+            saved_fraction: None,
+            action: criterion_ui::CardAction::Open,
         };
         180
     ];

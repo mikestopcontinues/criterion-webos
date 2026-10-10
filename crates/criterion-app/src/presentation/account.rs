@@ -66,7 +66,7 @@ impl Presentation {
             LoadState::Loading
         };
         for media in view.rows {
-            let target = Target::Media(media.id.clone());
+            let target = Target::Native(media.id.clone());
             let artwork = presentation.bind_image(ImageSource::Media {
                 id: media.id.clone(),
                 label: ImageLabel::Landscape,
@@ -82,6 +82,10 @@ impl Presentation {
                     .unwrap_or_default(),
                 duration_seconds: 0,
                 artwork: Some(artwork),
+                saved_fraction: None,
+                native_activation: Some(super::continue_watching::native_action(
+                    media, None, false,
+                )),
             });
         }
         presentation
@@ -100,6 +104,8 @@ mod tests {
             id: MediaId::new(id).unwrap(),
             title: title.into(),
             kind,
+            series_id: None,
+            series_title: None,
             duration: None,
             release_date: None,
         }
@@ -190,15 +196,15 @@ mod tests {
             assert_eq!(
                 view.cards.iter().map(|card| card.key).collect::<Vec<_>>(),
                 [
-                    &Target::Media(MediaId::new("Fixture9").unwrap()),
-                    &Target::Media(MediaId::new("Fixture8").unwrap()),
-                    &Target::Media(MediaId::new("Fixture7").unwrap()),
-                    &Target::Media(MediaId::new("Fixture6").unwrap()),
-                    &Target::Media(MediaId::new("Fixture5").unwrap()),
-                    &Target::Media(MediaId::new("Fixture4").unwrap()),
-                    &Target::Media(MediaId::new("Fixture3").unwrap()),
-                    &Target::Media(MediaId::new("Fixture2").unwrap()),
-                    &Target::Media(MediaId::new("Fixture1").unwrap()),
+                    &Target::Native(MediaId::new("Fixture9").unwrap()),
+                    &Target::Native(MediaId::new("Fixture8").unwrap()),
+                    &Target::Native(MediaId::new("Fixture7").unwrap()),
+                    &Target::Native(MediaId::new("Fixture6").unwrap()),
+                    &Target::Native(MediaId::new("Fixture5").unwrap()),
+                    &Target::Native(MediaId::new("Fixture4").unwrap()),
+                    &Target::Native(MediaId::new("Fixture3").unwrap()),
+                    &Target::Native(MediaId::new("Fixture2").unwrap()),
+                    &Target::Native(MediaId::new("Fixture1").unwrap()),
                 ]
             );
             assert_eq!(
@@ -251,5 +257,50 @@ mod tests {
                 role: criterion_artwork::ImageRole::Card,
             }
         );
+    }
+    #[test]
+    fn my_list_episode_uses_native_metadata_only_and_keeps_original_card_identity() {
+        let mut episode = media("Epis0001", "Original Episode title", MediaKind::Episode);
+        episode.series_id = Some(MediaId::new("Meta0001").unwrap());
+        episode.series_title = Some("Native series title".into());
+        let view = presentation(watch_list(vec![
+            episode,
+            media("Live0001", "Synthetic live", MediaKind::Live),
+            media("Fran0001", "Synthetic franchise", MediaKind::Franchise),
+            media("Film0001", "Synthetic film", MediaKind::Film),
+        ]));
+        assert_eq!(
+            view.native_activation(&Target::Native(MediaId::new("Epis0001").unwrap())),
+            Some(super::super::NativeActivation::Detail {
+                id: MediaId::new("Meta0001").unwrap(),
+                auto_play: true
+            })
+        );
+        assert_eq!(
+            view.native_activation(&Target::Native(MediaId::new("Live0001").unwrap())),
+            Some(super::super::NativeActivation::Unsupported)
+        );
+        assert_eq!(
+            view.native_activation(&Target::Native(MediaId::new("Fran0001").unwrap())),
+            Some(super::super::NativeActivation::Detail {
+                id: MediaId::new("Fran0001").unwrap(),
+                auto_play: false
+            })
+        );
+        assert_eq!(
+            view.native_activation(&Target::Native(MediaId::new("Film0001").unwrap())),
+            Some(super::super::NativeActivation::Detail {
+                id: MediaId::new("Film0001").unwrap(),
+                auto_play: false
+            })
+        );
+        view.with_view(LoginView::SignedIn, |data| {
+            assert_eq!(
+                data.cards[0].key,
+                &Target::Native(MediaId::new("Epis0001").unwrap())
+            );
+            assert_eq!(data.cards[0].title, "Original Episode title");
+            assert!(data.cards.iter().all(|card| card.saved_fraction.is_none()));
+        });
     }
 }

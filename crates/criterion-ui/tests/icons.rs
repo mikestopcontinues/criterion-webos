@@ -62,6 +62,8 @@ fn filter_and_information_controls_use_vector_marks_and_keep_remote_actions() {
         title: "Fixture",
         year: "1986",
         duration_seconds: 5820,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     };
     let cards = [card];
     let groups = [criterion_ui::FilterGroup {
@@ -79,6 +81,9 @@ fn filter_and_information_controls_use_vector_marks_and_keep_remote_actions() {
             countries: "",
             languages: "",
             primary_action: "WATCH NOW",
+            primary_playback_target: Some(target.media_id().unwrap()),
+            selected_playlist: None,
+            seasons: None,
             kind: criterion_ui::DetailKind::Film,
         }),
         status: criterion_ui::LoadState::Ready,

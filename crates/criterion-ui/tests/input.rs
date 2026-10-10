@@ -16,6 +16,8 @@ fn pointer_release_activates_only_the_current_pressed_media_identity() {
         title: "The Hitcher",
         year: "1986",
         duration_seconds: 5820,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     }];
     let data = ViewData {
         cards: &cards,
@@ -92,6 +94,8 @@ fn pointer_gone_and_replaced_media_cancel_pending_activation() {
         title: "Fixture",
         year: "1986",
         duration_seconds: 5820,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     };
     let cards = [card(&first)];
     let replaced = [card(&second)];
@@ -171,6 +175,8 @@ fn hero_press_cannot_activate_replacement_media() {
                 title: "Fixture",
                 year: "1986",
                 duration_seconds: 5820,
+                saved_fraction: None,
+                action: criterion_ui::CardAction::Open,
             },
             description: "",
             action: "SEE MORE",
@@ -290,6 +296,8 @@ fn detail_tab_press_is_bound_to_the_owning_detail_identity() {
         title: "Fixture",
         year: "1986",
         duration_seconds: 5820,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     };
     let cards = [card(&first)];
     let rails = [criterion_ui::Rail {
@@ -307,6 +315,9 @@ fn detail_tab_press_is_bound_to_the_owning_detail_identity() {
             countries: "",
             languages: "",
             primary_action: "WATCH NOW",
+            primary_playback_target: key.media_id(),
+            selected_playlist: None,
+            seasons: None,
             kind: criterion_ui::DetailKind::Film,
         }),
         status: LoadState::Ready,

@@ -7,22 +7,53 @@ use std::sync::{
 const INIT: &[u8] = br#"{"country":"CA","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#;
 const IDS: &str = r#"{"watchlist":["AbCd1234"],"positions":[{"media_id":"AbCd1234","pos":-1,"dur":7200,"commentary_track":null,"series_id":"Series01","series_title":"Synthetic series"}]}"#;
 const CONTINUE: &str = r#"{"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic film","duration":90.5,"release_date":"2000-02-29"},{"contentType":"series","mediaid":"Series01","title":"Synthetic series"}],"positions":[]}"#;
+
+#[tokio::test]
+async fn native_episode_metadata_preserves_original_identity_and_supplies_optional_parent() {
+    let (session, _) = linked().await;
+    let response = account(r#"{"playlist":[{"contentType":"episode","mediaid":"Episo001","title":"Episode","series_id":"Series01","series_title":""},{"contentType":"film","mediaid":"Film0001","title":"Film","series_id":"Series02","series_title":"Not an Episode"}],"positions":[]}"#)
+        .await.continue_watching(&session).await.unwrap();
+    let episode = &response.playlist[0];
+    assert_eq!(episode.id.as_str(), "Episo001");
+    assert_eq!(episode.kind, MediaKind::Episode);
+    assert_eq!(
+        episode.series_id.as_ref().map(|id| id.as_str()),
+        Some("Series01")
+    );
+    assert_eq!(episode.series_title.as_deref(), Some(""));
+    assert!(response.playlist[1].series_id.is_none());
+    assert!(response.playlist[1].series_title.is_none());
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Observation {
+    Bootstrap,
+    Subscriber(SubscriberTarget),
+}
 struct NativeFixture {
     payload: String,
-    requests: Arc<Mutex<Vec<Target>>>,
+    requests: Arc<Mutex<Vec<Observation>>>,
     status: u16,
 }
 impl Transport for NativeFixture {
     async fn send(&self, request: Request) -> Result<Response, Error> {
-        self.requests.lock().unwrap().push(request.target.clone());
-        if request.target == Target::Bootstrap {
-            assert!(request.credentials.is_none());
-            return Ok(Response {
-                status: 200,
-                body: SecretBody::new(INIT.to_vec()),
-            });
-        }
-        let credentials = request.credentials.unwrap();
+        let (target, credentials) = match request {
+            Request::Bootstrap => {
+                self.requests.lock().unwrap().push(Observation::Bootstrap);
+                return Ok(Response {
+                    status: 200,
+                    body: SecretBody::new(INIT.to_vec()),
+                });
+            }
+            Request::Subscriber {
+                target,
+                credentials,
+            } => (target, credentials),
+            Request::Detail { .. } => panic!("subscriber fixture cannot serve Detail"),
+        };
+        self.requests
+            .lock()
+            .unwrap()
+            .push(Observation::Subscriber(target));
         assert_eq!(
             credentials.bootstrap.as_bytes(),
             b"Bearer synthetic-bootstrap"
@@ -87,7 +118,7 @@ async fn account(payload: &str) -> AccountClient<NativeFixture> {
 #[tokio::test]
 async fn native_ids_preserve_signed_positions_and_use_selected_region_with_dual_headers() {
     let (session, _) = linked().await;
-    let requests: Arc<Mutex<Vec<Target>>> = Arc::default();
+    let requests: Arc<Mutex<Vec<Observation>>> = Arc::default();
     let account = AccountClient::with_transport(NativeFixture {
         payload: IDS.into(),
         requests: requests.clone(),
@@ -104,7 +135,10 @@ async fn native_ids_preserve_signed_positions_and_use_selected_region_with_dual_
     );
     assert_eq!(
         *requests.lock().unwrap(),
-        [Target::Bootstrap, Target::MyListIds(Region::Ca)]
+        [
+            Observation::Bootstrap,
+            Observation::Subscriber(SubscriberTarget::MyListIds(Region::Ca))
+        ]
     );
     let diagnostic = format!("{result:?} {:?}", result.positions[0]);
     assert!(
@@ -221,7 +255,7 @@ struct HeldNative {
 }
 impl Transport for HeldNative {
     async fn send(&self, request: Request) -> Result<Response, Error> {
-        if request.target != Target::Bootstrap {
+        if matches!(&request, Request::Subscriber { .. }) {
             self.entered.notify_one();
             self.release.notified().await;
         }
@@ -305,7 +339,7 @@ async fn native_read_capacity_cancel_disposal_and_future_drop_keep_bootstrap_own
 #[tokio::test]
 async fn native_reads_require_bootstrap_and_live_subscriber_and_preserve_status_failure() {
     let (session, _) = linked().await;
-    let requests: Arc<Mutex<Vec<Target>>> = Arc::default();
+    let requests: Arc<Mutex<Vec<Observation>>> = Arc::default();
     let account = AccountClient::with_transport(NativeFixture {
         payload: IDS.into(),
         requests: requests.clone(),
@@ -374,7 +408,7 @@ async fn native_watch_list_requires_objects_for_response_and_nested_paging() {
 async fn native_watch_list_uses_explicit_default_request_and_preserves_required_paging_counts_cards()
  {
     let (session, _) = linked().await;
-    let requests: Arc<Mutex<Vec<Target>>> = Arc::default();
+    let requests: Arc<Mutex<Vec<Observation>>> = Arc::default();
     let client = AccountClient::with_transport(NativeFixture {
         payload: WATCH.into(),
         requests: requests.clone(),
@@ -401,11 +435,11 @@ async fn native_watch_list_uses_explicit_default_request_and_preserves_required_
     assert_eq!(
         *requests.lock().unwrap(),
         [
-            Target::Bootstrap,
-            Target::WatchList {
+            Observation::Bootstrap,
+            Observation::Subscriber(SubscriberTarget::WatchList {
                 region: Region::Ca,
                 request: crate::WatchListRequest::default()
-            }
+            })
         ]
     );
     let diagnostic = format!("{result:?} {:?} {:?}", result.paging, result.type_counts[0]);

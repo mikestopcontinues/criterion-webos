@@ -36,7 +36,9 @@ fn search_frame_places_three_results_beside_the_keyboard() {
             artwork_key: None,
             title: "Fixture",
             year: "1986",
-            duration_seconds: 5820
+            duration_seconds: 5820,
+            saved_fraction: None,
+            action: criterion_ui::CardAction::Open,
         };
         7
     ];
@@ -82,6 +84,8 @@ fn search_detail_back_restores_query_group_card_then_home_focus() {
         title: "Fixture",
         year: "1986",
         duration_seconds: 5820,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     }];
     let rails = [criterion_ui::Rail {
         title: "Popular Movies",

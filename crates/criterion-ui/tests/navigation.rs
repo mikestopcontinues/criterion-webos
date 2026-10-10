@@ -200,6 +200,8 @@ fn nav(ui: &mut AppUi, action: Action, rows: &[usize]) -> Vec<criterion_ui::Comm
         title: "Fixture film",
         year: "1986",
         duration_seconds: 5820,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     };
     let lists: Vec<Vec<_>> = rows.iter().map(|count| vec![card; *count]).collect();
     let rails: Vec<_> = lists

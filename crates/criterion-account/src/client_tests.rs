@@ -2,8 +2,7 @@ use crate::*;
 struct Fixture;
 impl Transport for Fixture {
     async fn send(&self, request: Request) -> Result<Response, Error> {
-        assert_eq!(request.target, Target::Bootstrap);
-        assert!(request.credentials.is_none());
+        assert!(matches!(request, Request::Bootstrap));
         Ok(Response { status: 200, body: SecretBody::new(br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec()) })
     }
 }

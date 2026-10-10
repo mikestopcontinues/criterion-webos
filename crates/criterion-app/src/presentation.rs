@@ -1,18 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Owned validated display data; the controller owns publication and request lifetimes.
 mod account;
+mod continue_watching;
+mod native_detail;
 pub(crate) use account::my_list_filter;
+use continue_watching::ContinueWatchingState;
 use criterion_artwork::ImageRole;
 use criterion_provider::{
     BrowseOptions, CatalogPage, DiscoveryArtwork, DiscoveryBlock, DiscoveryPage, DiscoverySlide,
-    EditorialImage, ImageLabel, MediaDetail, MediaId, MediaKind, MediaSummary, RailSource,
-    SearchResults,
+    EditorialImage, GalleryPresentation, ImageLabel, MediaDetail, MediaId, MediaKind, MediaSummary,
+    RailSource, SearchResults,
 };
 use criterion_ui::{
     Card, Detail, DetailKind, FilterGroup, FilterMenu, Hero, HeroAction, LoadState, Rail,
     SearchGroup, Target, ViewData,
 };
 use std::fmt::Write;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum NativeActivation {
+    Detail { id: MediaId, auto_play: bool },
+    Play { id: MediaId },
+    Unsupported,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProjectionLimit {
+    TooLarge,
+}
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum ImageSource {
@@ -57,6 +71,7 @@ pub(crate) struct Presentation {
     catalog_window: Option<criterion_ui::CatalogWindow>,
     my_list_selected: Option<criterion_ui::MyListGroup>,
     my_list_choices: Vec<criterion_ui::MyListChoice>,
+    continue_watching: ContinueWatchingState,
 }
 impl Presentation {
     pub(crate) fn loading(title: impl Into<String>) -> Self {
@@ -78,6 +93,7 @@ impl Presentation {
             catalog_window: None,
             my_list_selected: None,
             my_list_choices: Vec::new(),
+            continue_watching: ContinueWatchingState::default(),
         }
     }
     pub(crate) fn set_status(&mut self, status: LoadState) {
@@ -197,7 +213,15 @@ impl Presentation {
             ImageLabel::Landscape,
             ImageRole::Backdrop,
         );
+        let primary_playback_target = (kind != DetailKind::Collection).then(|| {
+            card.target
+                .media_id()
+                .expect("public playable media target")
+                .clone()
+        });
         projection.detail = Some(OwnedDetail {
+            primary_playback_target,
+            native: None,
             card,
             kind,
             description: detail.description.unwrap_or_default(),
@@ -215,6 +239,8 @@ impl Presentation {
             projection.rails.push(OwnedRail {
                 title: playlist.title,
                 cards,
+                gallery: None,
+                private_epoch: None,
             });
         }
         projection.selected_playlist = (!projection.rails.is_empty()).then_some(0);
@@ -264,6 +290,9 @@ impl Presentation {
             bytes += rail.title.capacity()
                 + vec_bytes(&rail.cards)
                 + rail.cards.iter().map(OwnedCard::heap_bytes).sum::<usize>();
+            if let Some((RailSource::Provided { feed_id: Some(id) }, _, _)) = &rail.gallery {
+                bytes += id.capacity();
+            }
         }
         bytes += vec_bytes(&self.artwork);
         for binding in &self.artwork {
@@ -292,7 +321,15 @@ impl Presentation {
                 + hero.logo.as_ref().map_or(0, String::capacity);
         }
         if let Some(detail) = &self.detail {
-            bytes += detail.card.heap_bytes()
+            bytes += detail
+                .primary_playback_target
+                .as_ref()
+                .map_or(0, |id| id.as_str().len())
+                + detail
+                    .native
+                    .as_ref()
+                    .map_or(0, native_detail::NativeDetailState::heap_bytes)
+                + detail.card.heap_bytes()
                 + detail.description.capacity()
                 + detail.directors.capacity()
                 + detail.starring.capacity()
@@ -385,6 +422,7 @@ impl Presentation {
                     cards,
                     image_label,
                     source,
+                    presentation,
                     cta,
                     target,
                     opens_new_window,
@@ -409,6 +447,8 @@ impl Presentation {
                     projection.rails.push(OwnedRail {
                         title: header.unwrap_or_default(),
                         cards: projected,
+                        gallery: Some((source, image_label, presentation)),
+                        private_epoch: None,
                     });
                 }
                 DiscoveryBlock::Navigation { header, items, .. } => {
@@ -429,11 +469,15 @@ impl Presentation {
                             year: String::new(),
                             duration_seconds: 0,
                             artwork,
+                            saved_fraction: None,
+                            native_activation: None,
                         });
                     }
                     projection.rails.push(OwnedRail {
                         title: header.unwrap_or_default(),
                         cards,
+                        gallery: None,
+                        private_epoch: None,
                     });
                 }
             }
@@ -477,6 +521,8 @@ impl Presentation {
                 year: String::new(),
                 duration_seconds: 0,
                 artwork: None,
+                saved_fraction: None,
+                native_activation: None,
             },
             description: slide.title_prefix.unwrap_or_default(),
             action,
@@ -509,6 +555,8 @@ impl Presentation {
                 .unwrap_or_default(),
             duration_seconds: media.duration_seconds,
             artwork: Some(artwork),
+            saved_fraction: None,
+            native_activation: None,
         }
     }
     fn bind_image(&mut self, source: ImageSource) -> String {
@@ -558,7 +606,20 @@ impl Presentation {
         let rail_cards: Vec<Vec<_>> = self
             .rails
             .iter()
-            .map(|rail| rail.cards.iter().map(OwnedCard::view).collect())
+            .enumerate()
+            .map(|(index, rail)| {
+                if self.detail.as_ref().is_some_and(|d| d.native.is_some())
+                    && self.selected_playlist != Some(index)
+                {
+                    Vec::new()
+                } else {
+                    self.native_season_cards(index)
+                        .unwrap_or(&rail.cards)
+                        .iter()
+                        .map(OwnedCard::view)
+                        .collect()
+                }
+            })
             .collect();
         let rails: Vec<_> = self
             .rails
@@ -577,6 +638,18 @@ impl Presentation {
             background_key: Some(&hero.background),
             title_logo_key: hero.logo.as_deref(),
         });
+        let season_choices: Vec<_> = self
+            .detail
+            .as_ref()
+            .and_then(|d| d.native.as_ref())
+            .into_iter()
+            .flat_map(|state| &state.seasons)
+            .map(|season| criterion_ui::SeasonChoice {
+                number: season.number,
+                title: &season.rail.title,
+                episode_count: season.rail.cards.len(),
+            })
+            .collect();
         let detail = self.detail.as_ref().map(|detail| Detail {
             card: detail.card.view(),
             directors: &detail.directors,
@@ -584,7 +657,25 @@ impl Presentation {
             starring: &detail.starring,
             countries: &detail.countries,
             languages: &detail.languages,
-            primary_action: "WATCH NOW",
+            primary_action: if detail.kind == DetailKind::Series {
+                "WATCH FIRST EPISODE"
+            } else {
+                "WATCH NOW"
+            },
+            primary_playback_target: detail.primary_playback_target.as_ref(),
+            selected_playlist: self.selected_playlist,
+            seasons: detail
+                .native
+                .as_ref()
+                .filter(|state| {
+                    state.seasons_tab.is_some()
+                        && state.seasons_tab == self.selected_playlist
+                        && !season_choices.is_empty()
+                })
+                .map(|state| criterion_ui::SeasonView {
+                    selected: state.selected_season,
+                    choices: &season_choices,
+                }),
             kind: detail.kind,
         });
         let options: Vec<Vec<&str>> = self
@@ -645,6 +736,8 @@ struct OwnedFilter {
     options: Vec<String>,
 }
 struct OwnedDetail {
+    primary_playback_target: Option<MediaId>,
+    native: Option<native_detail::NativeDetailState>,
     card: OwnedCard,
     kind: DetailKind,
     description: String,
@@ -663,6 +756,8 @@ struct OwnedHero {
 struct OwnedRail {
     title: String,
     cards: Vec<OwnedCard>,
+    gallery: Option<(RailSource, ImageLabel, GalleryPresentation)>,
+    private_epoch: Option<u64>,
 }
 
 struct OwnedCard {
@@ -672,6 +767,8 @@ struct OwnedCard {
     year: String,
     duration_seconds: u32,
     artwork: Option<String>,
+    saved_fraction: Option<f32>,
+    native_activation: Option<NativeActivation>,
 }
 fn vec_bytes<T>(values: &Vec<T>) -> usize {
     values.capacity() * std::mem::size_of::<T>()
@@ -679,7 +776,7 @@ fn vec_bytes<T>(values: &Vec<T>) -> usize {
 fn target_bytes(target: &Target) -> usize {
     use criterion_provider::ContentTarget;
     match target {
-        Target::Media(id) => id.as_str().len(),
+        Target::Media(id) | Target::Native(id) => id.as_str().len(),
         Target::Content(ContentTarget::Media { id, slug, .. }) => {
             id.as_str().len() + slug.as_str().len()
         }
@@ -693,6 +790,12 @@ impl OwnedCard {
             + self.year.capacity()
             + self.artwork.as_ref().map_or(0, String::capacity)
             + target_bytes(&self.target)
+            + match &self.native_activation {
+                Some(NativeActivation::Detail { id, .. } | NativeActivation::Play { id }) => {
+                    id.as_str().len()
+                }
+                _ => 0,
+            }
     }
     fn view(&self) -> Card<'_> {
         Card {
@@ -701,6 +804,12 @@ impl OwnedCard {
             title: &self.title,
             year: &self.year,
             duration_seconds: self.duration_seconds,
+            saved_fraction: self.saved_fraction,
+            action: if matches!(self.native_activation, Some(NativeActivation::Play { .. })) {
+                criterion_ui::CardAction::Play
+            } else {
+                criterion_ui::CardAction::Open
+            },
         }
     }
 }

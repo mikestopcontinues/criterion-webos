@@ -47,6 +47,8 @@ fn page(start: usize, count: usize, next: Option<&str>) -> WatchList {
                 kind: MediaKind::Film,
                 duration: None,
                 release_date: None,
+                series_id: None,
+                series_title: None,
             })
             .collect(),
         paging: PagingInfo {

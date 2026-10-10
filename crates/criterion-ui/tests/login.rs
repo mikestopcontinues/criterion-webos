@@ -363,6 +363,8 @@ fn authentication_from_information_modal_owns_input_and_restores_the_modal() {
         title: "Fixture",
         year: "1986",
         duration_seconds: 5820,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     };
     let detail = || criterion_ui::Detail {
         card,
@@ -372,6 +374,9 @@ fn authentication_from_information_modal_owns_input_and_restores_the_modal() {
         countries: "Fixture country",
         languages: "English",
         primary_action: "WATCH NOW",
+        primary_playback_target: Some(target.media_id().unwrap()),
+        selected_playlist: None,
+        seasons: None,
         kind: criterion_ui::DetailKind::Film,
     };
     let data = ViewData {
@@ -468,6 +473,8 @@ fn film_view(target: &criterion_ui::Target) -> ViewData<'_> {
         title: "Fixture",
         year: "1986",
         duration_seconds: 5820,
+        saved_fraction: None,
+        action: criterion_ui::CardAction::Open,
     };
     ViewData {
         hero: Some(criterion_ui::Hero {
@@ -486,6 +493,9 @@ fn film_view(target: &criterion_ui::Target) -> ViewData<'_> {
             countries: "Fixture country",
             languages: "English",
             primary_action: "WATCH NOW",
+            primary_playback_target: Some(target.media_id().unwrap()),
+            selected_playlist: None,
+            seasons: None,
             kind: criterion_ui::DetailKind::Film,
         }),
         ..Default::default()

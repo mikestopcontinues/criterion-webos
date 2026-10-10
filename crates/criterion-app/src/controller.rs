@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Main-thread catalog publication and bounded navigation snapshots.
 mod catalog;
+mod continue_watching;
+mod native_detail;
+pub(crate) use native_detail::NativeDetailRead;
+#[cfg(test)]
+mod continue_watching_tests;
+pub(crate) use continue_watching::ContinueWatchingRead;
 mod my_list;
 use crate::{
     jobs::Jobs,
@@ -30,6 +36,10 @@ enum Query {
         options: Option<Arc<BrowseOptions>>,
     },
     Detail(MediaId),
+    NativeDetail {
+        id: MediaId,
+        auto_play: bool,
+    },
     Search(String, SearchGroup),
 }
 enum Loaded {
@@ -74,11 +84,16 @@ pub(crate) struct Controller<T = HttpTransport, C: MonotonicClock = SystemClock>
     query: Option<Query>,
     history: Vec<Snapshot>,
     suspended: bool,
+    foreground_active: bool,
     options: Option<Arc<BrowseOptions>>,
     browse: Option<Arc<BrowseRequest>>,
     pager: Option<catalog::Pager>,
     account_session: Option<u64>,
     private_epoch: Option<u64>,
+    continue_watching_demand: Option<continue_watching::Demand>,
+    continue_watching_sequence: u64,
+    native_detail_demand: Option<native_detail::Demand>,
+    native_detail_sequence: u64,
     my_list: Option<MyListState>,
     shelf_read: Option<Read>,
     shelf_deadline: Option<Duration>,
@@ -102,11 +117,16 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             query: None,
             history: Vec::new(),
             suspended: false,
+            foreground_active: true,
             options: None,
             browse: None,
             pager: None,
             account_session: None,
             private_epoch: None,
+            continue_watching_demand: None,
+            continue_watching_sequence: 0,
+            native_detail_demand: None,
+            native_detail_sequence: 0,
             my_list: None,
             shelf_read: None,
             shelf_deadline: None,
@@ -129,9 +149,26 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                 return self.navigate(destination, runtime);
             }
             Command::Open(target) => {
+                let native = self.view.native_activation(&target);
+                if let Some(crate::presentation::NativeActivation::Play { id }) = &native {
+                    return Effect::Play(id.clone());
+                }
                 self.remember();
                 self.page = page;
                 match target {
+                    Target::Native(_) => match native {
+                        Some(crate::presentation::NativeActivation::Detail { id, auto_play }) => {
+                            self.start(Query::NativeDetail { id, auto_play }, runtime);
+                        }
+                        Some(crate::presentation::NativeActivation::Play { .. }) => {
+                            unreachable!("native Play intent was consumed before navigation")
+                        }
+                        Some(crate::presentation::NativeActivation::Unsupported) | None => {
+                            self.query = None;
+                            self.jobs.cancel();
+                            self.view.set_status(criterion_ui::LoadState::Error);
+                        }
+                    },
                     Target::Media(id) | Target::Content(ContentTarget::Media { id, .. }) => {
                         self.start(Query::Detail(id), runtime)
                     }
@@ -162,6 +199,8 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                 }
             }
             Command::Restore(destination) => {
+                self.cancel_native_detail();
+                self.cancel_continue_watching();
                 self.jobs.cancel();
                 self.search_due = None;
                 self.search_loaded = false;
@@ -320,6 +359,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             }
             Command::MyListGroup(_) | Command::Catalog { .. } | Command::RetryCatalog => {}
             Command::SelectPlaylist(index) => self.view.select_playlist(index),
+            Command::SelectSeason(index) => self.view.select_native_season(index),
             Command::Authenticate => {
                 if self.page != Page::Login {
                     self.remember();
@@ -416,7 +456,11 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         if self.account_session == epoch {
             return;
         }
+        self.cancel_continue_watching();
         for snapshot in &mut self.history {
+            if let Some(view) = &mut snapshot.view {
+                view.clear_private_rows();
+            }
             if snapshot.private_epoch.take().is_some() {
                 snapshot.view = None;
                 if let Some(mut state) = snapshot.my_list.take() {
@@ -428,6 +472,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             self.view = Presentation::loading("My List");
             self.view.set_status(criterion_ui::LoadState::Empty);
         }
+        self.view.clear_private_rows();
         if let Some(mut state) = self.my_list.take() {
             state.retire();
         }
@@ -440,8 +485,13 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     pub(crate) fn background(&mut self) {
+        self.foreground_active = false;
+        self.cancel_continue_watching();
         self.cancel_shelf();
-        self.suspended |= self.jobs.is_active() || self.search_due.is_some();
+        self.suspended |= self.jobs.is_active()
+            || self.search_due.is_some()
+            || self.native_detail_demand.is_some();
+        self.cancel_native_detail();
         self.search_due = None;
         self.jobs.cancel();
         if let Some(pager) = &mut self.pager {
@@ -449,6 +499,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         }
     }
     pub(crate) fn foreground(&mut self, runtime: &Handle) {
+        self.foreground_active = true;
         if std::mem::take(&mut self.suspended)
             && let Some(query) = self.query.clone()
         {
@@ -469,6 +520,9 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     fn remember(&mut self) {
+        let interrupted_native = self.native_detail_demand.is_some();
+        self.cancel_native_detail();
+        self.cancel_continue_watching();
         if self.history.len() == MAX_HISTORY {
             self.history.remove(0);
         }
@@ -500,6 +554,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                 || self.search_due.is_some()
                 || interrupted_shelf
                 || interrupted_search
+                || interrupted_native
             {
                 None
             } else {
@@ -562,6 +617,8 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     fn navigate(&mut self, page: Page, runtime: &Handle) -> Effect {
+        self.cancel_native_detail();
+        self.cancel_continue_watching();
         self.search_due = None;
         self.search_loaded = false;
         if page != Page::MyList {
@@ -595,6 +652,8 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     fn start(&mut self, mut query: Query, runtime: &Handle) {
+        self.cancel_native_detail();
+        self.cancel_continue_watching();
         self.search_due = None;
         self.search_loaded = false;
         self.clear_shelf();
@@ -609,6 +668,11 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             self.pager = Some(catalog::Pager::new(request.clone(), self.clock.now()));
         }
         self.view = Presentation::loading(title(self.page));
+        if matches!(query, Query::NativeDetail { .. }) {
+            // Native middleware reads belong to the shared Accounts owner.
+            self.jobs.cancel();
+            return;
+        }
         if matches!(query, Query::Search(_, _)) {
             self.jobs.cancel();
             self.search_due = self.clock.now().checked_add(SEARCH_DELAY);
@@ -623,6 +687,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         let catalog = self.catalog.clone();
         self.jobs.replace(runtime, async move {
             match query {
+                Query::NativeDetail { .. } => Err(Error::InvalidRequest),
                 Query::Discovery(route) => catalog.discovery(route).await.map(Loaded::Discovery),
                 Query::Detail(id) => catalog
                     .detail(&id)
@@ -695,7 +760,7 @@ fn query_bytes(query: Option<&Query>) -> usize {
     std::mem::size_of::<Query>()
         + match query {
             Some(Query::Search(query, _)) => query.capacity(),
-            Some(Query::Detail(id)) => id.as_str().len(),
+            Some(Query::Detail(id) | Query::NativeDetail { id, .. }) => id.as_str().len(),
             Some(Query::Discovery(DiscoveryRoute::Discover(slug))) => slug.as_str().len(),
             Some(Query::Browse { request, .. }) => request_bytes(request),
             _ => 0,
@@ -833,6 +898,8 @@ mod tests {
                 kind: criterion_account::MediaKind::Film,
                 duration: None,
                 release_date: None,
+                series_id: None,
+                series_title: None,
             }],
             paging: criterion_account::PagingInfo {
                 page_limit: 50,
@@ -860,6 +927,8 @@ mod tests {
                     kind: criterion_account::MediaKind::Film,
                     duration: None,
                     release_date: None,
+                    series_id: None,
+                    series_title: None,
                 })
                 .collect(),
             paging: criterion_account::PagingInfo {

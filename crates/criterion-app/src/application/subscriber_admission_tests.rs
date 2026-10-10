@@ -325,12 +325,15 @@ impl<A: criterion_account::Transport> criterion_account::Transport for TracedAcc
         &self,
         request: criterion_account::Request,
     ) -> Result<criterion_account::Response, criterion_account::Error> {
-        use criterion_account::{Error, Target};
+        use criterion_account::{Error, Request, SubscriberTarget};
         let index = {
             let mut trace = self.trace.lock().map_err(|_| Error::Unavailable)?;
-            match &request.target {
-                Target::Bootstrap => None,
-                Target::WatchList { request, .. } if trace.reads.len() < MAX_READS => {
+            match &request {
+                Request::Bootstrap => None,
+                Request::Subscriber {
+                    target: SubscriberTarget::WatchList { request, .. },
+                    ..
+                } if trace.reads.len() < MAX_READS => {
                     let index = trace.reads.len();
                     trace.reads.push(ReadAttempt {
                         request: request.clone(),
@@ -338,7 +341,7 @@ impl<A: criterion_account::Transport> criterion_account::Transport for TracedAcc
                     });
                     Some(index)
                 }
-                _ => {
+                Request::Detail { .. } | Request::Subscriber { .. } => {
                     trace.refused = true;
                     return Err(Error::InvalidRequest);
                 }
@@ -1031,8 +1034,9 @@ mod admission_oracle_tests {
 
     #[test]
     fn traced_read_forwards_exact_request_and_refuses_other_methods() {
-        use criterion_account::{Region, Target, WatchListFilter, WatchListRequest};
+        use criterion_account::{Region, SubscriberTarget, WatchListFilter, WatchListRequest};
         use criterion_provider::PageCursor;
+        use criterion_session::SecretBody;
         use std::sync::{Arc, Mutex};
         struct Receiver(Arc<Mutex<Vec<WatchListRequest>>>);
         impl criterion_account::Transport for Receiver {
@@ -1040,9 +1044,22 @@ mod admission_oracle_tests {
                 &self,
                 request: criterion_account::Request,
             ) -> Result<criterion_account::Response, criterion_account::Error> {
-                let Target::WatchList { request, .. } = request.target else {
+                let criterion_account::Request::Subscriber {
+                    target: SubscriberTarget::WatchList { request, .. },
+                    credentials,
+                } = request
+                else {
                     panic!("unexpected synthetic method")
                 };
+                assert_eq!(
+                    credentials.bootstrap().as_bytes(),
+                    b"Bearer synthetic-bootstrap"
+                );
+                assert_eq!(credentials.subscriber().as_bytes(), b"synthetic-access");
+                assert!(
+                    credentials.bootstrap().is_sensitive()
+                        && credentials.subscriber().is_sensitive()
+                );
                 self.0.lock().unwrap().push(request);
                 Err(criterion_account::Error::Unavailable)
             }
@@ -1057,18 +1074,68 @@ mod admission_oracle_tests {
             .enable_all()
             .build()
             .unwrap();
+        struct Bootstrap;
+        impl criterion_account::Transport for Bootstrap {
+            async fn send(
+                &self,
+                request: criterion_account::Request,
+            ) -> Result<criterion_account::Response, criterion_account::Error> {
+                match request {
+                    criterion_account::Request::Bootstrap => Ok(criterion_account::Response {
+                        status: 200,
+                        body: SecretBody::new(br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec()),
+                    }),
+                    criterion_account::Request::Detail { .. } | criterion_account::Request::Subscriber { .. } => panic!("synthetic capabilities fixture only bootstraps"),
+                }
+            }
+        }
+        #[derive(Clone)]
+        struct Clock(Arc<std::sync::atomic::AtomicU64>);
+        impl MonotonicClock for Clock {
+            fn now(&self) -> Duration {
+                Duration::from_secs(self.0.load(std::sync::atomic::Ordering::SeqCst))
+            }
+        }
+        struct Issuer;
+        impl criterion_session::Transport for Issuer {
+            async fn post(
+                &self,
+                request: criterion_session::Request,
+            ) -> Result<criterion_session::Response, criterion_session::Error> {
+                let body = match request.endpoint {
+                    criterion_session::Endpoint::DeviceCode => br#"{"device_code":"synthetic-device","user_code":"ABCD","verification_uri_complete":"https://login.criterion.com/activate?user_code=ABCD","expires_in":900,"interval":5}"#.to_vec(),
+                    criterion_session::Endpoint::Token => br#"{"access_token":"synthetic-access","refresh_token":"synthetic-refresh","expires_in":3600}"#.to_vec(),
+                    criterion_session::Endpoint::Revoke => panic!("synthetic forwarding fixture never revokes"),
+                };
+                Ok(criterion_session::Response {
+                    status: 200,
+                    body: SecretBody::new(body),
+                })
+            }
+        }
+        let time = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let session = criterion_session::Session::with_transport(
+            criterion_session::Configuration::production(),
+            Issuer,
+            Clock(time.clone()),
+        );
+        runtime.block_on(session.start_link()).unwrap();
+        time.store(5, std::sync::atomic::Ordering::SeqCst);
+        runtime.block_on(session.poll_once()).unwrap();
+        let capabilities = criterion_account::AccountClient::with_transport(Bootstrap);
+        runtime.block_on(capabilities.bootstrap()).unwrap();
         let expected = WatchListRequest {
             filter: WatchListFilter::FilmSeries,
             cursor: Some(PageCursor::new("synthetic opaque +/%").unwrap()),
         };
         let result = runtime.block_on(criterion_account::Transport::send(
             &transport,
-            criterion_account::Request {
-                target: Target::WatchList {
+            criterion_account::Request::Subscriber {
+                target: SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: expected.clone(),
                 },
-                credentials: None,
+                credentials: capabilities.credentials(&session).unwrap(),
             },
         ));
         assert!(matches!(result, Err(criterion_account::Error::Unavailable)));
@@ -1082,9 +1149,9 @@ mod admission_oracle_tests {
         drop(recorded);
         let result = runtime.block_on(criterion_account::Transport::send(
             &transport,
-            criterion_account::Request {
-                target: Target::ContinueWatching(Region::Us),
-                credentials: None,
+            criterion_account::Request::Subscriber {
+                target: SubscriberTarget::ContinueWatching(Region::Us),
+                credentials: capabilities.credentials(&session).unwrap(),
             },
         ));
         assert!(matches!(
@@ -1096,24 +1163,24 @@ mod admission_oracle_tests {
         for _ in 1..MAX_READS {
             let result = runtime.block_on(criterion_account::Transport::send(
                 &transport,
-                criterion_account::Request {
-                    target: Target::WatchList {
+                criterion_account::Request::Subscriber {
+                    target: SubscriberTarget::WatchList {
                         region: Region::Us,
                         request: expected.clone(),
                     },
-                    credentials: None,
+                    credentials: capabilities.credentials(&session).unwrap(),
                 },
             ));
             assert!(matches!(result, Err(criterion_account::Error::Unavailable)));
         }
         let result = runtime.block_on(criterion_account::Transport::send(
             &transport,
-            criterion_account::Request {
-                target: Target::WatchList {
+            criterion_account::Request::Subscriber {
+                target: SubscriberTarget::WatchList {
                     region: Region::Us,
                     request: expected,
                 },
-                credentials: None,
+                credentials: capabilities.credentials(&session).unwrap(),
             },
         ));
         assert!(matches!(
@@ -1283,10 +1350,18 @@ mod cleanup_tests {
             &self,
             request: criterion_account::Request,
         ) -> Result<criterion_account::Response, criterion_account::Error> {
-            let body = match request.target {
-                criterion_account::Target::Bootstrap => br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec(),
-                criterion_account::Target::WatchList { region: criterion_account::Region::Us, .. } => br#"{"paging":{"page_limit":60},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private selection"}]}"#.to_vec(),
-                _ => panic!("subscriber admission must remain read-only"),
+            let body = match request {
+                criterion_account::Request::Bootstrap => br#"{"country":"US","token":"synthetic-bootstrap","baseUrl":{"us":"https://mw.criterion.com/api/us","ca":"https://mw.criterion.com/api/ca"}}"#.to_vec(),
+                criterion_account::Request::Subscriber {
+                    target: criterion_account::SubscriberTarget::WatchList { region: criterion_account::Region::Us, .. },
+                    credentials,
+                } => {
+                    assert_eq!(credentials.bootstrap().as_bytes(), b"Bearer synthetic-bootstrap");
+                    assert_eq!(credentials.subscriber().as_bytes(), b"synthetic-access");
+                    assert!(credentials.bootstrap().is_sensitive() && credentials.subscriber().is_sensitive());
+                    br#"{"paging":{"page_limit":60},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"AbCd1234","title":"Synthetic private selection"}]}"#.to_vec()
+                }
+                criterion_account::Request::Detail { .. } | criterion_account::Request::Subscriber { .. } => panic!("subscriber admission must remain read-only"),
             };
             Ok(criterion_account::Response {
                 status: 200,

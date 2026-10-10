@@ -39,25 +39,30 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Items<T> {
         deserializer.deserialize_seq(Bounded(PhantomData))
     }
 }
-struct Text<const N: usize>(String);
-impl<'de, const N: usize> Deserialize<'de> for Text<N> {
+struct Text<const N: usize, const EMPTY: bool = false>(String);
+impl<'de, const N: usize, const EMPTY: bool> Deserialize<'de> for Text<N, EMPTY> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Bounded<const N: usize>;
-        impl<const N: usize> Visitor<'_> for Bounded<N> {
-            type Value = Text<N>;
+        struct Bounded<const N: usize, const EMPTY: bool>;
+        impl<const N: usize, const EMPTY: bool> Visitor<'_> for Bounded<N, EMPTY> {
+            type Value = Text<N, EMPTY>;
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("bounded nonempty text")
+                formatter.write_str("bounded text")
             }
             fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-                if value.is_empty() || value.len() > N || value.chars().any(char::is_control) {
+                if (!EMPTY && value.is_empty())
+                    || value.len() > N
+                    || value.chars().any(char::is_control)
+                {
                     return Err(E::custom("text limit"));
                 }
                 Ok(Text(value.into()))
             }
         }
-        deserializer.deserialize_str(Bounded::<N>)
+        deserializer.deserialize_str(Bounded::<N, EMPTY>)
     }
 }
+// Reuse the application's strict eight-character identifier admission. The
+// signed native DTO String descriptor does not establish a universal namespace.
 struct Id(MediaId);
 impl<'de> Deserialize<'de> for Id {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -124,6 +129,19 @@ struct TimedDate {
     #[serde(default, deserialize_with = "date")]
     release_date: Option<time::Date>,
 }
+#[derive(Deserialize)]
+struct Episode {
+    mediaid: Id,
+    title: Text<1024>,
+    #[serde(default, deserialize_with = "duration")]
+    duration: Option<f32>,
+    #[serde(default, deserialize_with = "date")]
+    release_date: Option<time::Date>,
+    #[serde(default)]
+    series_id: Option<Id>,
+    #[serde(default)]
+    series_title: Option<Text<1024, true>>,
+}
 fn duration<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<f32>, D::Error> {
     // Present null is invalid in the native nonnullable Float32 descriptor;
     // omitted duration remains absent rather than acquiring an invented zero.
@@ -164,14 +182,39 @@ enum MediaWire {
     Collection(Common),
     Series(Dated),
     Original(TimedDate),
-    Episode(TimedDate),
+    Episode(Episode),
     Franchise(Common),
     Live(Timed),
     Film(TimedDate),
     Supplement(TimedDate),
 }
+/// Seasons contain concrete Episode DTOs, without a polymorphic discriminator.
+#[derive(Deserialize)]
+#[serde(transparent)]
+pub(crate) struct EpisodeSummaryWire(Episode);
+impl From<EpisodeSummaryWire> for MediaSummary {
+    fn from(value: EpisodeSummaryWire) -> Self {
+        MediaWire::Episode(value.0).into()
+    }
+}
+/// Shared exact native nine-kind summary decoder for owned child lists.
+#[derive(Deserialize)]
+#[serde(transparent)]
+pub(crate) struct SummaryWire(MediaWire);
+impl From<SummaryWire> for MediaSummary {
+    fn from(value: SummaryWire) -> Self {
+        value.0.into()
+    }
+}
 impl From<MediaWire> for MediaSummary {
     fn from(value: MediaWire) -> Self {
+        let (series_id, series_title) = match &value {
+            MediaWire::Episode(data) => (
+                data.series_id.as_ref().map(|id| id.0.clone()),
+                data.series_title.as_ref().map(|text| text.0.clone()),
+            ),
+            _ => (None, None),
+        };
         let (id, title, kind, duration, release_date) = match value {
             MediaWire::Category(data) => {
                 (data.mediaid, data.title, MediaKind::Category, None, None)
@@ -231,6 +274,8 @@ impl From<MediaWire> for MediaSummary {
             kind,
             duration,
             release_date,
+            series_id,
+            series_title,
         }
     }
 }
