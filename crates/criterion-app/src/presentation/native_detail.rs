@@ -15,6 +15,7 @@ const MAX_NATIVE_SEASONS: usize = 64;
 const MAX_NATIVE_BYTES: usize = 512 * 1024;
 
 pub(super) struct NativeDetailState {
+    kind: MediaKind,
     pub(super) seasons_tab: Option<usize>,
     pub(super) selected_season: usize,
     pub(super) seasons: Vec<OwnedSeason>,
@@ -44,6 +45,16 @@ impl NativeDetailState {
     }
 }
 impl Presentation {
+    /// Ordinary native Detail identity stays distinct from its selected Episode.
+    pub(crate) fn native_root(&self) -> Option<(&criterion_provider::MediaId, MediaKind)> {
+        let detail = self.detail.as_ref()?;
+        let native = detail.native.as_ref()?;
+        if native.kind == MediaKind::Live {
+            return None;
+        }
+        Some((detail.card.target.media_id()?, native.kind))
+    }
+
     pub(crate) fn native_detail(
         detail: criterion_account::NativeDetail,
         positions: Option<&PositionsSnapshot>,
@@ -67,6 +78,7 @@ impl Presentation {
             | MediaKind::Live => None,
         };
         let mut native = NativeDetailState {
+            kind: detail.media.kind,
             seasons_tab: None,
             selected_season: resolution.as_ref().map_or(0, |value| value.initial_season),
             seasons: Vec::new(),

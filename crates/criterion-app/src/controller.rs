@@ -2,7 +2,9 @@
 //! Main-thread catalog publication and bounded navigation snapshots.
 mod catalog;
 mod continue_watching;
+mod list_membership;
 mod native_detail;
+pub(crate) use list_membership::MembershipScope;
 pub(crate) use native_detail::NativeDetailRead;
 #[cfg(test)]
 mod continue_watching_tests;
@@ -94,6 +96,7 @@ pub(crate) struct Controller<T = HttpTransport, C: MonotonicClock = SystemClock>
     continue_watching_sequence: u64,
     native_detail_demand: Option<native_detail::Demand>,
     native_detail_sequence: u64,
+    membership_visit: Option<u64>,
     my_list: Option<MyListState>,
     shelf_read: Option<Read>,
     shelf_deadline: Option<Duration>,
@@ -127,6 +130,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             continue_watching_sequence: 0,
             native_detail_demand: None,
             native_detail_sequence: 0,
+            membership_visit: Some(0),
             my_list: None,
             shelf_read: None,
             shelf_deadline: None,
@@ -199,6 +203,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                 }
             }
             Command::Restore(destination) => {
+                self.retire_membership_visit();
                 self.cancel_native_detail();
                 self.cancel_continue_watching();
                 self.jobs.cancel();
@@ -456,6 +461,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         if self.account_session == epoch {
             return;
         }
+        self.retire_membership_visit();
         self.cancel_continue_watching();
         for snapshot in &mut self.history {
             if let Some(view) = &mut snapshot.view {
@@ -485,6 +491,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     pub(crate) fn background(&mut self) {
+        self.retire_membership_visit();
         self.foreground_active = false;
         self.view.clear_native_resume();
         for snapshot in &mut self.history {
@@ -526,6 +533,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     fn remember(&mut self) {
+        self.retire_membership_visit();
         self.view.clear_native_resume();
         let interrupted_native = self.native_detail_demand.is_some();
         self.cancel_native_detail();
@@ -624,6 +632,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     fn navigate(&mut self, page: Page, runtime: &Handle) -> Effect {
+        self.retire_membership_visit();
         self.cancel_native_detail();
         self.cancel_continue_watching();
         self.search_due = None;
@@ -659,6 +668,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     fn start(&mut self, mut query: Query, runtime: &Handle) {
+        self.retire_membership_visit();
         self.cancel_native_detail();
         self.cancel_continue_watching();
         self.search_due = None;

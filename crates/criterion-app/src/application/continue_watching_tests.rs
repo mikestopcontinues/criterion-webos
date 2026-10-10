@@ -90,6 +90,7 @@ impl RequestTransport for Public {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
+    MyListIds,
     ContinueWatching,
     WatchList,
     NativeDetail(&'static str),
@@ -118,6 +119,7 @@ struct Middleware {
     native_kind: Arc<Mutex<&'static str>>,
     continue_body: Arc<Mutex<Option<Vec<u8>>>>,
     detail_body: Arc<Mutex<Option<Vec<u8>>>>,
+    ids_result: Arc<Mutex<Result<Vec<u8>, criterion_account::Error>>>,
 }
 impl Middleware {
     fn new(steps: Vec<Step>) -> Self {
@@ -134,6 +136,9 @@ impl Middleware {
             native_kind: Arc::new(Mutex::new("film")),
             continue_body: Arc::default(),
             detail_body: Arc::default(),
+            ids_result: Arc::new(Mutex::new(Ok(
+                br#"{"watchlist":["Listed01"],"positions":[]}"#.to_vec(),
+            ))),
         }
     }
     fn refuse(&self, reason: &'static str) -> criterion_account::Error {
@@ -177,6 +182,7 @@ impl criterion_account::Transport for Middleware {
                     return Err(self.refuse("subscriber read has incorrect header capabilities"));
                 }
                 match target {
+                    SubscriberTarget::MyListIds(Region::Ca) => Kind::MyListIds,
                     SubscriberTarget::ContinueWatching(Region::Ca) => Kind::ContinueWatching,
                     SubscriberTarget::WatchList {
                         region: Region::Ca,
@@ -229,6 +235,7 @@ impl criterion_account::Transport for Middleware {
             gate.release.notified().await;
         }
         let body=match kind {
+            Kind::MyListIds=>self.ids_result.lock().unwrap().clone()?,
             Kind::ContinueWatching=>self.continue_body.lock().unwrap().clone().unwrap_or_else(||br#"{"playlist":[{"mediaid":"Private1","title":"Synthetic saved film","contentType":"film","duration":90.5},{"mediaid":"Private2","title":"Synthetic completed film","contentType":"film"}],"positions":[{"media_id":"Private1","pos":98,"dur":100},{"media_id":"Private2","pos":120,"dur":100}]}"#.to_vec()),
             Kind::WatchList=>self.watch_list_body.lock().unwrap().clone().unwrap_or_else(||br#"{"paging":{"page_limit":50},"type_counts":{"film":1},"playlist":[{"mediaid":"Listed01","title":"Synthetic listed film","contentType":"film"}]}"#.to_vec()),
             Kind::NativeDetail(requested) => {

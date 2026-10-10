@@ -62,6 +62,7 @@ struct Step {
 impl Step {
     fn read(request: &ReadRequest) -> Self {
         let (target, body) = match request {
+            ReadRequest::MyListIds => panic!("fixture does not admit MyListIds"),
             ReadRequest::Playback(_) => panic!("fixture does not admit Playback"),
             ReadRequest::NativeDetail { media_id } => (
                 Observation::Detail { region: Region::Ca, media_id: media_id.clone() },
@@ -463,6 +464,7 @@ fn detail_watch_list_and_continue_watching_share_one_bootstrap_and_exact_payload
             *request == detail("Native01")
         );
         match &loaded.data {
+            Loaded::MyListIds(_) => panic!("fixture does not admit MyListIds"),
             Loaded::NativeDetail(data) => {
                 let ReadRequest::NativeDetail { media_id } = request else {
                     panic!("exact typed Detail request")

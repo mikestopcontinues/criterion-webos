@@ -82,6 +82,7 @@ struct Step {
 impl Step {
     fn page(request: ReadRequest) -> Self {
         match request {
+            ReadRequest::MyListIds => panic!("fixture does not admit MyListIds"),
             ReadRequest::Playback(_) => panic!("fixture does not admit Playback"),
             ReadRequest::WatchList(request) => Self {
                 target: Observation::Subscriber(SubscriberTarget::WatchList {
@@ -448,6 +449,7 @@ fn native_methods_share_one_bootstrap_and_retain_each_typed_result() {
         assert_eq!(loaded.session_generation(), 12);
         assert!(loaded.matches_request(&request));
         match &loaded.data {
+            Loaded::MyListIds(_) => panic!("fixture does not admit MyListIds"),
             Loaded::WatchList {
                 request: actual,
                 page,

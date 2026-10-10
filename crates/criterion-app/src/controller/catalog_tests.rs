@@ -760,7 +760,7 @@ fn remote_catalog_continuation_detail_and_back_keep_the_paired_display_and_focus
     ] {
         let commands = owner
             .view
-            .with_view(LoginView::SignedOut, |v| ui.handle(action, v));
+            .with_view(LoginView::SignedOut, |v| ui.handle(action, &v));
         for command in commands {
             owner.command(command, ui.page(), runtime.handle());
         }
@@ -768,7 +768,7 @@ fn remote_catalog_continuation_detail_and_back_keep_the_paired_display_and_focus
     until(&mut owner, &runtime, |o| !o.jobs.is_active());
     for _ in 0..14 {
         let commands = owner.view.with_view(LoginView::SignedOut, |v| {
-            ui.handle(criterion_ui::Action::Down, v)
+            ui.handle(criterion_ui::Action::Down, &v)
         });
         for command in commands {
             owner.command(command, ui.page(), runtime.handle());
@@ -777,7 +777,7 @@ fn remote_catalog_continuation_detail_and_back_keep_the_paired_display_and_focus
     until(&mut owner, &runtime, |o| !o.jobs.is_active());
     assert_eq!(len(&owner), 120);
     let selected = owner.view.with_view(LoginView::SignedOut, |v| {
-        ui.handle(criterion_ui::Action::Select, v)
+        ui.handle(criterion_ui::Action::Select, &v)
     });
     assert!(selected.contains(&Command::Open(Target::Media(
         MediaId::new("Film0038").unwrap()
@@ -786,7 +786,7 @@ fn remote_catalog_continuation_detail_and_back_keep_the_paired_display_and_focus
         owner.command(command, ui.page(), runtime.handle());
     }
     let back = owner.view.with_view(LoginView::SignedOut, |v| {
-        ui.handle(criterion_ui::Action::Back, v)
+        ui.handle(criterion_ui::Action::Back, &v)
     });
     for command in back {
         owner.command(command, ui.page(), runtime.handle());
@@ -821,12 +821,12 @@ fn rail_departure_after_pending_down_fulfillment_records_the_exact_history_ancho
     ] {
         owner
             .view
-            .with_view(LoginView::SignedOut, |v| ui.handle(action, v));
+            .with_view(LoginView::SignedOut, |v| ui.handle(action, &v));
     }
     transport.hold.store(true, Ordering::SeqCst);
     for _ in 0..45 {
         let commands = owner.view.with_view(LoginView::SignedOut, |v| {
-            ui.handle(criterion_ui::Action::Down, v)
+            ui.handle(criterion_ui::Action::Down, &v)
         });
         for command in commands {
             owner.command(command, ui.page(), runtime.handle());
@@ -844,7 +844,7 @@ fn rail_departure_after_pending_down_fulfillment_records_the_exact_history_ancho
     ] {
         let commands = owner
             .view
-            .with_view(LoginView::SignedOut, |v| ui.handle(action, v));
+            .with_view(LoginView::SignedOut, |v| ui.handle(action, &v));
         for command in commands {
             owner.command(command, ui.page(), runtime.handle());
         }
@@ -853,7 +853,7 @@ fn rail_departure_after_pending_down_fulfillment_records_the_exact_history_ancho
     // Budget eviction itself is covered above; this isolates paired anchor ownership.
     owner.history[0].view = None;
     let commands = owner.view.with_view(LoginView::SignedOut, |v| {
-        ui.handle(criterion_ui::Action::Back, v)
+        ui.handle(criterion_ui::Action::Back, &v)
     });
     for command in commands {
         owner.command(command, ui.page(), runtime.handle());

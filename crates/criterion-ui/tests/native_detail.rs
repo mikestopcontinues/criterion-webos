@@ -61,6 +61,7 @@ fn detail<'a>(target: &'a Target, primary: Option<&'a MediaId>) -> criterion_ui:
         selected_playlist: None,
         seasons: None,
         kind: criterion_ui::DetailKind::Series,
+        membership: criterion_ui::ListMembership::SignedOut,
     }
 }
 fn open_detail(ui: &mut AppUi, target: &Target) {

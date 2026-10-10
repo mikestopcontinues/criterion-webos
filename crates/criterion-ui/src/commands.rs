@@ -112,6 +112,14 @@ impl AppUi {
                 Intent::ToggleList => data
                     .detail
                     .as_ref()
+                    .filter(|detail| {
+                        // Membership is display-only; signed-in writes await durable admission.
+                        detail.kind != crate::DetailKind::Live
+                            && !matches!(
+                                data.login,
+                                crate::LoginView::SignedIn | crate::LoginView::SigningOut
+                            )
+                    })
                     .and_then(|detail| detail.card.key.media_id())
                     .map(|id| Command::ToggleList(id.clone())),
                 Intent::SelectPlaylist(index) => Some(Command::SelectPlaylist(index)),

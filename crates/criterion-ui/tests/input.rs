@@ -322,6 +322,7 @@ fn detail_tab_press_is_bound_to_the_owning_detail_identity() {
             selected_playlist: None,
             seasons: None,
             kind: criterion_ui::DetailKind::Film,
+            membership: criterion_ui::ListMembership::SignedOut,
         }),
         status: LoadState::Ready,
         ..ViewData::default()

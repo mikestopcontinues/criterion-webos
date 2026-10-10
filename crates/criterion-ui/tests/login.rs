@@ -381,6 +381,7 @@ fn authentication_from_information_modal_owns_input_and_restores_the_modal() {
         selected_playlist: None,
         seasons: None,
         kind: criterion_ui::DetailKind::Film,
+        membership: criterion_ui::ListMembership::SignedOut,
     };
     let data = ViewData {
         hero: Some(criterion_ui::Hero {
@@ -503,6 +504,7 @@ fn film_view(target: &criterion_ui::Target) -> ViewData<'_> {
             selected_playlist: None,
             seasons: None,
             kind: criterion_ui::DetailKind::Film,
+            membership: criterion_ui::ListMembership::SignedOut,
         }),
         ..Default::default()
     }

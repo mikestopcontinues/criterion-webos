@@ -443,6 +443,10 @@ fn background_retires_native_read_and_foreground_restarts_only_interrupted_metad
             list(),
             detail("Listed01", Some(gate.clone())),
             detail("Listed01", None),
+            Step {
+                kind: Kind::MyListIds,
+                gate: None,
+            },
         ],
         5,
     );
@@ -479,7 +483,8 @@ fn background_retires_native_read_and_foreground_restarts_only_interrupted_metad
         [
             Kind::WatchList,
             Kind::NativeDetail("Listed01"),
-            Kind::NativeDetail("Listed01")
+            Kind::NativeDetail("Listed01"),
+            Kind::MyListIds,
         ]
     );
     assert_eq!(fixture.script.maximum.load(Ordering::SeqCst), 1);
@@ -803,6 +808,10 @@ fn rendered_back_exit_cannot_republish_the_private_frame_after_retirement() {
 #[test]
 fn cached_anonymous_series_reset_keeps_a_visible_canonical_card_focus() {
     let mut fixture = boundary_series_fixture();
+    fixture.script.steps.lock().unwrap().push_back(Step {
+        kind: Kind::MyListIds,
+        gate: None,
+    });
     fixture.wait(|fixture| fixture.saved().len() == 1);
     fixture.key(81, 1_073_741_905);
     fixture.key(81, 1_073_741_905);
@@ -835,6 +844,10 @@ fn cached_anonymous_series_reset_keeps_a_visible_canonical_card_focus() {
         output.textures_delta.clear();
     }
     fixture.pump();
+    fixture.wait(|fixture| {
+        fixture.script.calls.lock().unwrap().len() == 3
+            && fixture.script.active.load(Ordering::SeqCst) == 0
+    });
     assert!(fixture.native_ready("Listed01"));
     fixture
         .app
@@ -878,5 +891,7 @@ fn cached_anonymous_series_reset_keeps_a_visible_canonical_card_focus() {
     );
 }
 
+#[path = "list_membership_tests.rs"]
+mod list_membership_tests;
 #[path = "native_runtime_tests.rs"]
 mod native_runtime_tests;

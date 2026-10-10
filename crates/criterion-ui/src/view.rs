@@ -59,6 +59,17 @@ pub struct SeasonView<'a> {
     pub selected: usize,
     pub choices: &'a [SeasonChoice<'a>],
 }
+/// Ephemeral read-only membership supplied by the application for this Detail.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ListMembership {
+    #[default]
+    SignedOut,
+    Pending,
+    Known {
+        present: bool,
+    },
+    Unavailable,
+}
 pub struct Detail<'a> {
     pub card: Card<'a>,
     /// Owned and formatted by the presentation, independently for each surface.
@@ -75,6 +86,7 @@ pub struct Detail<'a> {
     pub selected_playlist: Option<usize>,
     pub seasons: Option<SeasonView<'a>>,
     pub kind: crate::DetailKind,
+    pub membership: ListMembership,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoadState {
@@ -1018,11 +1030,37 @@ impl AppUi {
             "i",
             self.focus() == Focus::DetailAction(1),
         );
-        button(
+        let (symbol, caption) = match detail.membership {
+            ListMembership::SignedOut => ("+", "MY LIST"),
+            ListMembership::Pending => ("...", "CHECKING MY LIST"),
+            ListMembership::Known { present: true } => ("", "IN MY LIST"),
+            ListMembership::Known { present: false } => ("+", "NOT IN MY LIST"),
+            ListMembership::Unavailable => ("?", "MY LIST UNAVAILABLE"),
+        };
+        let list_control =
+            Rect::from_min_size(Pos2::new(info_x + 102.0, y + 620.0), Vec2::splat(82.0));
+        if detail.membership == (ListMembership::Known { present: true }) {
+            icon_button(
+                p,
+                list_control,
+                Icon::Check,
+                self.focus() == Focus::DetailAction(2),
+            );
+        } else {
+            button(
+                p,
+                list_control,
+                symbol,
+                self.focus() == Focus::DetailAction(2),
+            );
+        }
+        label(
             p,
-            Rect::from_min_size(Pos2::new(info_x + 102.0, y + 620.0), Vec2::splat(82.0)),
-            "+",
-            self.focus() == Focus::DetailAction(2),
+            [list_control.left(), y + 716.0],
+            caption,
+            20.0,
+            MUTED,
+            340.0,
         );
         paragraph(
             p,

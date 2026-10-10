@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tokio::runtime::{Handle, Runtime};
 
 pub(crate) enum Loaded {
+    MyListIds(criterion_account::MyListIds),
     Playback {
         request: NativePlaybackRequest,
         selection: NativePlaybackSelection,
@@ -29,6 +30,7 @@ pub(crate) enum Loaded {
 impl std::fmt::Debug for Loaded {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::MyListIds(data) => formatter.debug_tuple("MyListIds").field(data).finish(),
             Self::Playback { request, selection } => formatter
                 .debug_struct("Playback")
                 .field("request", request)
@@ -53,6 +55,7 @@ impl std::fmt::Debug for Loaded {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ReadRequest {
+    MyListIds,
     Playback(NativePlaybackRequest),
     WatchList(WatchListRequest),
     ContinueWatching,
@@ -66,7 +69,8 @@ pub(crate) enum ReadRequest {
 impl ReadRequest {
     pub(crate) fn requires_subscriber(&self) -> bool {
         match self {
-            Self::Playback(_)
+            Self::MyListIds
+            | Self::Playback(_)
             | Self::WatchList(_)
             | Self::ContinueWatching
             | Self::Entitlement { .. } => true,
@@ -89,6 +93,7 @@ impl LoadedAccount {
     }
     pub(crate) fn matches_request(&self, expected: &ReadRequest) -> bool {
         match (&self.data, expected) {
+            (Loaded::MyListIds(_), ReadRequest::MyListIds) => true,
             (Loaded::Playback { request, .. }, _) => {
                 expected == &ReadRequest::Playback(request.clone())
             }
@@ -284,6 +289,7 @@ impl<
                 Err(error) => return Err(error),
             }
             let data = match intent.request {
+                ReadRequest::MyListIds => Loaded::MyListIds(account.my_list_ids(&session).await?),
                 ReadRequest::Playback(request) => {
                     let selection = account.playback(&session, request.clone()).await?;
                     Loaded::Playback { request, selection }
@@ -360,6 +366,8 @@ impl<A: criterion_account::Transport, S: criterion_session::Transport, C: Monoto
 mod continue_watching_tests;
 #[cfg(test)]
 mod entitlement_tests;
+#[cfg(test)]
+mod my_list_ids_tests;
 #[cfg(test)]
 mod native_detail_tests;
 #[cfg(test)]

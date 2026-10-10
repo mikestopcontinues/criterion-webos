@@ -33,6 +33,7 @@ pub(crate) struct Application<
     continue_watching_generation: Option<ContinueWatchingRead>,
     native_detail_pending: Option<crate::controller::NativeDetailRead>,
     native_detail_generation: Option<NativeDetailRead>,
+    list_membership: Option<list_membership::Observation>,
     positions: Option<AccountPositions>,
     artwork: Artwork,
     input: InputAdapter,
@@ -111,6 +112,7 @@ impl<
             continue_watching_generation: None,
             native_detail_pending: None,
             native_detail_generation: None,
+            list_membership: None,
             positions: None,
             artwork,
             input: InputAdapter::new(surface),
@@ -149,13 +151,20 @@ impl<
         // A worker may finish between the main loop's poll and input rendering.
         self.authentication.poll(runtime, false);
         self.sync_account_session();
+        self.retire_departed_membership();
         let frame_epoch = self.account_epoch;
+        let frame_membership_visit = self
+            .list_membership
+            .as_ref()
+            .map(|_| self.controller.membership_visit());
+        let membership = self.membership_view();
         let batch = self.input.take_frame(now);
         let mut frame = self
             .controller
             .view
-            .with_view(self.authentication.view(), |data| {
-                self.ui.render(batch.raw, data)
+            .with_view(self.authentication.view(), |mut data| {
+                list_membership::overlay(&mut data, membership);
+                self.ui.render(batch.raw, &data)
             });
         for command in frame.commands {
             if self.exiting {
@@ -167,12 +176,14 @@ impl<
             if self.exiting {
                 break;
             }
-            let commands = self
-                .controller
-                .view
-                .with_view(self.authentication.view(), |data| {
-                    self.ui.handle(action, data)
-                });
+            let membership = self.membership_view();
+            let commands =
+                self.controller
+                    .view
+                    .with_view(self.authentication.view(), |mut data| {
+                        list_membership::overlay(&mut data, membership);
+                        self.ui.handle(action, &data)
+                    });
             for command in commands {
                 self.command(command, runtime.handle());
             }
@@ -187,7 +198,12 @@ impl<
             self.artwork.poll(runtime, &mut self.ui);
         }
         self.sync_account_session();
-        if !self.active || self.exiting || frame_epoch != self.account_epoch {
+        if !self.active
+            || self.exiting
+            || frame_epoch != self.account_epoch
+            || frame_membership_visit
+                .is_some_and(|visit| visit != self.controller.membership_visit())
+        {
             // Preserve texture deltas for retirement, but never publish shapes
             // painted before foreground or account scope was retired.
             frame.output.shapes.clear();
@@ -244,15 +260,19 @@ impl<
             }
             // Subscriber shelf and licensed playback admission are separate reviewed
             // layers. This development executable cannot advertise those as available.
-            Effect::Play(id) | Effect::ToggleList(id) => {
+            Effect::Play(id) => {
                 drop(id);
                 self.controller.view.set_status(LoadState::Error);
             }
+            // Read-only membership cannot authorize an issued write. Keep
+            // this independent of UI refusal and preserve the current Detail.
+            Effect::ToggleList(id) => drop(id),
             Effect::VoiceSearch => self.controller.view.set_status(LoadState::Error),
         }
         self.retire_departed_shelf();
         self.retire_departed_continue_watching();
         self.retire_departed_native_detail();
+        self.retire_departed_membership();
         if let Some(search) = retained_search {
             // A fresh rail visit keeps the visible query/group. Only Navigate
             // pushes history; replay its typed request without another snapshot.
@@ -269,9 +289,11 @@ impl<
         self.retire_departed_shelf();
         self.retire_departed_continue_watching();
         self.retire_departed_native_detail();
+        self.retire_departed_membership();
         if active {
             self.poll_continue_watching(runtime);
             self.poll_native_detail(runtime);
+            self.poll_membership(runtime);
         }
         if active && self.controller.shelf_expired() {
             let read = self
@@ -317,6 +339,14 @@ impl<
             None
         };
         if let Some(result) = result {
+            if self
+                .list_membership
+                .as_ref()
+                .is_some_and(|read| read.is_issued())
+            {
+                self.complete_membership(result);
+                return;
+            }
             if self.native_detail_generation.is_some() {
                 self.complete_native_detail(result);
                 return;
@@ -371,6 +401,7 @@ impl<
         }
     }
     fn stage_shelf(&mut self, read: crate::my_list::Read) {
+        self.cancel_membership();
         self.cancel_native_detail_read();
         self.cancel_continue_watching_read();
         if self.shelf_generation.take().is_some() {
@@ -418,6 +449,7 @@ impl<
         self.continue_watching_generation = None;
         self.native_detail_pending = None;
         self.native_detail_generation = None;
+        self.list_membership = None;
         self.controller.abandon_native_detail();
         self.accounts.background();
         self.controller.set_account_session(None);
@@ -446,6 +478,7 @@ impl<
         self.continue_watching_generation = None;
         self.native_detail_pending = None;
         self.native_detail_generation = None;
+        self.list_membership = None;
         self.controller.abandon_native_detail();
         self.accounts.background();
     }
@@ -475,6 +508,7 @@ impl<
 mod continue_watching;
 #[cfg(test)]
 mod continue_watching_tests;
+mod list_membership;
 mod native_detail;
 
 #[cfg(test)]
@@ -585,7 +619,7 @@ mod tests {
             .controller
             .view
             .with_view(app.authentication.view(), |data| {
-                app.ui.handle(action, data)
+                app.ui.handle(action, &data)
             });
         for command in commands {
             app.command(command, runtime.handle());

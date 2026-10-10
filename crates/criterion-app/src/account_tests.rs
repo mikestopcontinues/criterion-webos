@@ -217,7 +217,7 @@ fn action(app: &mut App, runtime: &Runtime, action: Action) {
         .controller
         .view
         .with_view(app.authentication.view(), |data| {
-            app.ui.handle(action, data)
+            app.ui.handle(action, &data)
         });
     for command in commands {
         app.command(command, runtime.handle());

@@ -88,6 +88,7 @@ fn filter_and_information_controls_use_vector_marks_and_keep_remote_actions() {
             selected_playlist: None,
             seasons: None,
             kind: criterion_ui::DetailKind::Film,
+            membership: criterion_ui::ListMembership::SignedOut,
         }),
         status: criterion_ui::LoadState::Ready,
         ..Default::default()

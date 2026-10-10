@@ -605,7 +605,7 @@ impl Presentation {
     pub(crate) fn with_view<R>(
         &self,
         login: criterion_ui::LoginView<'_>,
-        consume: impl FnOnce(&ViewData<'_>) -> R,
+        consume: impl FnOnce(ViewData<'_>) -> R,
     ) -> R {
         let cards: Vec<_> = match &self.card_indices {
             Some(indices) => indices
@@ -662,6 +662,7 @@ impl Presentation {
             })
             .collect();
         let detail = self.detail.as_ref().map(|detail| Detail {
+            membership: criterion_ui::ListMembership::Unavailable,
             card: detail.card.view(),
             header_metadata: &detail.header_metadata,
             information_metadata: &detail.information_metadata,
@@ -708,7 +709,7 @@ impl Presentation {
             .filters
             .as_ref()
             .map(|_| FilterMenu { groups: &groups });
-        consume(&ViewData {
+        consume(ViewData {
             filters,
             detail,
             hero,

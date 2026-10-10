@@ -46,6 +46,7 @@ fn unavailable_duration_is_omitted_from_grid_detail_and_information() {
             selected_playlist: None,
             seasons: None,
             kind: DetailKind::Film,
+            membership: criterion_ui::ListMembership::SignedOut,
         }),
         ..Default::default()
     };
@@ -104,6 +105,7 @@ fn native_information_omits_headings_for_absent_metadata() {
             selected_playlist: None,
             seasons: None,
             kind: DetailKind::Film,
+            membership: criterion_ui::ListMembership::SignedOut,
         }),
         ..Default::default()
     };
@@ -164,6 +166,7 @@ fn header_and_information_paint_their_independent_borrowed_runtime_lines() {
             selected_playlist: None,
             seasons: None,
             kind: DetailKind::Film,
+            membership: criterion_ui::ListMembership::SignedOut,
         }),
         ..Default::default()
     };
@@ -241,6 +244,7 @@ fn populated_native_information(value: &str) -> criterion_ui::UiFrame {
             selected_playlist: None,
             seasons: None,
             kind: DetailKind::Film,
+            membership: criterion_ui::ListMembership::SignedOut,
         }),
         ..Default::default()
     };

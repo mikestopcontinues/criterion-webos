@@ -103,6 +103,7 @@ impl Step {
     }
     fn read(region: Region, request: &ReadRequest) -> Self {
         let (target, body) = match request {
+            ReadRequest::MyListIds => panic!("fixture does not admit MyListIds"),
             ReadRequest::Playback(_) => panic!("fixture does not admit Playback"),
             ReadRequest::Entitlement {
                 captured_unix_time_ms,

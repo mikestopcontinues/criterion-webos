@@ -22,6 +22,15 @@ const RIGHT: (u32, i32) = (79, 1_073_741_903);
 const SELECT: (u32, i32) = (40, 13);
 const BACK: (u32, i32) = (41, 27);
 
+fn series_fixture() -> Fixture {
+    let fixture = boundary_series_fixture();
+    fixture.script.steps.lock().unwrap().push_back(Step {
+        kind: Kind::MyListIds,
+        gate: None,
+    });
+    fixture
+}
+
 fn require(condition: bool, message: &'static str) -> Result<(), &'static str> {
     condition.then_some(()).ok_or(message)
 }
@@ -254,7 +263,7 @@ impl Rendered<'_> {
         )?;
         require(
             self.fixture.script.violation.lock().unwrap().is_none()
-                && self.fixture.script.calls.lock().unwrap().len() <= 2
+                && self.fixture.script.calls.lock().unwrap().len() <= 3
                 && self.fixture.script.bootstrap.load(Ordering::SeqCst) <= 1
                 && self.fixture.script.maximum.load(Ordering::SeqCst) <= 1
                 && self.fixture.issuer.tokens.load(Ordering::SeqCst) == 1
@@ -448,7 +457,11 @@ impl Rendered<'_> {
             "actual CW origin card focus",
         )?;
         self.key(SELECT)?;
-        self.wait(|fixture| fixture.native_ready("Listed01"))?;
+        self.wait(|fixture| {
+            fixture.native_ready("Listed01")
+                && fixture.app.membership_view()
+                    == criterion_ui::ListMembership::Known { present: true }
+        })?;
         self.capture(Capture::Resume)?;
         self.key(RIGHT)?;
         self.key(SELECT)?;
@@ -492,25 +505,33 @@ impl Rendered<'_> {
         self.capture(Capture::RetiredPrimary)?;
         require(
             *self.fixture.script.calls.lock().unwrap()
-                == [Kind::ContinueWatching, Kind::NativeDetail("Listed01")]
+                == [
+                    Kind::ContinueWatching,
+                    Kind::NativeDetail("Listed01"),
+                    Kind::MyListIds,
+                ]
                 && self.fixture.script.bootstrap.load(Ordering::SeqCst) == 1
                 && self.fixture.script.maximum.load(Ordering::SeqCst) == 1
                 && self.fixture.script.active.load(Ordering::SeqCst) == 0
                 && self.fixture.script.steps.lock().unwrap().is_empty()
                 && *self.fixture.public_requests.lock().unwrap() == ["/"],
-            "exact anonymous Detail and synthetic CW census, warm Back without extra reads",
+            "exact anonymous Detail, synthetic CW and membership census, signed-out Back without extra reads",
         )
     }
 }
 
 #[test]
 fn series_capture_geometry_matches_current_actual_application_shapes() {
-    let mut fixture = boundary_series_fixture();
+    let mut fixture = series_fixture();
     fixture.wait(|fixture| fixture.saved().len() == 1);
     fixture.key(DOWN.0, DOWN.1);
     fixture.key(DOWN.0, DOWN.1);
     fixture.key(SELECT.0, SELECT.1);
-    fixture.wait(|fixture| fixture.native_ready("Listed01"));
+    fixture.wait(|fixture| {
+        fixture.native_ready("Listed01")
+            && fixture.app.membership_view()
+                == criterion_ui::ListMembership::Known { present: true }
+    });
     let retire = |fixture: &mut Fixture| {
         if let Some(mut output) = fixture.app.take_output() {
             output.textures_delta.clear();
@@ -571,7 +592,7 @@ fn native_synthetic_series_resume_information_and_logout_back_end_to_end() {
         })
     });
     let mut painter = unsafe { GlowRenderer::new(gl.clone()) }.unwrap();
-    let mut fixture = match std::panic::catch_unwind(boundary_series_fixture) {
+    let mut fixture = match std::panic::catch_unwind(series_fixture) {
         Ok(fixture) => fixture,
         Err(panic) => {
             painter.destroy();
