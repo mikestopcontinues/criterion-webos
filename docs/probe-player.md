@@ -1,6 +1,6 @@
 # Packaged player lifetime probe
 
-`tools/player-probe` builds two disposable WAM apps and one packaged JavaScript service. The probe displays actual Rust pipe acknowledgments and cleanup state. It contains no provider, account, media, CDM, license or playback implementation. MSE/EME indicators report API presence only; they make no key-system or network request.
+`tools/player-probe` builds two disposable WAM apps and one packaged JavaScript service. The probe displays actual Rust pipe acknowledgments and cleanup state. The PLAYER app also offers one explicit Widevine access measurement, which may initialize browser/DRM internals. Provider, account, media, license and playback integration remain absent; actual EME access from the packaged origin and C4 support remain unadmitted.
 
 ## Source and admission
 
@@ -20,6 +20,25 @@ The Rust broker accepts canonical positive numbered `ping` lines and `stop`; its
 
 The bridge admits only matching PID and sequential acknowledgments, startup/ping deadlines of one second, stdout chunks at most 4KiB/total 32KiB/frames 48 bytes and stderr at most 4KiB without retaining its text. Close ends stdin, waits 1 second, sends SIGTERM and waits 500ms, then SIGKILL and waits 1 second. Only the actual child `close` event confirms retirement of process and pipes; [Node 16 child-process documentation](https://nodejs.org/download/release/v16.20.2/docs/api/child_process.html) distinguishes it from `exit` and signal acceptance. Missing close quarantines the child and forbids replacement. UI connection/actions have 3-second deadlines and suppress publication after disposal.
 
+## Explicit PLAYER access measurement
+
+[wam.ts](../tools/player-probe/src/wam.ts) keeps the MSE/EME API-presence indicators and exposes **Check Widevine access** only in PLAYER. Launch, activation and relaunch do not start it. The action consumes its once-only owner even if admission fails. [eme.ts](../tools/player-probe/src/eme.ts) owns at most two independent `requestMediaKeySystemAccess("com.widevine.alpha", [configuration])` queries; each submits exactly one fixed configuration:
+
+| Label | Audio robustness | Video robustness |
+| --- | --- | --- |
+| `hw-video` | `SW_SECURE_CRYPTO` | `HW_SECURE_ALL` |
+| `sw-crypto` | `SW_SECURE_CRYPTO` | `SW_SECURE_CRYPTO` |
+
+Both configurations request `initDataTypes: ["cenc"]`, `sessionTypes: ["temporary"]`, and `distinctiveIdentifier`/`persistentState: "not-allowed"`. The audio capability is `audio/mp4; codecs="mp4a.40.2"`; video is `video/mp4; codecs="avc1.640028"`; each capability explicitly requests `encryptionScheme: "cenc"`. These source-selected codec and robustness inputs establish no observed Criterion stream format or production policy. A settled `NotSupportedError` permits the other declared measurement; there is no automatic policy selection or downgrade.
+
+Admission requires PLAYER role, a secure top-level visible document, an attached running broker snapshot no older than one second, and an action-time ping acknowledgment with a higher counter from the same PID. Guards before submission and after awaited work retain that PID, counter and freshness requirement. The original 12-second action deadline starts before the ping and includes guards, ping, queries and configuration projection. Ping is bounded to three seconds and each query to six seconds, capped by the original deadline. A pending first query prevents the second; timeout, malformed selection or lost admission ends the sequence. Transfer, Back, close, hidden visibility, pagehide or a terminal bridge state stop further work and publication through the existing WAM/client lifetime.
+
+For resolved access the owner observes `keySystem` and `getConfiguration()`, validates the fixed selected fields and emits two coarse rows through `textContent`, at most 1024 characters. Rows contain attempted/settled state, static outcome/error categories and validated configuration fields. Unknown values, extra selected fields, getter failures, raw errors and CDM strings are withheld. Absent or null selected encryption schemes remain distinct from confirmed `cenc`; resolved access alone cannot confirm it. Late settlement updates only the existing settled witness, without configuration inspection, another query or publication. JavaScript cannot preempt a blocking native call, and timeout or disposal cannot cancel an issued query or prove CDM quiescence.
+
+The action creates no `MediaKeys` or session and calls no `generateRequest`, license, media, account or persistence API. Its actual execution still needs a separately bounded exclusive TV writer phase through Elgee's canonical deployment entry point, with exact package/origin/process ownership and companion cleanup. Browser/CDM initialization can have internal effects; the [HTML CSP](../tools/player-probe/packaging/index.html) restrictions `connect-src 'none'` and `media-src 'none'` do not establish absence of CDM network activity.
+
+The unchanged [native caller](native-caller.md#keymanager-boundary) automatically attempts its fixed absent-name Keymanager read after acknowledged broker cleanup when liveness and foreground admission hold. A future key-free EME measurement must not exercise that native-caller sequence. Broker acknowledgment couples the measurement to the existing service lifetime; it does not authenticate the DOM EME result as a native-caller response.
+
 ## Local build and verification
 
 Run all compilers and tests in Docker from the actual worktree. The broker's default host build remains dependency-free and permits standalone `rustc` checks. Its native `webos` feature selects the platform's auxiliary-vector runtime without SDL; [native platform](native-platform.md#auxiliary-vector) owns this shared runtime implementation.
@@ -35,7 +54,7 @@ docker run --rm --network none --mount type=bind,src="$PWD",dst=/workspace \
   sh -c 'npm run compile && npm test'
 ```
 
-Tests use actual CPU subprocesses for pipe validation, EOF, lease/absolute expiry, blocked output, overlapping subscriptions, cancellation, replacement, escalation and inherited-pipe cleanup. Controlled external LS2 fixtures cover untrusted senders and callback ordering. These checks do not execute a browser, GPU or TV service.
+Tests use actual CPU subprocesses for pipe validation, EOF, lease/absolute expiry, blocked output, overlapping subscriptions, cancellation, replacement, escalation and inherited-pipe cleanup. Controlled external LS2 fixtures cover untrusted senders and callback ordering. [EME owner and WAM fixtures](../tools/player-probe/tests/eme.test.ts) exercise exact configuration arguments, controlled deadlines, stale/PID guards, late settlement, bounded projection and forbidden API traps, including the actual WAM composition with a simulated DOM. These checks do not execute a browser, EME/CDM, GPU or TV service.
 
 After root workspace admission, build the target with the canonical SDK and rebuild `std`; [development tooling](development.md) owns the target, compiler, SDK and link configuration:
 
