@@ -258,3 +258,83 @@ fn unsupported_feature_card_refuses_remote_and_pointer_activation() {
         [Command::Restore(Page::Home)]
     );
 }
+
+#[test]
+fn empty_titled_feature_keeps_focused_tab_text_and_complete_control_in_viewport() {
+    let root = Target::Native(MediaId::new("Root0001").unwrap());
+    let ordinary = [card(&root, CardAction::Open)];
+    let rails = [Rail {
+        title: "Synthetic ordinary tab",
+        cards: &ordinary,
+    }];
+    for featured in [
+        Some(Featured {
+            title: Some("Synthetic empty Feature heading"),
+            cards: &[],
+        }),
+        Some(Featured {
+            title: Some(""),
+            cards: &[],
+        }),
+        Some(Featured {
+            title: None,
+            cards: &[],
+        }),
+        None,
+    ] {
+        let mut detail = detail(&root, None, &[]);
+        detail.featured = featured;
+        let data = ViewData {
+            detail: Some(detail),
+            rails: &rails,
+            status: LoadState::Ready,
+            ..Default::default()
+        };
+        let mut ui = AppUi::new();
+        open(&mut ui, &root);
+        assert!(ui.handle(Action::Down, &data).is_empty());
+        assert_eq!(ui.focus(), Focus::DetailDescription);
+        assert!(ui.handle(Action::Down, &data).is_empty());
+        assert_eq!(ui.focus(), Focus::DetailTab(0));
+        let painted = frame(&mut ui, &data, vec![]);
+        let tab = painted
+            .output
+            .shapes
+            .iter()
+            .find(|shape| {
+                matches!(&shape.shape, egui::Shape::Text(text)
+                if text.galley.job.text == "Synthetic ordinary tab")
+            })
+            .unwrap();
+        let egui::Shape::Text(text) = &tab.shape else {
+            unreachable!()
+        };
+        let control = egui::Rect::from_min_size(text.pos, egui::vec2(260.0, 52.0));
+        let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+        assert!(
+            viewport.contains_rect(control),
+            "the complete focused tab control must fit the viewport: {control:?}"
+        );
+        assert_eq!(
+            control,
+            egui::Rect::from_min_size(egui::pos2(150.0, 966.0), egui::vec2(260.0, 52.0))
+        );
+        assert!(control.contains_rect(tab.shape.visual_bounding_rect()));
+        for pos in [egui::pos2(150.5, 966.5), egui::pos2(409.5, 1017.5)] {
+            assert_eq!(
+                frame(
+                    &mut ui,
+                    &data,
+                    vec![pointer(pos, true), pointer(pos, false)]
+                )
+                .commands,
+                [Command::SelectPlaylist(0)],
+                "both visible control corners must activate the exact first tab"
+            );
+            assert_eq!(ui.focus(), Focus::DetailTab(0));
+        }
+        ui.handle(Action::Up, &data);
+        assert_eq!(ui.focus(), Focus::DetailDescription);
+        assert_eq!(ui.scroll_y(), 0.0);
+    }
+}

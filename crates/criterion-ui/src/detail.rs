@@ -211,7 +211,8 @@ impl AppUi {
                     self.scroll_y = 632.0;
                 }
                 Action::Down if !rows.is_empty() => {
-                    self.focus = Focus::DetailTab(self.detail_state.selected_tab)
+                    self.focus = Focus::DetailTab(self.detail_state.selected_tab);
+                    self.scroll_y = self.detail_state.featured_height;
                 }
                 Action::Select => self.open_information(),
                 _ => return None,
