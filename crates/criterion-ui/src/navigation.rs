@@ -31,6 +31,7 @@ pub enum Page {
 pub enum Focus {
     Hero,
     Card { row: usize, column: usize },
+    FeaturedCard(usize),
     Rail(RailItem),
     FilterButton,
     LoginPrimary,
@@ -59,8 +60,7 @@ pub(crate) enum Intent {
     Restore(Page),
     OpenCard {
         page: Page,
-        row: usize,
-        column: usize,
+        focus: Focus,
     },
     OpenHero,
     Play,
@@ -270,10 +270,16 @@ impl AppUi {
             self.page = Page::Detail;
             self.focus = Focus::DetailAction(0);
             self.scroll_y = 0.0;
-            return vec![Intent::OpenCard { page, row, column }];
+            return vec![Intent::OpenCard {
+                page,
+                focus: Focus::Card { row, column },
+            }];
         }
         if action == Action::Left
-            && matches!(self.focus, Focus::Hero | Focus::Card { column: 0, .. })
+            && matches!(
+                self.focus,
+                Focus::Hero | Focus::Card { column: 0, .. } | Focus::FeaturedCard(0)
+            )
         {
             self.return_focus = self.focus;
             self.focus = Focus::Rail(match self.page {

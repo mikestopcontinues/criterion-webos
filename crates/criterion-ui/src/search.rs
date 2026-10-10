@@ -292,8 +292,7 @@ impl AppUi {
                 card.artwork_key.and_then(|key| self.image(key)),
             );
             visible.push(crate::CardLayout {
-                row,
-                column,
+                focus: Focus::Card { row, column },
                 key: card.key.clone(),
                 image: rect,
             });

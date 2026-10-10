@@ -7,6 +7,171 @@ use criterion_account::{
 use criterion_provider::MediaId;
 use criterion_ui::{CardAction, DetailKind, LoginView, Target};
 
+#[test]
+fn featured_presence_order_and_duplicate_cross_list_identity_survive_projection() {
+    let mut source = detail(MediaKind::Collection);
+    source.featured = Some(criterion_account::NativeFeatured {
+        title: None,
+        children: vec![
+            media("Shared01", "First Feature Film", MediaKind::Film),
+            media("Child002", "Second Feature Film", MediaKind::Film),
+        ],
+        raw_child_count: 2,
+    });
+    source.playlists.push(generic(
+        "Ordinary",
+        vec![media("Shared01", "Ordinary Episode", MediaKind::Episode)],
+    ));
+    let presentation = Presentation::native_detail(source, None).unwrap();
+    presentation.with_view(LoginView::SignedOut, |view| {
+        let featured = view.detail.as_ref().unwrap().featured.as_ref().unwrap();
+        assert_eq!(featured.title, None);
+        assert_eq!(
+            featured
+                .cards
+                .iter()
+                .map(|card| card.title)
+                .collect::<Vec<_>>(),
+            ["First Feature Film", "Second Feature Film"]
+        );
+        assert_eq!(view.rails.len(), 1);
+        assert_eq!(view.rails[0].cards[0].title, "Ordinary Episode");
+        assert_eq!(
+            featured.cards[0].artwork_key, view.rails[0].cards[0].artwork_key,
+            "identical artwork sources share one binding across independent lists"
+        );
+        assert_eq!(view.total, 3);
+    });
+    let target = Target::Native(MediaId::new("Shared01").unwrap());
+    assert_eq!(
+        presentation.native_activation(&target),
+        None,
+        "unaddressed duplicate identity is ambiguous"
+    );
+    assert_eq!(
+        presentation.selected_card_action(
+            criterion_ui::Page::Detail,
+            criterion_ui::Focus::FeaturedCard(0),
+            &target
+        ),
+        Some(Some(NativeActivation::Detail {
+            id: MediaId::new("Shared01").unwrap(),
+            auto_play: false
+        }))
+    );
+    assert_eq!(
+        presentation.selected_card_action(
+            criterion_ui::Page::Detail,
+            criterion_ui::Focus::Card { row: 0, column: 0 },
+            &target
+        ),
+        Some(Some(NativeActivation::Play {
+            id: MediaId::new("Shared01").unwrap()
+        }))
+    );
+}
+
+#[test]
+fn empty_feature_retains_nullable_supplied_heading_without_an_extra_tab() {
+    for title in [
+        None,
+        Some(String::new()),
+        Some("Supplied empty Feature".into()),
+    ] {
+        let mut source = detail(MediaKind::Category);
+        source.featured = Some(criterion_account::NativeFeatured {
+            title: title.clone(),
+            children: vec![],
+            raw_child_count: 0,
+        });
+        let presentation = Presentation::native_detail(source, None).unwrap();
+        presentation.with_view(LoginView::SignedOut, |view| {
+            let featured = view.detail.as_ref().unwrap().featured.as_ref().unwrap();
+            assert_eq!(featured.title, title.as_deref());
+            assert!(featured.cards.is_empty());
+            assert!(view.rails.is_empty());
+            assert_eq!(view.detail.as_ref().unwrap().selected_playlist, None);
+        });
+    }
+}
+
+#[test]
+fn featured_raw_items_and_all_owned_caption_capacity_consume_native_budget() {
+    let mut source = detail(MediaKind::Collection);
+    source.featured = Some(criterion_account::NativeFeatured {
+        title: Some("Supplied".into()),
+        children: (0..510)
+            .map(|index| media(&format!("F{index:07}"), "Feature Film", MediaKind::Film))
+            .collect(),
+        raw_child_count: 510,
+    });
+    source.playlists.push(generic(
+        "Ordinary",
+        vec![media("Shared01", "Ordinary Film", MediaKind::Film)],
+    ));
+    let mut admitted = Presentation::native_detail(source.clone(), None).unwrap();
+    let before = admitted.estimated_bytes();
+    let title = admitted
+        .detail
+        .as_mut()
+        .unwrap()
+        .native
+        .as_mut()
+        .unwrap()
+        .featured
+        .as_mut()
+        .unwrap()
+        .title
+        .as_mut()
+        .unwrap();
+    let prior = title.capacity();
+    title.reserve_exact(8192);
+    let added = title.capacity() - prior;
+    assert_eq!(admitted.estimated_bytes() - before, added);
+    let bytes = admitted.estimated_bytes();
+    admitted.with_view(LoginView::SignedOut, |view| {
+        assert_eq!(
+            view.detail
+                .as_ref()
+                .unwrap()
+                .featured
+                .as_ref()
+                .unwrap()
+                .cards
+                .len(),
+            510
+        )
+    });
+    assert_eq!(
+        admitted.estimated_bytes(),
+        bytes,
+        "borrowed display cannot duplicate retained Feature state"
+    );
+    source.featured.as_mut().unwrap().raw_child_count = 511;
+    assert!(
+        matches!(
+            Presentation::native_detail(source, None),
+            Err(super::super::ProjectionLimit::TooLarge)
+        ),
+        "root plus Feature raw rows plus ordinary rows is bounded to512"
+    );
+    let mut source = detail(MediaKind::Franchise);
+    let mut heading = String::with_capacity(512 * 1024);
+    heading.push_str("Supplied");
+    source.featured = Some(criterion_account::NativeFeatured {
+        title: Some(heading),
+        children: vec![],
+        raw_child_count: 0,
+    });
+    assert!(
+        matches!(
+            Presentation::native_detail(source, None),
+            Err(super::super::ProjectionLimit::TooLarge)
+        ),
+        "a short heading cannot hide retained reserved capacity"
+    );
+}
+
 fn media(id: &str, title: &str, kind: MediaKind) -> MediaSummary {
     MediaSummary {
         id: MediaId::new(id).unwrap(),

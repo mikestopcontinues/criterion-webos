@@ -41,7 +41,13 @@ fn pointer_release_activates_only_the_current_pressed_media_identity() {
     );
     let commands = std::mem::take(&mut frame.commands);
     frame.output.textures_delta.clear();
-    assert_eq!(commands, vec![Command::Open(id)]);
+    assert_eq!(
+        commands,
+        vec![Command::ActivateCard {
+            target: id,
+            focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+        }]
+    );
 }
 #[test]
 fn committed_text_and_ime_are_bounded_and_only_search_field_edits_publish() {
@@ -320,6 +326,7 @@ fn detail_tab_press_is_bound_to_the_owning_detail_identity() {
             primary_action: "WATCH NOW",
             primary_playback_target: key.media_id(),
             selected_playlist: None,
+            featured: None,
             seasons: None,
             kind: criterion_ui::DetailKind::Film,
             membership: criterion_ui::ListMembership::SignedOut,

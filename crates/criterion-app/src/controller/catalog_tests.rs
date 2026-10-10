@@ -779,9 +779,10 @@ fn remote_catalog_continuation_detail_and_back_keep_the_paired_display_and_focus
     let selected = owner.view.with_view(LoginView::SignedOut, |v| {
         ui.handle(criterion_ui::Action::Select, &v)
     });
-    assert!(selected.contains(&Command::Open(Target::Media(
-        MediaId::new("Film0038").unwrap()
-    ))));
+    assert!(selected.contains(&Command::ActivateCard {
+        target: Target::Media(MediaId::new("Film0038").unwrap()),
+        focus: criterion_ui::Focus::Card { row: 14, column: 0 }
+    }));
     for command in selected {
         owner.command(command, ui.page(), runtime.handle());
     }

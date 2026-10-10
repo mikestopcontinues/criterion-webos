@@ -101,7 +101,8 @@ impl AppUi {
                         {
                             return false;
                         }
-                        allow_results || !matches!(target.focus, Focus::Card { .. })
+                        allow_results
+                            || !matches!(target.focus, Focus::Card { .. } | Focus::FeaturedCard(_))
                     });
                     if *pressed {
                         self.pointer_layout_focus = Some(self.focus());
@@ -353,9 +354,11 @@ impl AppUi {
                 return target(Focus::DetailDescription);
             }
             if let Some(seasons) = &detail.seasons {
-                for (index, area) in
-                    crate::view::season_rects(seasons, self.layout_focus(), self.scroll_y())
-                {
+                for (index, area) in crate::view::season_rects(
+                    seasons,
+                    self.layout_focus(),
+                    self.scroll_y() - crate::view::featured_height(detail),
+                ) {
                     if area.contains(pos) {
                         return target(Focus::DetailSeason(index));
                     }
@@ -365,7 +368,7 @@ impl AppUi {
                 data.rails.len(),
                 self.detail_state.selected_tab,
                 self.layout_focus(),
-                self.scroll_y(),
+                self.scroll_y() - crate::view::featured_height(detail),
             ) {
                 if area.contains(pos) {
                     return target(Focus::DetailTab(index));
@@ -384,16 +387,18 @@ impl AppUi {
                 Rect::from_min_max(card.image.min, card.image.max + egui::vec2(0.0, 72.0))
                     .contains(pos)
             })
-            .map(|card| PointerTarget {
-                page: self.page(),
-                focus: Focus::Card {
-                    row: card.row,
-                    column: card.column,
-                },
-                identity: Some(card.key.clone()),
-                action: crate::commands::card_at(data, self.page(), card.row, card.column)
-                    .map(|card| card.action),
-                primary: None,
+            .and_then(|card| {
+                let current = crate::commands::card_at_focus(data, self.page(), card.focus)?;
+                if current.key != &card.key || current.action == crate::CardAction::Unsupported {
+                    return None;
+                }
+                Some(PointerTarget {
+                    page: self.page(),
+                    focus: card.focus,
+                    identity: Some(card.key.clone()),
+                    action: Some(current.action),
+                    primary: None,
+                })
             })
     }
 }

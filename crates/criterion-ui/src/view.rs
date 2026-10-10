@@ -25,6 +25,11 @@ pub enum CardAction {
     #[default]
     Open,
     Play,
+    Unsupported,
+}
+pub struct Featured<'a> {
+    pub title: Option<&'a str>,
+    pub cards: &'a [Card<'a>],
 }
 pub struct Rail<'a> {
     pub title: &'a str,
@@ -84,6 +89,7 @@ pub struct Detail<'a> {
     pub primary_action: &'a str,
     pub primary_playback_target: Option<&'a criterion_provider::MediaId>,
     pub selected_playlist: Option<usize>,
+    pub featured: Option<Featured<'a>>,
     pub seasons: Option<SeasonView<'a>>,
     pub kind: crate::DetailKind,
     pub membership: ListMembership,
@@ -143,8 +149,7 @@ impl Default for ViewData<'_> {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct CardLayout {
-    pub row: usize,
-    pub column: usize,
+    pub focus: Focus,
     pub key: crate::Target,
     pub image: Rect,
 }
@@ -314,8 +319,7 @@ impl AppUi {
                                     card.artwork_key.and_then(|key| self.image(key)),
                                 );
                                 visible_cards.push(CardLayout {
-                                    row,
-                                    column,
+                                    focus: Focus::Card { row, column },
                                     key: card.key.clone(),
                                     image: rect,
                                 });
@@ -403,8 +407,7 @@ impl AppUi {
                             card.artwork_key.and_then(|key| self.image(key)),
                         );
                         visible_cards.push(CardLayout {
-                            row,
-                            column,
+                            focus: Focus::Card { row, column },
                             key: card.key.clone(),
                             image: rect,
                         });
@@ -495,19 +498,8 @@ impl AppUi {
             }
         });
         for card in &visible_cards {
-            let source = if matches!(
-                self.page(),
-                Page::Home | Page::New | Page::Discovery | Page::Detail
-            ) {
-                data.rails
-                    .get(card.row)
-                    .and_then(|rail| rail.cards.get(card.column))
-            } else {
-                data.cards.get(
-                    (card.row * if self.page() == Page::Search { 3 } else { 4 } + card.column)
-                        .saturating_sub(data.catalog.map_or(0, |w| w.first)),
-                )
-            };
+            let source = crate::commands::card_at_focus(data, self.page(), card.focus)
+                .filter(|current| current.key == &card.key);
             if let Some(key) = source.and_then(|card| card.artwork_key)
                 && !visible_artwork.iter().any(|candidate| candidate == key)
             {
@@ -535,9 +527,12 @@ impl AppUi {
                 self.pointer_layout_focus = None;
             }
             if self.page() != old_page
-                || commands[command_start..]
-                    .iter()
-                    .any(|command| matches!(command, crate::Command::Open(_)))
+                || commands[command_start..].iter().any(|command| {
+                    matches!(
+                        command,
+                        crate::Command::Open(_) | crate::Command::ActivateCard { .. }
+                    )
+                })
             {
                 break;
             }
@@ -1086,11 +1081,42 @@ impl AppUi {
                 1250.0,
             );
         }
+        let featured_height = featured_height(detail);
+        if let Some(featured) = &detail.featured {
+            if let Some(title) = featured.title {
+                label(p, [150.0, y + 966.0], title, 34.0, WHITE, 1620.0);
+            }
+            let selected = match self.layout_focus() {
+                Focus::FeaturedCard(column) => column,
+                _ => 0,
+            };
+            let first = selected.saturating_sub(3);
+            for (column, card) in featured.cards.iter().enumerate().skip(first).take(5) {
+                let rect = Rect::from_min_size(
+                    Pos2::new(150.0 + (column - first) as f32 * 414.0, y + 1047.0),
+                    Vec2::new(378.0, 213.0),
+                );
+                if rect.bottom() > 0.0 && rect.top() < 1080.0 && visible.len() < MAX_VISIBLE_CARDS {
+                    paint_card(
+                        p,
+                        card,
+                        rect,
+                        self.focus() == Focus::FeaturedCard(column),
+                        card.artwork_key.and_then(|key| self.image(key)),
+                    );
+                    visible.push(CardLayout {
+                        focus: Focus::FeaturedCard(column),
+                        key: card.key.clone(),
+                        image: rect,
+                    });
+                }
+            }
+        }
         for (index, area) in detail_tab_rects(
             rails.len(),
             self.detail_state.selected_tab,
             self.layout_focus(),
-            self.scroll_y(),
+            self.scroll_y() - featured_height,
         ) {
             label(
                 p,
@@ -1106,12 +1132,19 @@ impl AppUi {
             );
         }
         p.line_segment(
-            [Pos2::new(150.0, y + 1018.0), Pos2::new(1770.0, y + 1018.0)],
+            [
+                Pos2::new(150.0, y + featured_height + 1018.0),
+                Pos2::new(1770.0, y + featured_height + 1018.0),
+            ],
             Stroke::new(1.0, Color32::from_gray(45)),
         );
         let selected_row = self.detail_state.selected_tab;
         if let Some(seasons) = &detail.seasons {
-            for (index, area) in season_rects(seasons, self.layout_focus(), self.scroll_y()) {
+            for (index, area) in season_rects(
+                seasons,
+                self.layout_focus(),
+                self.scroll_y() - featured_height,
+            ) {
                 let choice = &seasons.choices[index];
                 let color = if self.focus() == Focus::DetailSeason(index) {
                     GOLD
@@ -1154,11 +1187,13 @@ impl AppUi {
                 let rect = Rect::from_min_size(
                     Pos2::new(
                         150.0 + (column - first) as f32 * 414.0,
-                        y + 1067.0 + if detail.seasons.is_some() { 100.0 } else { 0.0 },
+                        y + featured_height
+                            + 1067.0
+                            + if detail.seasons.is_some() { 100.0 } else { 0.0 },
                     ),
                     Vec2::new(378.0, 213.0),
                 );
-                if rect.bottom() > 0.0 && rect.top() < 1080.0 {
+                if rect.bottom() > 0.0 && rect.top() < 1080.0 && visible.len() < MAX_VISIBLE_CARDS {
                     paint_card(
                         p,
                         card,
@@ -1171,8 +1206,10 @@ impl AppUi {
                         card.artwork_key.and_then(|key| self.image(key)),
                     );
                     visible.push(CardLayout {
-                        row: selected_row,
-                        column,
+                        focus: Focus::Card {
+                            row: selected_row,
+                            column,
+                        },
                         key: card.key.clone(),
                         image: rect,
                     });
@@ -1294,6 +1331,17 @@ impl AppUi {
 }
 pub(crate) fn catalog_retry_rect() -> Rect {
     Rect::from_min_size(Pos2::new(150.0, 970.0), Vec2::new(650.0, 80.0))
+}
+pub(crate) fn featured_height(detail: &Detail<'_>) -> f32 {
+    detail.featured.as_ref().map_or(0.0, |value| {
+        if !value.cards.is_empty() {
+            388.0
+        } else if value.title.is_some() {
+            80.0
+        } else {
+            0.0
+        }
+    })
 }
 
 pub(crate) fn season_rects(

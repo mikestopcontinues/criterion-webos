@@ -5,6 +5,10 @@ pub enum Command {
     Navigate(Page),
     Restore(Page),
     Open(crate::Target),
+    ActivateCard {
+        target: crate::Target,
+        focus: Focus,
+    },
     Play(MediaId),
     ToggleList(MediaId),
     SelectPlaylist(usize),
@@ -40,15 +44,17 @@ impl AppUi {
             return commands;
         }
         if action == Action::Select
-            && let Focus::Card { row, column } = self.focus()
-            && let Some(card) = card_at(data, self.page(), row, column)
-            && card.action == crate::CardAction::Play
+            && let Some(card) = card_at_focus(data, self.page(), self.focus())
+            && card.action != crate::CardAction::Open
         {
-            return card
-                .key
-                .media_id()
-                .map(|id| vec![Command::Play(id.clone())])
-                .unwrap_or_default();
+            return if card.action == crate::CardAction::Play {
+                vec![Command::ActivateCard {
+                    target: card.key.clone(),
+                    focus: self.focus(),
+                }]
+            } else {
+                Vec::new()
+            };
         }
         if let Some(commands) = self.handle_catalog(action, data) {
             return commands;
@@ -93,11 +99,14 @@ impl AppUi {
             .filter_map(|intent| match intent {
                 Intent::Navigate(page) => Some(Command::Navigate(page)),
                 Intent::Restore(page) => Some(Command::Restore(page)),
-                Intent::OpenCard { page, row, column } => {
-                    let card = card_at(data, page, row, column);
+                Intent::OpenCard { page, focus } => {
+                    let card = card_at_focus(data, page, focus);
                     card.map(|card| {
                         self.activate_target(card.key, data.login);
-                        Command::Open(card.key.clone())
+                        Command::ActivateCard {
+                            target: card.key.clone(),
+                            focus,
+                        }
                     })
                 }
                 Intent::OpenHero => data.hero.as_ref().map(|hero| {
@@ -171,6 +180,20 @@ impl AppUi {
     }
 }
 
+pub(crate) fn card_at_focus<'a, 'b>(
+    data: &'b ViewData<'a>,
+    page: Page,
+    focus: Focus,
+) -> Option<&'b crate::Card<'a>> {
+    match focus {
+        Focus::Card { row, column } => card_at(data, page, row, column),
+        Focus::FeaturedCard(column) if page == Page::Detail => {
+            data.detail.as_ref()?.featured.as_ref()?.cards.get(column)
+        }
+        _ => None,
+    }
+}
+
 pub(crate) fn card_at<'a, 'b>(
     data: &'b ViewData<'a>,
     page: Page,
@@ -183,6 +206,9 @@ pub(crate) fn card_at<'a, 'b>(
     ) {
         data.rails.get(row).and_then(|rail| rail.cards.get(column))
     } else {
+        if column >= if page == Page::Search { 3 } else { 4 } {
+            return None;
+        }
         row.checked_mul(if page == Page::Search { 3 } else { 4 })
             .and_then(|index| index.checked_add(column))
             .and_then(|index| index.checked_sub(data.catalog.map_or(0, |w| w.first)))

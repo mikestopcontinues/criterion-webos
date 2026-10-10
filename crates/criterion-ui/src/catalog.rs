@@ -204,7 +204,10 @@ impl AppUi {
                     anchor,
                     target: anchor,
                 },
-                Command::Open(card.key.clone()),
+                Command::ActivateCard {
+                    target: card.key.clone(),
+                    focus: Focus::Card { row, column },
+                },
             ]);
         }
         // Select/Back/rail retain the existing navigation stack and card identity.

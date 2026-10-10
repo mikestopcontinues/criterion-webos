@@ -158,13 +158,16 @@ fn window_offset_preserves_global_card_identity_geometry_and_back() {
     let focused = frame
         .visible_cards
         .iter()
-        .find(|c| c.row == 43 && c.column == 0)
+        .find(|c| c.focus == (Focus::Card { row: 43, column: 0 }))
         .unwrap();
     assert_eq!(focused.key, targets[172]);
     assert_eq!(focused.image.min, egui::pos2(150.0, 420.0));
     assert_eq!(frame.visible_artwork, vec!["synthetic-image"]);
     let commands = ui.handle(Action::Select, &trimmed);
-    assert!(commands.contains(&criterion_ui::Command::Open(targets[172].clone())));
+    assert!(commands.contains(&criterion_ui::Command::ActivateCard {
+        target: targets[172].clone(),
+        focus: Focus::Card { row: 43, column: 0 }
+    }));
     assert_eq!(ui.page(), Page::Detail);
     ui.handle(Action::Back, &ViewData::default());
     assert_eq!(ui.page(), Page::AllFilms);

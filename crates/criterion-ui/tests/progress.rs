@@ -219,7 +219,10 @@ fn saved_updates_preserve_metadata_focus_and_remote_or_pointer_activation() {
         assert_eq!(ui.focus(), Focus::Card { row: 0, column: 0 });
         assert_eq!(
             ui.handle(Action::Select, &data),
-            vec![Command::Open(target.clone())]
+            vec![Command::ActivateCard {
+                target: target.clone(),
+                focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+            }]
         );
         ui.handle(Action::Back, &data);
         assert_eq!(ui.page(), Page::AllFilms);
@@ -246,7 +249,13 @@ fn saved_updates_preserve_metadata_focus_and_remote_or_pointer_activation() {
             &data,
         );
         pointer_frame.output.textures_delta.clear();
-        assert_eq!(pointer_frame.commands, vec![Command::Open(target.clone())]);
+        assert_eq!(
+            pointer_frame.commands,
+            vec![Command::ActivateCard {
+                target: target.clone(),
+                focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+            }]
+        );
     }
 }
 

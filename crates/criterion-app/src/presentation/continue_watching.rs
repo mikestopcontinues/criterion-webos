@@ -26,6 +26,64 @@ enum ReadState {
 }
 
 impl Presentation {
+    /// Resolve the selected display address against this owned projection.
+    /// Native tab cards are admitted only from the selected tab/season.
+    pub(crate) fn selected_card_action(
+        &self,
+        page: criterion_ui::Page,
+        focus: criterion_ui::Focus,
+        target: &Target,
+    ) -> Option<Option<NativeActivation>> {
+        let card = self
+            .card_at(page, focus)
+            .filter(|card| &card.target == target)?;
+        Some(card.native_activation.clone())
+    }
+    fn card_at(&self, page: criterion_ui::Page, focus: criterion_ui::Focus) -> Option<&OwnedCard> {
+        use criterion_ui::{Focus, Page};
+        match focus {
+            Focus::FeaturedCard(column) if page == Page::Detail => {
+                self.native_featured_cards()?.get(column)
+            }
+            Focus::Card { row, column }
+                if matches!(
+                    page,
+                    Page::Home | Page::New | Page::Discovery | Page::Detail
+                ) =>
+            {
+                if page == Page::Detail
+                    && self
+                        .detail
+                        .as_ref()
+                        .is_some_and(|value| value.native.is_some())
+                    && self.selected_playlist != Some(row)
+                {
+                    return None;
+                }
+                self.native_season_cards(row)
+                    .unwrap_or(self.rails.get(row)?.cards.as_slice())
+                    .get(column)
+            }
+            Focus::Card { row, column }
+                if matches!(page, Page::AllFilms | Page::MyList | Page::Search) =>
+            {
+                let width = if page == Page::Search { 3 } else { 4 };
+                if column >= width {
+                    return None;
+                }
+                let index = row
+                    .checked_mul(width)?
+                    .checked_add(column)?
+                    .checked_sub(self.catalog_window.map_or(0, |value| value.first))?;
+                self.cards.get(
+                    self.card_indices
+                        .as_ref()
+                        .map_or(Some(index), |values| values.get(index).copied())?,
+                )
+            }
+            _ => None,
+        }
+    }
     pub(crate) fn native_activation(&self, target: &Target) -> Option<NativeActivation> {
         if !matches!(target, Target::Native(_)) {
             return None;
@@ -35,20 +93,42 @@ impl Presentation {
             .as_ref()
             .is_some_and(|detail| detail.native.is_some())
         {
-            let index = self.selected_playlist?;
             let cards = self
-                .native_season_cards(index)
-                .or_else(|| self.rails.get(index).map(|rail| rail.cards.as_slice()))?;
-            return cards
+                .selected_playlist
+                .and_then(|index| {
+                    self.native_season_cards(index)
+                        .or_else(|| self.rails.get(index).map(|rail| rail.cards.as_slice()))
+                })
+                .unwrap_or(&[]);
+            let mut matches = cards
                 .iter()
-                .find(|card| &card.target == target)
-                .and_then(|card| card.native_activation.clone());
+                .chain(self.native_featured_cards().into_iter().flatten())
+                .filter(|card| &card.target == target);
+            let selected = matches.next()?;
+            return matches
+                .next()
+                .is_none()
+                .then(|| selected.native_activation.clone())
+                .flatten();
         }
-        self.cards
+        let mut matches = self
+            .cards
             .iter()
+            .enumerate()
+            .filter(|(index, _)| {
+                self.card_indices
+                    .as_ref()
+                    .is_none_or(|values| values.contains(index))
+            })
+            .map(|(_, card)| card)
             .chain(self.rails.iter().flat_map(|rail| &rail.cards))
-            .find(|card| &card.target == target)
-            .and_then(|card| card.native_activation.clone())
+            .filter(|card| &card.target == target);
+        let selected = matches.next()?;
+        matches
+            .next()
+            .is_none()
+            .then(|| selected.native_activation.clone())
+            .flatten()
     }
     /// Only an exact pending epoch may publish. The controller separately owns
     /// operation identity across navigation/cancellation in the same epoch.
@@ -274,6 +354,11 @@ impl Presentation {
                 .detail
                 .as_ref()
                 .is_some_and(|detail| matches_card(&detail.card))
+            || self
+                .native_featured_cards()
+                .into_iter()
+                .flatten()
+                .any(matches_card)
             || self.hero.as_ref().is_some_and(|hero| {
                 matches_card(&hero.card)
                     || hero.background == key

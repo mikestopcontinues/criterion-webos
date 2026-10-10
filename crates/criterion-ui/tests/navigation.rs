@@ -63,9 +63,12 @@ fn opening_film_then_back_restores_exact_grid_focus_and_scroll() {
     let commands = nav(&mut ui, Action::Select, &[4, 4, 4]);
     assert_eq!(
         commands,
-        vec![criterion_ui::Command::Open(criterion_ui::Target::Media(
-            criterion_provider::MediaId::new("qvwT6mJ4").unwrap()
-        ))]
+        vec![criterion_ui::Command::ActivateCard {
+            target: criterion_ui::Target::Media(
+                criterion_provider::MediaId::new("qvwT6mJ4").unwrap()
+            ),
+            focus: Focus::Card { row: 2, column: 1 }
+        }]
     );
     assert_eq!(ui.page(), criterion_ui::Page::Detail);
     nav(&mut ui, Action::Back, &[]);

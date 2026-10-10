@@ -140,6 +140,20 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     }
 
     pub(crate) fn command(&mut self, command: Command, page: Page, runtime: &Handle) -> Effect {
+        let card_action = if let Command::ActivateCard { target, focus } = &command {
+            let Some(action) = self.view.selected_card_action(self.page, *focus, target) else {
+                return Effect::None;
+            };
+            if matches!(
+                action,
+                Some(crate::presentation::NativeActivation::Unsupported)
+            ) {
+                return Effect::None;
+            }
+            Some(action)
+        } else {
+            None
+        };
         match command {
             Command::Navigate(destination) => {
                 if (destination == Page::Search && self.page != Page::Search)
@@ -152,8 +166,8 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                 self.page = destination;
                 return self.navigate(destination, runtime);
             }
-            Command::Open(target) => {
-                let native = self.view.native_activation(&target);
+            Command::Open(target) | Command::ActivateCard { target, .. } => {
+                let native = card_action.unwrap_or_else(|| self.view.native_activation(&target));
                 if let Some(crate::presentation::NativeActivation::Play { id }) = &native {
                     return Effect::Play(id.clone());
                 }

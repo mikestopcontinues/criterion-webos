@@ -590,11 +590,17 @@ fn native_missing_parent_episode_and_live_refuse_without_detail_or_website_fallb
             "playlist":[{"mediaid":"Listed01","title":"Synthetic listed film","contentType":kind}]
         })).unwrap());
         fixture.open_list();
-        select_listed(&mut fixture);
+        if matches!(fixture.app.ui.focus(), Focus::MyListGroup(_)) {
+            fixture.key(81, 1_073_741_905);
+        }
+        assert_eq!(fixture.app.ui.focus(), Focus::Card { row: 0, column: 0 });
+        fixture.key(40, 13);
         for _ in 0..8 {
             fixture.pump();
         }
-        assert_eq!(status(&fixture), LoadState::Error);
+        assert_eq!(fixture.app.ui.page(), Page::MyList);
+        assert_eq!(fixture.app.ui.focus(), Focus::Card { row: 0, column: 0 });
+        assert_eq!(status(&fixture), LoadState::Ready);
         assert!(fixture.app.native_detail_generation.is_none());
         assert!(fixture.app.native_detail_pending.is_none());
         assert_eq!(*fixture.script.calls.lock().unwrap(), [Kind::WatchList]);
@@ -893,5 +899,7 @@ fn cached_anonymous_series_reset_keeps_a_visible_canonical_card_focus() {
 
 #[path = "list_membership_tests.rs"]
 mod list_membership_tests;
+#[path = "native_featured_tests.rs"]
+mod native_featured_tests;
 #[path = "native_runtime_tests.rs"]
 mod native_runtime_tests;

@@ -661,6 +661,12 @@ impl Presentation {
                 episode_count: season.rail.cards.len(),
             })
             .collect();
+        let featured_cards: Vec<_> = self
+            .native_featured_cards()
+            .into_iter()
+            .flatten()
+            .map(OwnedCard::view)
+            .collect();
         let detail = self.detail.as_ref().map(|detail| Detail {
             membership: criterion_ui::ListMembership::Unavailable,
             card: detail.card.view(),
@@ -675,6 +681,14 @@ impl Presentation {
             primary_action: &detail.primary_action,
             primary_playback_target: detail.primary_playback_target.as_ref(),
             selected_playlist: self.selected_playlist,
+            featured: detail
+                .native
+                .as_ref()
+                .and_then(|state| state.featured.as_ref())
+                .map(|value| criterion_ui::Featured {
+                    title: value.title.as_deref(),
+                    cards: &featured_cards,
+                }),
             seasons: detail
                 .native
                 .as_ref()
@@ -856,10 +870,10 @@ impl OwnedCard {
             year: &self.year,
             duration_label: self.duration_label.as_deref(),
             saved_fraction: self.saved_fraction,
-            action: if matches!(self.native_activation, Some(NativeActivation::Play { .. })) {
-                criterion_ui::CardAction::Play
-            } else {
-                criterion_ui::CardAction::Open
+            action: match self.native_activation {
+                Some(NativeActivation::Play { .. }) => criterion_ui::CardAction::Play,
+                Some(NativeActivation::Unsupported) => criterion_ui::CardAction::Unsupported,
+                _ => criterion_ui::CardAction::Open,
             },
         }
     }

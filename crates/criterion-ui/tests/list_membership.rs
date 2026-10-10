@@ -36,6 +36,7 @@ fn data<'a>(target: &'a Target, membership: ListMembership, login: LoginView<'a>
             primary_action: "WATCH NOW",
             primary_playback_target: target.media_id(),
             selected_playlist: None,
+            featured: None,
             seasons: None,
             kind: DetailKind::Film,
             membership,

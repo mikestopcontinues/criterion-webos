@@ -44,6 +44,7 @@ fn unavailable_duration_is_omitted_from_grid_detail_and_information() {
             primary_action: "WATCH NOW",
             primary_playback_target: Some(target.media_id().unwrap()),
             selected_playlist: None,
+            featured: None,
             seasons: None,
             kind: DetailKind::Film,
             membership: criterion_ui::ListMembership::SignedOut,
@@ -103,6 +104,7 @@ fn native_information_omits_headings_for_absent_metadata() {
             primary_action: "WATCH NOW",
             primary_playback_target: Some(target.media_id().unwrap()),
             selected_playlist: None,
+            featured: None,
             seasons: None,
             kind: DetailKind::Film,
             membership: criterion_ui::ListMembership::SignedOut,
@@ -113,7 +115,10 @@ fn native_information_omits_headings_for_absent_metadata() {
     ui.handle(Action::Down, &data);
     assert_eq!(
         ui.handle(Action::Select, &data),
-        [criterion_ui::Command::Open(target.clone())]
+        [criterion_ui::Command::ActivateCard {
+            target: target.clone(),
+            focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+        }]
     );
     ui.handle(Action::Right, &data);
     ui.handle(Action::Select, &data);
@@ -164,6 +169,7 @@ fn header_and_information_paint_their_independent_borrowed_runtime_lines() {
             primary_action: "WATCH NOW",
             primary_playback_target: Some(target.media_id().unwrap()),
             selected_playlist: None,
+            featured: None,
             seasons: None,
             kind: DetailKind::Film,
             membership: criterion_ui::ListMembership::SignedOut,
@@ -242,6 +248,7 @@ fn populated_native_information(value: &str) -> criterion_ui::UiFrame {
             primary_action: "WATCH NOW",
             primary_playback_target: Some(target.media_id().unwrap()),
             selected_playlist: None,
+            featured: None,
             seasons: None,
             kind: DetailKind::Film,
             membership: criterion_ui::ListMembership::SignedOut,

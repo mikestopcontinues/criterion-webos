@@ -25,7 +25,10 @@ fn activated_card_emits_its_validated_media_identity() {
     ui.handle(Action::Select, &data);
     assert_eq!(
         ui.handle(Action::Select, &data),
-        vec![Command::Open(target)]
+        vec![Command::ActivateCard {
+            target,
+            focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+        }]
     );
 }
 #[test]
@@ -83,7 +86,10 @@ fn discovery_navigation_forwards_validated_content_without_a_fake_media_id() {
     ui.handle(Action::Down, &data);
     assert_eq!(
         ui.handle(Action::Select, &data),
-        vec![Command::Open(target)]
+        vec![Command::ActivateCard {
+            target,
+            focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+        }]
     );
     assert_eq!(ui.page(), criterion_ui::Page::Discovery);
 }
@@ -173,5 +179,11 @@ fn same_page_content_activation_ends_the_departed_pointer_batch() {
     );
     let commands = std::mem::take(&mut frame.commands);
     frame.output.textures_delta.clear();
-    assert_eq!(commands, vec![Command::Open(next)]);
+    assert_eq!(
+        commands,
+        vec![Command::ActivateCard {
+            target: next,
+            focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+        }]
+    );
 }

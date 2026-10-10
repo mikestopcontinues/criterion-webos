@@ -19,7 +19,12 @@ pub(super) struct NativeDetailState {
     pub(super) seasons_tab: Option<usize>,
     pub(super) selected_season: usize,
     pub(super) seasons: Vec<OwnedSeason>,
+    pub(super) featured: Option<OwnedFeatured>,
     private_resume: bool,
+}
+pub(super) struct OwnedFeatured {
+    pub(super) title: Option<String>,
+    pub(super) cards: Vec<OwnedCard>,
 }
 pub(super) struct OwnedSeason {
     pub(super) number: i32,
@@ -28,6 +33,15 @@ pub(super) struct OwnedSeason {
 impl NativeDetailState {
     pub(super) fn heap_bytes(&self) -> usize {
         super::vec_bytes(&self.seasons)
+            + self.featured.as_ref().map_or(0, |featured| {
+                featured.title.as_ref().map_or(0, String::capacity)
+                    + super::vec_bytes(&featured.cards)
+                    + featured
+                        .cards
+                        .iter()
+                        .map(OwnedCard::heap_bytes)
+                        .sum::<usize>()
+            })
             + self
                 .seasons
                 .iter()
@@ -82,8 +96,19 @@ impl Presentation {
             seasons_tab: None,
             selected_season: resolution.as_ref().map_or(0, |value| value.initial_season),
             seasons: Vec::new(),
+            featured: None,
             private_resume: positions.is_some(),
         };
+        if let Some(featured) = detail.featured {
+            let mut cards = Vec::with_capacity(featured.children.len());
+            for child in featured.children {
+                cards.push(projection.native_detail_card(child, ImageRole::Card, positions));
+            }
+            native.featured = Some(OwnedFeatured {
+                title: featured.title,
+                cards,
+            });
+        }
         for playlist in detail.playlists {
             match playlist {
                 NativePlaylist::Generic(value) => {
@@ -193,7 +218,10 @@ impl Presentation {
                         .native_season_cards(index)
                         .map_or(rail.cards.len(), <[OwnedCard]>::len)
                 })
-                .sum::<usize>(),
+                .sum::<usize>()
+                + projection
+                    .native_featured_cards()
+                    .map_or(0, <[OwnedCard]>::len),
         )
         .map_err(|_| ProjectionLimit::TooLarge)?;
         projection.status = LoadState::Ready;
@@ -222,7 +250,11 @@ impl Presentation {
                 .iter()
                 .map(|rail| rail.cards.len())
                 .sum::<usize>()
-                + native.seasons[index].rail.cards.len(),
+                + native.seasons[index].rail.cards.len()
+                + native
+                    .featured
+                    .as_ref()
+                    .map_or(0, |value| value.cards.len()),
         )
         .expect("bounded native Detail display");
     }
@@ -235,6 +267,15 @@ impl Presentation {
             .seasons
             .get(native.selected_season)
             .map(|season| season.rail.cards.as_slice())
+    }
+    pub(super) fn native_featured_cards(&self) -> Option<&[OwnedCard]> {
+        self.detail
+            .as_ref()?
+            .native
+            .as_ref()?
+            .featured
+            .as_ref()
+            .map(|value| value.cards.as_slice())
     }
     fn native_detail_rail(
         &mut self,
@@ -330,6 +371,12 @@ impl Presentation {
                     .iter_mut()
                     .flat_map(|season| &mut season.rail.cards),
             )
+            .chain(
+                native
+                    .featured
+                    .iter_mut()
+                    .flat_map(|value| &mut value.cards),
+            )
         {
             card.saved_fraction = None;
         }
@@ -338,6 +385,10 @@ impl Presentation {
                 .iter()
                 .map(|rail| rail.cards.len())
                 .sum::<usize>()
+                + native
+                    .featured
+                    .as_ref()
+                    .map_or(0, |value| value.cards.len())
                 + if self.selected_playlist == native.seasons_tab {
                     native
                         .seasons

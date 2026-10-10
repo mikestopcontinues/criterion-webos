@@ -28,7 +28,13 @@ fn episode_play_keeps_its_real_origin_focus_and_history() {
     let mut ui = AppUi::new();
     ui.handle(Action::Down, &data);
     assert_eq!(ui.focus(), Focus::Card { row: 0, column: 0 });
-    assert_eq!(ui.handle(Action::Select, &data), [Command::Play(id)]);
+    assert_eq!(
+        ui.handle(Action::Select, &data),
+        [Command::ActivateCard {
+            target: target.clone(),
+            focus: Focus::Card { row: 0, column: 0 }
+        }]
+    );
     assert_eq!(ui.page(), Page::Home);
     assert_eq!(ui.focus(), Focus::Card { row: 0, column: 0 });
     assert_eq!(ui.handle(Action::Back, &data), [Command::Exit]);
@@ -59,6 +65,7 @@ fn detail<'a>(target: &'a Target, primary: Option<&'a MediaId>) -> criterion_ui:
         primary_action: "WATCH FIRST EPISODE",
         primary_playback_target: primary,
         selected_playlist: None,
+        featured: None,
         seasons: None,
         kind: criterion_ui::DetailKind::Series,
         membership: criterion_ui::ListMembership::SignedOut,
@@ -78,7 +85,10 @@ fn open_detail(ui: &mut AppUi, target: &Target) {
     ui.handle(Action::Down, &data);
     assert_eq!(
         ui.handle(Action::Select, &data),
-        [Command::Open(target.clone())]
+        [Command::ActivateCard {
+            target: target.clone(),
+            focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+        }]
     );
 }
 #[test]
@@ -269,7 +279,10 @@ fn episodes_tab_selects_source_seasons_and_plays_clicked_episode_without_departu
     ui.handle(Action::Down, &data(1));
     assert_eq!(
         ui.handle(Action::Select, &data(1)),
-        [Command::Play(episode.media_id().unwrap().clone())]
+        [Command::ActivateCard {
+            target: episode.clone(),
+            focus: Focus::Card { row: 0, column: 0 }
+        }]
     );
     assert_eq!(ui.page(), Page::Detail);
     assert_eq!(ui.focus(), Focus::Card { row: 0, column: 0 });
@@ -345,11 +358,14 @@ fn changed_selected_season_restores_visible_episode_focus() {
         frame
             .visible_cards
             .iter()
-            .any(|card| { card.row == 0 && card.column == 0 && card.key == first })
+            .any(|card| { card.focus == (Focus::Card { row: 0, column: 0 }) && card.key == first })
     );
     assert_eq!(
         ui.handle(Action::Select, &restored),
-        [Command::Play(first.media_id().unwrap().clone())]
+        [Command::ActivateCard {
+            target: first.clone(),
+            focus: Focus::Card { row: 0, column: 0 }
+        }]
     );
 
     let empty_choices = [criterion_ui::SeasonChoice {
@@ -481,7 +497,10 @@ fn season_pointer_focus_selects_then_episode_pointer_play_preserves_series_origi
     f.output.textures_delta.clear();
     assert_eq!(
         f.commands,
-        [Command::Play(episode.media_id().unwrap().clone())]
+        [Command::ActivateCard {
+            target: episode.clone(),
+            focus: Focus::Card { row: 0, column: 0 }
+        }]
     );
     assert_eq!(ui.page(), Page::Detail);
     assert_eq!(
@@ -631,7 +650,10 @@ fn late_generic_tab_remains_visible_and_selected_after_focus_leaves_tabs() {
     ui.handle(Action::Up, &data(10));
     let mut frame = ui.render(egui::RawInput::default(), &data(10));
     frame.output.textures_delta.clear();
-    assert_eq!(frame.visible_cards[0].row, 10);
+    assert_eq!(
+        frame.visible_cards[0].focus,
+        Focus::Card { row: 10, column: 0 }
+    );
     ui.handle(Action::Down, &data(10));
     ui.handle(Action::Down, &data(10));
     assert_eq!(ui.focus(), Focus::DetailTab(10));
@@ -686,7 +708,10 @@ fn late_detail_horizontal_card_movement_keeps_active_rail_visible_and_origin_sta
     assert_eq!(ui.focus(), Focus::Card { row: 9, column: 1 });
     assert_eq!(
         ui.handle(Action::Select, &data(9)),
-        [Command::Play(episode.media_id().unwrap().clone())]
+        [Command::ActivateCard {
+            target: episode.clone(),
+            focus: Focus::Card { row: 9, column: 1 }
+        }]
     );
     assert_eq!(ui.page(), Page::Detail);
     assert_eq!(

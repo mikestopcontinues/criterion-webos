@@ -55,6 +55,7 @@ fn long_synopsis_exposes_paging_and_remote_navigation_retains_every_page() {
             primary_action: "WATCH NOW",
             primary_playback_target: Some(target.media_id().unwrap()),
             selected_playlist: None,
+            featured: None,
             seasons: None,
             kind: DetailKind::Film,
             membership: criterion_ui::ListMembership::SignedOut,
@@ -65,7 +66,10 @@ fn long_synopsis_exposes_paging_and_remote_navigation_retains_every_page() {
     ui.handle(Action::Down, &data);
     assert_eq!(
         ui.handle(Action::Select, &data),
-        [criterion_ui::Command::Open(target.clone())]
+        [criterion_ui::Command::ActivateCard {
+            target: target.clone(),
+            focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+        }]
     );
     ui.handle(Action::Right, &data);
     ui.handle(Action::Select, &data);

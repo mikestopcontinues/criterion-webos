@@ -559,7 +559,10 @@ fn group_request_does_not_activate_old_group_cards_before_authoritative_publicat
                 anchor: 0,
                 target: 0
             },
-            Command::Open(target)
+            Command::ActivateCard {
+                target,
+                focus: Focus::Card { row: 0, column: 0 }
+            }
         ]
     );
 }
@@ -753,7 +756,7 @@ fn rail_reentry_restores_the_warm_global_anchor_in_a_bounded_window() {
         frame
             .visible_cards
             .iter()
-            .any(|card| card.row == 12 && card.column == 0)
+            .any(|card| card.focus == (Focus::Card { row: 12, column: 0 }))
     );
     assert_eq!(
         frame.commands,
@@ -1076,7 +1079,10 @@ fn detail_back_restores_the_selected_group_and_its_global_grid_position() {
                 anchor: 48,
                 target: 48
             },
-            Command::Open(target.clone())
+            Command::ActivateCard {
+                target: target.clone(),
+                focus: Focus::Card { row: 12, column: 0 }
+            }
         ]
     );
     assert_eq!(

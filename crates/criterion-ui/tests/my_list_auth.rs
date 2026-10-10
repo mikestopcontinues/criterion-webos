@@ -267,7 +267,10 @@ fn signed_out_my_list_shows_activation_and_cancel_restores_the_home_card_once() 
     assert_eq!(ui.focus(), origin);
     assert_eq!(
         ui.handle(Action::Select, &home),
-        vec![Command::Open(target.clone())]
+        vec![Command::ActivateCard {
+            target: target.clone(),
+            focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+        }]
     );
     assert_eq!(ui.page(), Page::Login);
 
@@ -338,7 +341,10 @@ fn signed_in_my_list_opens_the_grid_and_back_restores_its_origin() {
     let origin_scroll = ui.scroll_y();
     assert_eq!(
         ui.handle(Action::Select, &data),
-        vec![Command::Open(target.clone())]
+        vec![Command::ActivateCard {
+            target: target.clone(),
+            focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+        }]
     );
     assert_eq!(ui.page(), Page::MyList);
     assert_eq!(ui.focus(), Focus::Card { row: 0, column: 0 });
@@ -444,6 +450,12 @@ fn signed_out_my_list_pointer_activation_uses_the_same_login_route() {
         &data,
     );
     frame.output.textures_delta.clear();
-    assert_eq!(frame.commands, vec![Command::Open(target)]);
+    assert_eq!(
+        frame.commands,
+        vec![Command::ActivateCard {
+            target,
+            focus: criterion_ui::Focus::Card { row: 0, column: 0 }
+        }]
+    );
     assert_eq!(ui.page(), Page::Login);
 }
