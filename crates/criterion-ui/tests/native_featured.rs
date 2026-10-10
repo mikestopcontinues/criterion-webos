@@ -32,6 +32,7 @@ fn detail<'a>(root: &'a Target, title: Option<&'a str>, cards: &'a [Card<'a>]) -
         seasons: None,
         featured: Some(Featured { title, cards }),
         kind: DetailKind::Collection,
+        sort: None,
         membership: criterion_ui::ListMembership::SignedOut,
     }
 }

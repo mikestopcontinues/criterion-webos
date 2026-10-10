@@ -46,6 +46,9 @@ pub enum Focus {
     DetailSeason(usize),
     InformationPrimary,
     InformationClose,
+    DetailSortOption(crate::DetailSortField),
+    DetailSortApply,
+    DetailSortClose,
     FilterGroup(usize),
     FilterOption(usize),
     FilterApply,
@@ -67,6 +70,7 @@ pub(crate) enum Intent {
     ToggleList,
     SelectPlaylist(usize),
     SelectSeason(usize),
+    DetailSort(crate::DetailSortAction),
     Authenticate,
     VoiceSearch,
     Search {

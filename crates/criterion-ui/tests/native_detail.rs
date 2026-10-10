@@ -68,6 +68,7 @@ fn detail<'a>(target: &'a Target, primary: Option<&'a MediaId>) -> criterion_ui:
         featured: None,
         seasons: None,
         kind: criterion_ui::DetailKind::Series,
+        sort: None,
         membership: criterion_ui::ListMembership::SignedOut,
     }
 }

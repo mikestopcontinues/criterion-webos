@@ -8,6 +8,7 @@ use criterion_account::{MediaKind, NativePlaylist};
 use criterion_artwork::ImageRole;
 use criterion_provider::ImageLabel;
 use criterion_ui::{DetailKind, LoadState, Target};
+mod sort;
 
 const MAX_NATIVE_ITEMS: usize = 512;
 const MAX_NATIVE_GROUPS: usize = 32;
@@ -21,6 +22,7 @@ pub(super) struct NativeDetailState {
     pub(super) seasons: Vec<OwnedSeason>,
     pub(super) featured: Option<OwnedFeatured>,
     private_resume: bool,
+    sort: Option<sort::NativeSortState>,
 }
 pub(super) struct OwnedFeatured {
     pub(super) title: Option<String>,
@@ -33,6 +35,10 @@ pub(super) struct OwnedSeason {
 impl NativeDetailState {
     pub(super) fn heap_bytes(&self) -> usize {
         super::vec_bytes(&self.seasons)
+            + self
+                .sort
+                .as_ref()
+                .map_or(0, sort::NativeSortState::heap_bytes)
             + self.featured.as_ref().map_or(0, |featured| {
                 featured.title.as_ref().map_or(0, String::capacity)
                     + super::vec_bytes(&featured.cards)
@@ -98,7 +104,13 @@ impl Presentation {
             seasons: Vec::new(),
             featured: None,
             private_resume: positions.is_some(),
+            sort: None,
         };
+        let sortable = matches!(
+            detail.media.kind,
+            MediaKind::Category | MediaKind::Collection | MediaKind::Film | MediaKind::Supplement
+        ) && detail.is_first_tab_sortable == Some(true)
+            && matches!(detail.playlists.first(), Some(NativePlaylist::Generic(_)));
         if let Some(featured) = detail.featured {
             let mut cards = Vec::with_capacity(featured.children.len());
             for child in featured.children {
@@ -109,9 +121,15 @@ impl Presentation {
                 cards,
             });
         }
-        for playlist in detail.playlists {
+        for (raw_index, playlist) in detail.playlists.into_iter().enumerate() {
             match playlist {
                 NativePlaylist::Generic(value) => {
+                    if sortable && raw_index == 0 {
+                        native.sort = Some(sort::NativeSortState::new(
+                            &value.children,
+                            MAX_NATIVE_BYTES.saturating_sub(projection.estimated_bytes()),
+                        )?);
+                    }
                     let rail =
                         projection.native_detail_rail(value.title, value.children, positions);
                     projection.rails.push(rail);
@@ -229,6 +247,47 @@ impl Presentation {
             return Err(ProjectionLimit::TooLarge);
         }
         Ok(projection)
+    }
+    pub(crate) fn native_sort_action(&mut self, action: criterion_ui::DetailSortAction) {
+        if let Some(sort) = self
+            .detail
+            .as_mut()
+            .and_then(|detail| detail.native.as_mut())
+            .and_then(|native| native.sort.as_mut())
+        {
+            sort.action(action);
+        }
+    }
+    pub(crate) fn close_native_sort(&mut self) {
+        if let Some(sort) = self
+            .detail
+            .as_mut()
+            .and_then(|detail| detail.native.as_mut())
+            .and_then(|native| native.sort.as_mut())
+        {
+            sort.close();
+        }
+    }
+    pub(super) fn native_sort_order(&self, row: usize) -> Option<&[usize]> {
+        if row != 0 {
+            return None;
+        }
+        self.detail
+            .as_ref()?
+            .native
+            .as_ref()?
+            .sort
+            .as_ref()
+            .map(|sort| sort.order.as_slice())
+    }
+    pub(crate) fn native_sort_view(&self) -> Option<criterion_ui::DetailSortView> {
+        self.detail
+            .as_ref()?
+            .native
+            .as_ref()?
+            .sort
+            .as_ref()
+            .map(sort::NativeSortState::view)
     }
     pub(crate) fn select_native_season(&mut self, index: usize) {
         let Some(native) = self

@@ -903,3 +903,5 @@ mod list_membership_tests;
 mod native_featured_tests;
 #[path = "native_runtime_tests.rs"]
 mod native_runtime_tests;
+#[path = "native_sort_tests.rs"]
+mod native_sort_tests;

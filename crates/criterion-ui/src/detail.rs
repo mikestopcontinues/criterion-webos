@@ -25,6 +25,7 @@ pub(crate) struct DetailState {
     pub return_focus: Focus,
     pub information_page: usize,
     pub information_pages: usize,
+    pub sort: Option<crate::DetailSortView>,
 }
 impl Default for DetailState {
     fn default() -> Self {
@@ -40,6 +41,7 @@ impl Default for DetailState {
             return_focus: Focus::DetailAction(1),
             information_page: 0,
             information_pages: 1,
+            sort: None,
         }
     }
 }
@@ -84,6 +86,7 @@ impl AppUi {
             .as_ref()
             .map_or(0, |value| value.cards.len());
         self.detail_state.featured_height = crate::view::featured_height(detail);
+        self.sync_detail_sort(detail.sort);
         if self.page() != Page::Detail {
             return;
         }
@@ -141,6 +144,9 @@ impl AppUi {
     pub(crate) fn handle_detail(&mut self, action: Action, rows: &[usize]) -> Option<Vec<Intent>> {
         if self.page() != Page::Detail {
             return None;
+        }
+        if let Some(intents) = self.handle_detail_sort(action) {
+            return Some(intents);
         }
         if self.detail_state.information {
             match action {
@@ -218,6 +224,7 @@ impl AppUi {
                 _ => return None,
             },
             Focus::DetailTab(index) => match action {
+                Action::Select => return Some(vec![self.detail_tab_intent(index)]),
                 Action::Up => {
                     self.focus = if self.detail_state.featured_count > 0 {
                         Focus::FeaturedCard(0)

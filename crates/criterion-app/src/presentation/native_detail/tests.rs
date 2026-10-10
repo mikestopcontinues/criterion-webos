@@ -1047,3 +1047,5 @@ fn native_runtime_lines_are_included_before_exact_projection_admission() {
 
 #[path = "card_runtime_tests.rs"]
 mod card_runtime_tests;
+#[path = "sort_tests.rs"]
+mod sort_tests;

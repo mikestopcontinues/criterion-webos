@@ -93,6 +93,7 @@ pub struct Detail<'a> {
     pub seasons: Option<SeasonView<'a>>,
     pub kind: crate::DetailKind,
     pub membership: ListMembership,
+    pub sort: Option<crate::DetailSortView>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoadState {
@@ -214,6 +215,9 @@ impl AppUi {
                             visible_artwork.push(key.to_owned());
                         }
                         self.paint_detail(&p, detail, data.rails, &mut visible_cards);
+                        if let Some(sort) = detail.sort.filter(|sort| sort.visible) {
+                            self.paint_detail_sort(&p, sort);
+                        }
                     }
                 }
                 Page::Home | Page::New | Page::Discovery => {
@@ -967,6 +971,52 @@ impl AppUi {
     }
 }
 impl AppUi {
+    fn paint_detail_sort(&self, p: &egui::Painter, sort: crate::DetailSortView) {
+        p.rect_filled(
+            Rect::from_min_size(Pos2::ZERO, Vec2::new(1920.0, 1080.0)),
+            0,
+            Color32::from_black_alpha(220),
+        );
+        p.rect_filled(
+            Rect::from_min_max(Pos2::new(450.0, 130.0), Pos2::new(1500.0, 890.0)),
+            4,
+            Color32::from_rgb(28, 28, 28),
+        );
+        label(p, [510.0, 183.0], "Sort by", 36.0, WHITE, 750.0);
+        for field in crate::DetailSortField::ALL {
+            let focus = Focus::DetailSortOption(field);
+            let text = if sort.pending.field == field && field != crate::DetailSortField::Default {
+                format!(
+                    "{}  {}",
+                    field.label(),
+                    if sort.pending.direction == crate::DetailSortDirection::Ascending {
+                        "↑"
+                    } else {
+                        "↓"
+                    }
+                )
+            } else {
+                field.label().into()
+            };
+            let area = crate::detail_sort::sort_rect(focus).expect("fixed sort option");
+            button(p, area, &text, self.focus() == focus);
+            if sort.pending.field == field {
+                p.circle_filled(Pos2::new(area.right() - 28.0, area.center().y), 6.0, GOLD);
+            }
+        }
+        button(
+            p,
+            crate::detail_sort::sort_rect(Focus::DetailSortApply).expect("fixed Apply"),
+            "APPLY",
+            self.focus() == Focus::DetailSortApply,
+        );
+        icon_button(
+            p,
+            crate::detail_sort::sort_rect(Focus::DetailSortClose).expect("fixed Close"),
+            Icon::Close,
+            self.focus() == Focus::DetailSortClose,
+        );
+    }
     fn paint_detail(
         &mut self,
         p: &egui::Painter,

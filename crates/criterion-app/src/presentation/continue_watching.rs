@@ -62,7 +62,10 @@ impl Presentation {
                 }
                 self.native_season_cards(row)
                     .unwrap_or(self.rails.get(row)?.cards.as_slice())
-                    .get(column)
+                    .get(match self.native_sort_order(row) {
+                        Some(order) => *order.get(column)?,
+                        None => column,
+                    })
             }
             Focus::Card { row, column }
                 if matches!(page, Page::AllFilms | Page::MyList | Page::Search) =>

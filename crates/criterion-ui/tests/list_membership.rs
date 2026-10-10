@@ -39,6 +39,7 @@ fn data<'a>(target: &'a Target, membership: ListMembership, login: LoginView<'a>
             featured: None,
             seasons: None,
             kind: DetailKind::Film,
+            sort: None,
             membership,
         }),
         status: LoadState::Ready,

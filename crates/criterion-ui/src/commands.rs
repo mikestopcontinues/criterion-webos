@@ -13,6 +13,10 @@ pub enum Command {
     ToggleList(MediaId),
     SelectPlaylist(usize),
     SelectSeason(usize),
+    DetailSort {
+        root: MediaId,
+        action: crate::DetailSortAction,
+    },
     Authenticate,
     RetryAuthentication,
     CancelAuthentication,
@@ -133,6 +137,14 @@ impl AppUi {
                     .map(|id| Command::ToggleList(id.clone())),
                 Intent::SelectPlaylist(index) => Some(Command::SelectPlaylist(index)),
                 Intent::SelectSeason(index) => Some(Command::SelectSeason(index)),
+                Intent::DetailSort(action) => data
+                    .detail
+                    .as_ref()
+                    .and_then(|detail| detail.card.key.media_id())
+                    .map(|root| Command::DetailSort {
+                        root: root.clone(),
+                        action,
+                    }),
                 Intent::Authenticate => Some(
                     if matches!(
                         data.login,

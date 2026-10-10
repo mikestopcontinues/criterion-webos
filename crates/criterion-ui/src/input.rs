@@ -127,7 +127,21 @@ impl AppUi {
                     {
                         self.pointer_focus(prior.focus);
                         if let Focus::DetailTab(index) = prior.focus {
-                            commands.push(Command::SelectPlaylist(index));
+                            match self.detail_tab_intent(index) {
+                                crate::Intent::DetailSort(action) => {
+                                    if let Some(root) = data
+                                        .detail
+                                        .as_ref()
+                                        .and_then(|detail| detail.card.key.media_id())
+                                    {
+                                        commands.push(Command::DetailSort {
+                                            root: root.clone(),
+                                            action,
+                                        });
+                                    }
+                                }
+                                _ => commands.push(Command::SelectPlaylist(index)),
+                            }
                         } else if prior.focus != Focus::SearchField {
                             commands.extend(self.handle(Action::Select, data));
                         }
@@ -179,6 +193,11 @@ impl AppUi {
                     | Focus::DetailDescription => {
                         data.detail.as_ref().map(|detail| detail.card.key.clone())
                     }
+                    Focus::DetailSortOption(_)
+                    | Focus::DetailSortApply
+                    | Focus::DetailSortClose => {
+                        data.detail.as_ref().map(|detail| detail.card.key.clone())
+                    }
                     _ => None,
                 },
                 action: None,
@@ -192,6 +211,18 @@ impl AppUi {
                 },
             })
         };
+        if self.page() == Page::Detail && self.detail_state.sort.is_some_and(|sort| sort.visible) {
+            for focus in crate::DetailSortField::ALL
+                .map(Focus::DetailSortOption)
+                .into_iter()
+                .chain([Focus::DetailSortApply, Focus::DetailSortClose])
+            {
+                if crate::detail_sort::sort_rect(focus).is_some_and(|area| area.contains(pos)) {
+                    return target(focus);
+                }
+            }
+            return None;
+        }
         if matches!(self.page(), Page::AllFilms | Page::MyList)
             && !(self.page() == Page::AllFilms && self.filters.open)
             && data

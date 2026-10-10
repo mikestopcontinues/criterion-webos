@@ -58,6 +58,7 @@ fn long_synopsis_exposes_paging_and_remote_navigation_retains_every_page() {
             featured: None,
             seasons: None,
             kind: DetailKind::Film,
+            sort: None,
             membership: criterion_ui::ListMembership::SignedOut,
         }),
         ..Default::default()

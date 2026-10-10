@@ -14,6 +14,10 @@ pub use filter::FilterSelection;
 
 mod detail;
 pub use detail::DetailKind;
+mod detail_sort;
+pub use detail_sort::{
+    DetailSortAction, DetailSortDirection, DetailSortField, DetailSortSelection, DetailSortView,
+};
 
 mod commands;
 pub use commands::Command;

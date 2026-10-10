@@ -4,6 +4,7 @@ mod catalog;
 mod continue_watching;
 mod list_membership;
 mod native_detail;
+mod native_sort;
 pub(crate) use list_membership::MembershipScope;
 pub(crate) use native_detail::NativeDetailRead;
 #[cfg(test)]
@@ -377,7 +378,11 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
                 return self.retry_shelf().map_or(Effect::None, Effect::AccountRead);
             }
             Command::MyListGroup(_) | Command::Catalog { .. } | Command::RetryCatalog => {}
-            Command::SelectPlaylist(index) => self.view.select_playlist(index),
+            Command::SelectPlaylist(index) => {
+                self.view.close_native_sort();
+                self.view.select_playlist(index);
+            }
+            Command::DetailSort { root, action } => self.sort_detail(&root, action),
             Command::SelectSeason(index) => self.view.select_native_season(index),
             Command::Authenticate => {
                 if self.page != Page::Login {
@@ -480,6 +485,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
         for snapshot in &mut self.history {
             if let Some(view) = &mut snapshot.view {
                 view.clear_private_rows();
+                view.close_native_sort();
             }
             if snapshot.private_epoch.take().is_some() {
                 snapshot.view = None;
@@ -493,6 +499,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
             self.view.set_status(criterion_ui::LoadState::Empty);
         }
         self.view.clear_private_rows();
+        self.view.close_native_sort();
         if let Some(mut state) = self.my_list.take() {
             state.retire();
         }
@@ -507,10 +514,12 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     pub(crate) fn background(&mut self) {
         self.retire_membership_visit();
         self.foreground_active = false;
+        self.view.close_native_sort();
         self.view.clear_native_resume();
         for snapshot in &mut self.history {
             if let Some(view) = &mut snapshot.view {
                 view.clear_native_resume();
+                view.close_native_sort();
             }
         }
         self.cancel_continue_watching();
@@ -549,6 +558,7 @@ impl<T: RequestTransport + Send + Sync + 'static, C: MonotonicClock> Controller<
     fn remember(&mut self) {
         self.retire_membership_visit();
         self.view.clear_native_resume();
+        self.view.close_native_sort();
         let interrupted_native = self.native_detail_demand.is_some();
         self.cancel_native_detail();
         self.cancel_continue_watching();

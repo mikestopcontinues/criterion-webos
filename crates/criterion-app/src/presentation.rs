@@ -624,11 +624,11 @@ impl Presentation {
                 {
                     Vec::new()
                 } else {
-                    self.native_season_cards(index)
-                        .unwrap_or(&rail.cards)
-                        .iter()
-                        .map(OwnedCard::view)
-                        .collect()
+                    let cards = self.native_season_cards(index).unwrap_or(&rail.cards);
+                    match self.native_sort_order(index) {
+                        Some(order) => order.iter().map(|source| cards[*source].view()).collect(),
+                        None => cards.iter().map(OwnedCard::view).collect(),
+                    }
                 }
             })
             .collect();
@@ -669,6 +669,7 @@ impl Presentation {
             .collect();
         let detail = self.detail.as_ref().map(|detail| Detail {
             membership: criterion_ui::ListMembership::Unavailable,
+            sort: self.native_sort_view(),
             card: detail.card.view(),
             header_metadata: &detail.header_metadata,
             information_metadata: &detail.information_metadata,

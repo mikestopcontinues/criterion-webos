@@ -89,6 +89,7 @@ fn filter_and_information_controls_use_vector_marks_and_keep_remote_actions() {
             featured: None,
             seasons: None,
             kind: criterion_ui::DetailKind::Film,
+            sort: None,
             membership: criterion_ui::ListMembership::SignedOut,
         }),
         status: criterion_ui::LoadState::Ready,
