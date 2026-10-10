@@ -30,9 +30,36 @@ Run the SDL/GLES E2E separately with one display owner:
 
 The runner's init process lets Xvfb receive its readiness signal and reaps children. The host test explicitly uses SDL's EGL path; the window still requires synchronized presentation. Its ignored `.local/e2e/native-search.ppm` capture contains synthetic Search input and no subscriber state. Inspect the settled framebuffer separately from the state assertions. Serialize GPU checks across agents; no host display fixture establishes LG compositor behavior.
 
-The separately ignored `native_public_catalog_search_artwork_and_detail_roundtrip_end_to_end` uses the production anonymous catalog/artwork transports. Run it with the same display command and that exact test name. It drives SDL All Films→detail→Back and native text entry→Search→Films→detail→Back. It checks immediate admitted group counts and restored query/group/card focus, waits for current owning artwork, paints/reads/presents GLES and saves ignored public-detail and public-search captures. It invokes no account/linking/player action. This opt-in live check requires current network/provider availability; Cargo's `--offline` only controls dependency resolution. CI uses the synthetic Search E2E, keeping provider availability outside the reproducible gate.
+### Public hero E2E
+
+The ignored [public hero runner](../crates/criterion-app/src/application/tests/hero_render_tests.rs), `native_offline_public_hero_slots_current_cta_and_back_end_to_end`, drives the actual Application through SDL keys, paints current output with GLES and verifies original framebuffer pixels. Its first slideshow comes from captured public Home data, with other rows omitted to bound the fixture. All decoded background/logo pixels, the thirty-two duplicate slots and unavailable-slot cases are synthetic. The selected second CTA deliberately receives an Offline Detail response; exact routing and warm Back are checked without claiming a Ready Detail or live provider delivery. Five original 1920×1080 PNGs cover first/second selection, warm Back, the final duplicate ordinal and an unavailable slot; the journey also checks wrap and exact fixture request counts of two, one and one.
+
+Run it with one designated display owner and a closed Docker network. Development `./dev` enables networking; this invocation explicitly enforces `--network none`:
+
+```sh
+criterion_checkout_key=$(printf '%s' "$PWD" | cksum | cut -d ' ' -f 1)
+docker run --rm --init --network none \
+  --env CARGO_UNSTABLE_CHECKSUM_FRESHNESS=true \
+  --mount "type=bind,src=$PWD,dst=/workspace" \
+  --mount type=volume,src=criterion-webos-cargo,dst=/cargo \
+  --mount "type=volume,src=criterion-webos-target-$criterion_checkout_key,dst=/target" \
+  --workdir /workspace criterion-webos-development:20261009 \
+  xvfb-run -a -s '-screen 0 1920x1080x24' \
+  env SDL_VIDEO_X11_FORCE_EGL=1 cargo test -p criterion-app \
+  --bin criterion-unofficial --features sdl --locked --offline --jobs 2 \
+  application::tests::hero_tests::hero_render_tests::native_offline_public_hero_slots_current_cta_and_back_end_to_end \
+  -- --exact --ignored --nocapture --test-threads=1
+```
+
+The runner prints its fresh collision-safe `.local/e2e/native-offline-hero-<pid>-<time>/` directory. Inspect all five originals individually. Partial PNGs remain on failure, explicitly marked failed/unaccepted in output; each fresh framebuffer is saved before pixel admission. Application, account, artwork tasks, runtime and display still dispose on failure. The finite offline loader uses the production decoder and normal current-artwork/cache/texture path; these synthetic pixels do not establish CDN loading, warm-cache retention, native Home transport, subscriber behavior, official-app parity or TV rendering. [Application ownership](application.md#public-hero-traversal) defines the carousel contract. The test-only [display/key helper](../crates/criterion-app/src/application/sdl_render_tests.rs) also serves the live public journey; rerun both after changing that shared lifetime or ABI.
+
+### Live public E2E
+
+The separately ignored `native_public_catalog_search_artwork_and_detail_roundtrip_end_to_end` uses the production anonymous catalog/artwork transports. Use the network-enabled `./dev run xvfb-run …` command above, replacing its test name with this one. It drives SDL All Films→detail→Back and native text entry→Search→Films→detail→Back. It checks immediate admitted group counts and restored query/group/card focus, waits for current owning artwork, paints/reads/presents GLES and saves ignored public-detail and public-search captures. Its inspected frames establish current Detail and first Search result artwork; other visible images may still be placeholders. This is not an all-visible-artwork or live hero-traversal check. It invokes no account/linking/player action. This opt-in live check requires current network/provider availability; Cargo's `--offline` only controls dependency resolution. CI uses the synthetic Search E2E, keeping provider availability outside the reproducible gate.
 
 The separately ignored `native_public_catalog_paging_and_detail_back_end_to_end` uses the same production anonymous owners and display command. Actual SDL input traverses five 60-card All Films pages, verifies retained target order and the 180-card window, opens the selected film and checks exact warm Detail/Back restoration of targets, global focus and scroll. It then returns to an evicted second page and compares its observed targets in memory; the controller's source and CPU tests establish recorded-cursor selection. Input and readiness pumps paint and present available output; settled focused artwork is checked before saving ignored `native-public-paging.png` and `native-public-paging-backward.png` captures. Live provider availability is required; this does not cover missing-bookmark replay, a controlled tail-error/retry, subscriber actions, licensed playback or TV behavior.
+
+### Native and account E2E
 
 The separately ignored `native_hybrid_anonymous_film_information_and_back_end_to_end` uses the same display command and production anonymous native middleware/artwork transports. It starts with a clearly synthetic native Collection after the initial website job settles offline, then actual SDL input opens the exact Film, Information and warm Back origin. Its transport admits only one bootstrap and the selected native Film read; subscriber, issuer and website requests refuse. Fresh ignored captures in `.local/e2e/native-hybrid-film-<pid>-<time>/` contain real anonymous Film metadata/artwork and the labeled synthetic origin. The timestamp keeps repeated container PID values from colliding with retained evidence; existing directories are never overwritten. This is a bounded host composition check for one Film, requiring live provider availability; it does not admit live native discovery, My List, entitlement, licensed playback or C4 behavior.
 
