@@ -3,13 +3,13 @@
 //! privacy; departed generations never publish or start replacement reads.
 use crate::jobs::Jobs;
 use criterion_account::{
-    AccountClient, ContinueWatching, Error, NativeDetail, WatchList, WatchListRequest,
+    AccountClient, ContinueWatching, Error, NativeDetail, NativeEntitlement, WatchList,
+    WatchListRequest,
 };
 use criterion_session::{MonotonicClock, Session, SystemClock};
 use std::sync::Arc;
 use tokio::runtime::{Handle, Runtime};
 
-#[derive(Debug)]
 pub(crate) enum Loaded {
     WatchList {
         request: WatchListRequest,
@@ -17,6 +17,30 @@ pub(crate) enum Loaded {
     },
     ContinueWatching(ContinueWatching),
     NativeDetail(Box<NativeDetail>),
+    Entitlement {
+        captured_unix_time_ms: i64,
+        entitlement: NativeEntitlement,
+    },
+}
+impl std::fmt::Debug for Loaded {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::WatchList { request, page } => formatter
+                .debug_struct("WatchList")
+                .field("request", request)
+                .field("page", page)
+                .finish(),
+            Self::ContinueWatching(data) => formatter
+                .debug_tuple("ContinueWatching")
+                .field(data)
+                .finish(),
+            Self::NativeDetail(data) => formatter.debug_tuple("NativeDetail").field(data).finish(),
+            Self::Entitlement { entitlement, .. } => formatter
+                .debug_struct("Entitlement")
+                .field("entitlement", entitlement)
+                .finish_non_exhaustive(),
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ReadRequest {
@@ -25,11 +49,14 @@ pub(crate) enum ReadRequest {
     NativeDetail {
         media_id: criterion_provider::MediaId,
     },
+    Entitlement {
+        captured_unix_time_ms: i64,
+    },
 }
 impl ReadRequest {
     pub(crate) fn requires_subscriber(&self) -> bool {
         match self {
-            Self::WatchList(_) | Self::ContinueWatching => true,
+            Self::WatchList(_) | Self::ContinueWatching | Self::Entitlement { .. } => true,
             Self::NativeDetail { .. } => false,
         }
     }
@@ -55,6 +82,18 @@ impl LoadedAccount {
             (Loaded::ContinueWatching(_), ReadRequest::ContinueWatching) => true,
             (Loaded::NativeDetail(detail), ReadRequest::NativeDetail { media_id }) => {
                 detail.media.id == *media_id
+            }
+            (
+                Loaded::Entitlement {
+                    captured_unix_time_ms,
+                    ..
+                },
+                _,
+            ) => {
+                expected
+                    == &ReadRequest::Entitlement {
+                        captured_unix_time_ms: *captured_unix_time_ms,
+                    }
             }
             _ => false,
         }
@@ -239,6 +278,12 @@ impl<
                 ReadRequest::NativeDetail { media_id } => {
                     Loaded::NativeDetail(Box::new(account.detail(&media_id).await?))
                 }
+                ReadRequest::Entitlement {
+                    captured_unix_time_ms,
+                } => Loaded::Entitlement {
+                    captured_unix_time_ms,
+                    entitlement: account.entitlement(&session, captured_unix_time_ms).await?,
+                },
             };
             Ok(LoadedAccount {
                 generation: intent.generation,
@@ -293,6 +338,8 @@ impl<A: criterion_account::Transport, S: criterion_session::Transport, C: Monoto
 
 #[cfg(test)]
 mod continue_watching_tests;
+#[cfg(test)]
+mod entitlement_tests;
 #[cfg(test)]
 mod native_detail_tests;
 

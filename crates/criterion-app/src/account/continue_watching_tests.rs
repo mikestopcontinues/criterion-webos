@@ -100,6 +100,9 @@ impl Step {
             ReadRequest::NativeDetail { .. } => {
                 panic!("private read fixture does not admit NativeDetail")
             }
+            ReadRequest::Entitlement { .. } => {
+                panic!("private shelf fixture does not admit Entitlement")
+            }
         }
     }
 }
@@ -458,6 +461,9 @@ fn native_methods_share_one_bootstrap_and_retain_each_typed_result() {
             }
             Loaded::NativeDetail(_) => {
                 panic!("private read fixture does not admit NativeDetail")
+            }
+            Loaded::Entitlement { .. } => {
+                panic!("private shelf fixture does not admit Entitlement")
             }
         }
         assert!(!format!("{loaded:?}").contains("Synthetic"));

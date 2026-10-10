@@ -74,6 +74,9 @@ impl Step {
                 Observation::Subscriber(SubscriberTarget::WatchList { region: Region::Ca, request: request.clone() }),
                 br#"{"paging":{"page_limit":50},"type_counts":{"film":1},"playlist":[{"contentType":"film","mediaid":"Watch001","title":"Synthetic private film"}]}"#.to_vec(),
             ),
+            ReadRequest::Entitlement { .. } => {
+                panic!("metadata/shelf fixture does not admit Entitlement")
+            }
         };
         Self {
             target,
@@ -479,6 +482,9 @@ fn detail_watch_list_and_continue_watching_share_one_bootstrap_and_exact_payload
                 };
                 assert_eq!(actual, expected);
                 assert_eq!(page.playlist[0].id.as_str(), "Watch001");
+            }
+            Loaded::Entitlement { .. } => {
+                panic!("metadata/shelf fixture does not admit Entitlement")
             }
         }
     }
