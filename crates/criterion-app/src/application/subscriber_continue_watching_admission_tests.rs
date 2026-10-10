@@ -22,9 +22,15 @@ pub(super) struct ContinueWatchingTrace {
     armed: bool,
     bootstrap_started: bool,
     bootstrap_returned: Option<bool>,
+    bootstrap_status: Option<u16>,
+    bootstrap_error: Option<&'static str>,
+    bootstrap_phase: Option<&'static str>,
     region: Option<Region>,
     read_started: bool,
     read_returned: Option<bool>,
+    read_status: Option<u16>,
+    read_error: Option<&'static str>,
+    read_phase: Option<&'static str>,
     expected: Option<Vec<ExpectedRow>>,
     retired: bool,
     admitted: bool,
@@ -54,26 +60,72 @@ impl ContinueWatchingTrace {
         result: &Result<Response, criterion_account::Error>,
     ) {
         self.bootstrap_returned = Some(false);
-        if let Ok(response) = result
-            && response.status == 200
-            && response.body.expose().len() <= 65_536
-            && let Ok(value) = serde_json::from_slice::<serde_json::Value>(response.body.expose())
-        {
-            self.region = match value.get("country").and_then(serde_json::Value::as_str) {
-                Some("US") => Some(Region::Us),
-                Some("CA") => Some(Region::Ca),
-                _ => None,
-            };
-            self.bootstrap_returned = Some(self.region.is_some());
+        let response = match result {
+            Ok(response) => response,
+            Err(error) => {
+                let (category, status) = coarse_account_error(error);
+                self.bootstrap_status = status;
+                self.bootstrap_error = Some(category);
+                self.bootstrap_phase = Some(if status.is_some() {
+                    "Continue Watching bootstrap HTTP status"
+                } else {
+                    "Continue Watching bootstrap transport error"
+                });
+                return;
+            }
+        };
+        self.bootstrap_status = Some(response.status);
+        if response.status != 200 {
+            self.bootstrap_phase = Some("Continue Watching bootstrap HTTP status");
+            return;
+        }
+        if response.body.expose().len() > 65_536 {
+            self.bootstrap_phase = Some("Continue Watching bootstrap body bound");
+            return;
+        }
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(response.body.expose()) else {
+            self.bootstrap_phase = Some("Continue Watching bootstrap JSON");
+            return;
+        };
+        self.region = match value.get("country").and_then(serde_json::Value::as_str) {
+            Some("US") => Some(Region::Us),
+            Some("CA") => Some(Region::Ca),
+            _ => None,
+        };
+        self.bootstrap_returned = Some(self.region.is_some());
+        if self.region.is_none() {
+            self.bootstrap_phase = Some("Continue Watching bootstrap region");
         }
     }
     pub(super) fn complete_read(&mut self, result: &Result<Response, criterion_account::Error>) {
         self.read_returned = Some(false);
-        if let Ok(response) = result
-            && let Ok(rows) = expected_rows(response)
-        {
-            self.expected = Some(rows);
-            self.read_returned = Some(true);
+        match result {
+            Err(error) => {
+                let (category, status) = coarse_account_error(error);
+                self.read_status = status;
+                self.read_error = Some(category);
+                self.read_phase = Some(if status.is_some() {
+                    "Continue Watching read HTTP status"
+                } else {
+                    "Continue Watching read transport error"
+                });
+            }
+            Ok(response) => {
+                self.read_status = Some(response.status);
+                if response.status != 200 {
+                    self.read_phase = Some("Continue Watching read HTTP status");
+                    return;
+                }
+                match expected_rows(response) {
+                    Ok(rows) => {
+                        self.expected = Some(rows);
+                        self.read_returned = Some(true);
+                    }
+                    // Every expected_rows failure origin is a fixed source
+                    // literal; parser errors and external values never cross.
+                    Err(phase) => self.read_phase = Some(phase),
+                }
+            }
         }
     }
     fn completed(&self) -> bool {
@@ -252,8 +304,8 @@ impl ContinueWatchingJourney {
             .continue_watching
             .as_ref()
             .ok_or("Continue Watching mode trace")?;
-        if trace.refused || watching.read_returned == Some(false) {
-            return Err("Continue Watching exact response admission");
+        if let Some(phase) = failure_phase(&trace) {
+            return Err(phase);
         }
         let Some(expected) = &watching.expected else {
             return Ok(false);
@@ -304,6 +356,78 @@ impl ContinueWatchingJourney {
             .retire();
         Ok(())
     }
+}
+
+fn failure_phase(trace: &ReadTrace) -> Option<&'static str> {
+    let watching = trace.continue_watching.as_ref()?;
+    if trace.refused {
+        Some("Continue Watching request refused before transport")
+    } else {
+        watching.bootstrap_phase.or(watching.read_phase)
+    }
+}
+
+// Match categories only, never format the external Error or its nested value.
+fn coarse_account_error(error: &criterion_account::Error) -> (&'static str, Option<u16>) {
+    use criterion_account::Error;
+    let category = match error {
+        Error::Unavailable => "unavailable",
+        Error::InvalidRequest => "invalid_request",
+        Error::InvalidResponse => "invalid_response",
+        Error::HttpStatus(status) => return ("http_status", Some(*status)),
+        Error::ResponseTooLarge => "response_too_large",
+        Error::Deadline => "deadline",
+        Error::Busy => "busy",
+        Error::Stale => "stale",
+        Error::Disposed => "disposed",
+        Error::NoBootstrap => "no_bootstrap",
+        Error::UnsupportedRegion => "unsupported_region",
+        Error::ReconciliationRequired => "reconciliation_required",
+        Error::Session(_) => "session",
+    };
+    (category, None)
+}
+
+pub(super) fn report_diagnostic(
+    trace: &SharedTrace,
+    attempt_ok: bool,
+    cleanup_acknowledged: bool,
+    text_cleanup_ok: bool,
+    observation_retired: bool,
+) {
+    let Ok(trace) = trace.lock() else {
+        println!("subscriber admission: Continue Watching diagnostics trace unavailable");
+        return;
+    };
+    let Some(watching) = &trace.continue_watching else {
+        return;
+    };
+    // This single line survives trace erasure only after application/worker
+    // disposal. It contains booleans, known HTTP codes and fixed categories.
+    println!(
+        "subscriber admission: Continue Watching diagnostics refused={} bootstrap_started={} bootstrap_result_seen={} bootstrap_oracle_admitted={} bootstrap_status={} bootstrap_error={} bootstrap_phase={} read_started={} read_result_seen={} read_oracle_admitted={} read_status={} read_error={} read_phase={} attempt_ok={} cleanup_acknowledged={} text_cleanup_ok={} observation_retired={}",
+        trace.refused,
+        watching.bootstrap_started,
+        watching.bootstrap_returned.is_some(),
+        watching.bootstrap_returned == Some(true),
+        watching
+            .bootstrap_status
+            .map_or_else(|| "none".into(), |status| status.to_string()),
+        watching.bootstrap_error.unwrap_or("none"),
+        watching.bootstrap_phase.unwrap_or("none"),
+        watching.read_started,
+        watching.read_returned.is_some(),
+        watching.read_returned == Some(true),
+        watching
+            .read_status
+            .map_or_else(|| "none".into(), |status| status.to_string()),
+        watching.read_error.unwrap_or("none"),
+        watching.read_phase.unwrap_or("none"),
+        attempt_ok,
+        cleanup_acknowledged,
+        text_cleanup_ok,
+        observation_retired,
+    );
 }
 
 fn inspect_frame(
@@ -1638,5 +1762,320 @@ fn actual_application_login_back_arms_only_supplied_home_before_one_read_and_log
         assert!(app.positions.is_none() && app.finish(&runtime));
         assert!(native_calls.load(Ordering::SeqCst) == if supplied { 2 } else { 0 });
         assert!(public_calls.load(Ordering::SeqCst) == 1 && !trace.lock().unwrap().refused);
+    }
+}
+
+#[test]
+fn diagnostics_distinguish_actual_precontact_refusal_without_a_receiver_call() {
+    use criterion_account::{Request, Transport};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+    struct Receiver(Arc<AtomicUsize>);
+    impl Transport for Receiver {
+        async fn send(&self, _: Request) -> Result<Response, criterion_account::Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(criterion_account::Error::Unavailable)
+        }
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let trace = Arc::new(Mutex::new(ReadTrace {
+        continue_watching: Some(ContinueWatchingTrace::default()),
+        ..ReadTrace::default()
+    }));
+    let transport = TracedAccount {
+        inner: Receiver(calls.clone()),
+        trace: trace.clone(),
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    assert!(
+        runtime
+            .block_on(transport.send(Request::Bootstrap))
+            .is_err()
+    );
+    let guarded = trace.lock().unwrap();
+    assert!(calls.load(Ordering::SeqCst) == 0);
+    assert!(failure_phase(&guarded) == Some("Continue Watching request refused before transport"));
+    let watching = guarded.continue_watching.as_ref().unwrap();
+    assert!(!watching.bootstrap_started && !watching.read_started);
+}
+
+#[test]
+fn diagnostics_distinguish_actual_read_http_schema_and_transport_failure() {
+    use criterion_account::{Request, SubscriberTarget, Transport};
+    use criterion_session::SecretBody;
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+    #[derive(Clone, Copy)]
+    enum Case {
+        Http,
+        StatusError,
+        Json,
+        Playlist,
+        Positions,
+        Bound,
+        Transport,
+        Session,
+    }
+    struct Receiver {
+        case: Case,
+        calls: Arc<AtomicUsize>,
+    }
+    impl Transport for Receiver {
+        async fn send(&self, request: Request) -> Result<Response, criterion_account::Error> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if matches!(request, Request::Bootstrap) {
+                return Ok(Response {
+                    status: 200,
+                    body: SecretBody::new(br#"{"country":"US"}"#.to_vec()),
+                });
+            }
+            let (status, body) = match self.case {
+                Case::Http => (503, b"{}".as_slice()),
+                Case::StatusError => return Err(criterion_account::Error::HttpStatus(401)),
+                Case::Json => (200, b"not-json".as_slice()),
+                Case::Playlist => (200, br#"{"positions":[]}"#.as_slice()),
+                Case::Positions => (200, br#"{"playlist":[]}"#.as_slice()),
+                Case::Bound => {
+                    return Ok(Response {
+                        status: 200,
+                        body: SecretBody::new(vec![b' '; 65_537]),
+                    });
+                }
+                Case::Transport => return Err(criterion_account::Error::Deadline),
+                Case::Session => {
+                    return Err(criterion_account::Error::Session(
+                        criterion_session::Error::RevocationUnconfirmed,
+                    ));
+                }
+            };
+            Ok(Response {
+                status,
+                body: SecretBody::new(body.to_vec()),
+            })
+        }
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    for (case, phase, status, error) in [
+        (
+            Case::Http,
+            "Continue Watching read HTTP status",
+            Some(503),
+            None,
+        ),
+        (
+            Case::StatusError,
+            "Continue Watching read HTTP status",
+            Some(401),
+            Some("http_status"),
+        ),
+        (
+            Case::Json,
+            "Continue Watching response oracle",
+            Some(200),
+            None,
+        ),
+        (
+            Case::Playlist,
+            "Continue Watching supplied playlist",
+            Some(200),
+            None,
+        ),
+        (
+            Case::Positions,
+            "Continue Watching supplied positions",
+            Some(200),
+            None,
+        ),
+        (
+            Case::Bound,
+            "Continue Watching bounded response oracle",
+            Some(200),
+            None,
+        ),
+        (
+            Case::Transport,
+            "Continue Watching read transport error",
+            None,
+            Some("deadline"),
+        ),
+        (
+            Case::Session,
+            "Continue Watching read transport error",
+            None,
+            Some("session"),
+        ),
+    ] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let trace = Arc::new(Mutex::new(ReadTrace {
+            continue_watching: Some(ContinueWatchingTrace {
+                armed: true,
+                ..ContinueWatchingTrace::default()
+            }),
+            ..ReadTrace::default()
+        }));
+        let transport = TracedAccount {
+            inner: Receiver {
+                case,
+                calls: calls.clone(),
+            },
+            trace: trace.clone(),
+        };
+        assert!(runtime.block_on(transport.send(Request::Bootstrap)).is_ok());
+        assert!(failure_phase(&trace.lock().unwrap()).is_none());
+        let _result = runtime.block_on(transport.send(Request::Subscriber {
+            target: SubscriberTarget::ContinueWatching(Region::Us),
+            credentials: synthetic_credentials(),
+        }));
+        let mut guarded = trace.lock().unwrap();
+        let watching = guarded.continue_watching.as_ref().unwrap();
+        assert!(calls.load(Ordering::SeqCst) == 2 && !guarded.refused);
+        assert!(
+            watching.read_started
+                && watching.read_returned == Some(false)
+                && watching.expected.is_none()
+        );
+        assert!(watching.read_status == status && watching.read_error == error);
+        assert!(failure_phase(&guarded) == Some(phase));
+        guarded.continue_watching.as_mut().unwrap().retire();
+        let watching = guarded.continue_watching.as_ref().unwrap();
+        assert!(watching.retired && watching.region.is_none() && watching.expected.is_none());
+        assert!(
+            watching.read_started
+                && watching.read_returned == Some(false)
+                && watching.read_status == status
+                && watching.read_error == error
+        );
+        assert!(failure_phase(&guarded) == Some(phase));
+    }
+}
+
+#[test]
+fn diagnostics_distinguish_actual_bootstrap_http_schema_and_transport_failure() {
+    use criterion_account::{Request, Transport};
+    use criterion_session::SecretBody;
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+    #[derive(Clone, Copy)]
+    enum Case {
+        Http,
+        StatusError,
+        Json,
+        Region,
+        Bound,
+        Transport,
+    }
+    struct Receiver {
+        case: Case,
+        calls: Arc<AtomicUsize>,
+    }
+    impl Transport for Receiver {
+        async fn send(&self, _: Request) -> Result<Response, criterion_account::Error> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let (status, body) = match self.case {
+                Case::Http => (503, b"{}".as_slice()),
+                Case::StatusError => return Err(criterion_account::Error::HttpStatus(401)),
+                Case::Json => (200, b"not-json".as_slice()),
+                Case::Region => (200, br#"{"country":"ZZ"}"#.as_slice()),
+                Case::Bound => {
+                    return Ok(Response {
+                        status: 200,
+                        body: SecretBody::new(vec![b' '; 65_537]),
+                    });
+                }
+                Case::Transport => return Err(criterion_account::Error::Deadline),
+            };
+            Ok(Response {
+                status,
+                body: SecretBody::new(body.to_vec()),
+            })
+        }
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    for (case, phase, status, error) in [
+        (
+            Case::Http,
+            "Continue Watching bootstrap HTTP status",
+            Some(503),
+            None,
+        ),
+        (
+            Case::StatusError,
+            "Continue Watching bootstrap HTTP status",
+            Some(401),
+            Some("http_status"),
+        ),
+        (
+            Case::Json,
+            "Continue Watching bootstrap JSON",
+            Some(200),
+            None,
+        ),
+        (
+            Case::Region,
+            "Continue Watching bootstrap region",
+            Some(200),
+            None,
+        ),
+        (
+            Case::Bound,
+            "Continue Watching bootstrap body bound",
+            Some(200),
+            None,
+        ),
+        (
+            Case::Transport,
+            "Continue Watching bootstrap transport error",
+            None,
+            Some("deadline"),
+        ),
+    ] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let trace = Arc::new(Mutex::new(ReadTrace {
+            continue_watching: Some(ContinueWatchingTrace {
+                armed: true,
+                ..ContinueWatchingTrace::default()
+            }),
+            ..ReadTrace::default()
+        }));
+        let transport = TracedAccount {
+            inner: Receiver {
+                case,
+                calls: calls.clone(),
+            },
+            trace: trace.clone(),
+        };
+        let _result = runtime.block_on(transport.send(Request::Bootstrap));
+        let mut guarded = trace.lock().unwrap();
+        let watching = guarded.continue_watching.as_ref().unwrap();
+        assert!(calls.load(Ordering::SeqCst) == 1 && !guarded.refused);
+        assert!(
+            watching.bootstrap_started
+                && watching.bootstrap_returned == Some(false)
+                && !watching.read_started
+        );
+        assert!(watching.bootstrap_status == status && watching.bootstrap_error == error);
+        assert!(failure_phase(&guarded) == Some(phase));
+        guarded.continue_watching.as_mut().unwrap().retire();
+        let watching = guarded.continue_watching.as_ref().unwrap();
+        assert!(watching.retired && watching.region.is_none() && watching.expected.is_none());
+        assert!(
+            watching.bootstrap_started
+                && watching.bootstrap_returned == Some(false)
+                && watching.bootstrap_status == status
+                && watching.bootstrap_error == error
+        );
+        assert!(failure_phase(&guarded) == Some(phase));
     }
 }

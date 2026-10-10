@@ -1190,6 +1190,15 @@ fn run_subscriber_admission(mode: AdmissionMode) -> Result<(), &'static str> {
     } else {
         Ok(())
     };
+    if mode == AdmissionMode::ContinueWatching {
+        subscriber_continue_watching_admission_tests::report_diagnostic(
+            &trace,
+            journey.is_ok() && final_trace.is_ok(),
+            cleanup.is_ok(),
+            text_cleanup.is_ok(),
+            watching_cleanup.is_ok(),
+        );
+    }
     journey_state.reads.clear();
     if let Ok(mut trace) = trace.lock() {
         trace.reads.clear();
