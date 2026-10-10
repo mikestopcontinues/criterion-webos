@@ -142,3 +142,136 @@ fn unsigned_c_result_preserves_all_bits_and_success_errno() {
     });
     assert_eq!((value, errno), (0xfedc9876, 11));
 }
+
+#[test]
+fn zero_terminator_with_sixteen_zero_padding_bytes_publishes_the_cached_vector() {
+    // Synthetic entries with the observed zero-valued AT_NULL + 16-zero-byte tail.
+    let bytes = [
+        6, 0, 0, 0, 0, 16, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 120, 86, 52, 18, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    let cache = Cache::new();
+    let mut errno = 47;
+    let page_size = cache.getauxval(6, &mut errno, || {
+        let mut reader = bytes.as_slice();
+        Auxv::read(|out| reader.read(out).map_err(|_| ReadError::Unavailable))
+    });
+    assert_eq!((page_size, errno), (4096, 47));
+    assert_eq!(
+        cache.getauxval(8, &mut errno, || panic!(
+            "admitted cache must load only once"
+        )),
+        0
+    );
+    assert_eq!(errno, 47);
+    assert_eq!(
+        cache.getauxval(u32::MAX, &mut errno, || panic!(
+            "admitted cache must load only once"
+        )),
+        0x12345678
+    );
+}
+
+#[test]
+fn exact_zero_padding_survives_partial_and_interrupted_reads() {
+    for padding in [0, 8, 16] {
+        let mut bytes = vec![0; 16 + padding];
+        bytes[..8].copy_from_slice(&[6, 0, 0, 0, 0, 16, 0, 0]);
+        let mut reader = bytes.as_slice();
+        let mut calls = 0;
+        let vector = Auxv::read(|out| {
+            calls += 1;
+            if calls % 3 == 0 {
+                return Err(ReadError::Interrupted);
+            }
+            reader
+                .read(&mut out[..1])
+                .map_err(|_| ReadError::Unavailable)
+        })
+        .unwrap();
+        assert_eq!(vector.lookup(6), Some(4096));
+        assert_eq!(vector.lookup(0), None);
+    }
+}
+
+#[test]
+fn partial_nonzero_and_excess_terminator_padding_remain_malformed() {
+    for padding in (1..=32)
+        .chain([512])
+        .filter(|length| !matches!(length, 8 | 16))
+    {
+        let bytes = vec![0; 8 + padding];
+        let mut reader = bytes.as_slice();
+        assert!(
+            matches!(
+                Auxv::read(|out| reader.read(out).map_err(|_| ReadError::Unavailable)),
+                Err(Failure::Malformed)
+            ),
+            "zero padding length {padding}"
+        );
+    }
+    for padding in [8, 16] {
+        for nonzero in 0..padding {
+            let mut bytes = vec![0; 8 + padding];
+            bytes[8 + nonzero] = 1;
+            let mut reader = bytes.as_slice();
+            assert!(
+                matches!(
+                    Auxv::read(|out| reader.read(out).map_err(|_| ReadError::Unavailable)),
+                    Err(Failure::Malformed)
+                ),
+                "nonzero byte {nonzero} in {padding}-byte padding"
+            );
+        }
+    }
+}
+
+#[test]
+fn termination_keeps_read_errors_and_unending_input_bounded() {
+    let mut bytes = [0; 8].as_slice();
+    assert!(matches!(
+        Auxv::read(|out| {
+            if bytes.is_empty() {
+                Err(ReadError::Unavailable)
+            } else {
+                bytes.read(out).map_err(|_| ReadError::Unavailable)
+            }
+        }),
+        Err(Failure::Unavailable)
+    ));
+    let mut bytes = [0; 8].as_slice();
+    assert!(matches!(
+        Auxv::read(|out| {
+            if bytes.is_empty() {
+                Ok(out.len() + 1)
+            } else {
+                bytes.read(out).map_err(|_| ReadError::Unavailable)
+            }
+        }),
+        Err(Failure::Malformed)
+    ));
+    let mut bytes = [0; 8].as_slice();
+    let mut calls = 0;
+    assert!(matches!(
+        Auxv::read(|out| {
+            calls += 1;
+            if bytes.is_empty() {
+                Err(ReadError::Interrupted)
+            } else {
+                bytes.read(out).map_err(|_| ReadError::Unavailable)
+            }
+        }),
+        Err(Failure::Limit)
+    ));
+    assert_eq!(calls, 1024);
+    let mut consumed = 0;
+    assert!(matches!(
+        Auxv::read(|out| {
+            out.fill(0);
+            consumed += out.len();
+            Ok(out.len())
+        }),
+        Err(Failure::Malformed)
+    ));
+    assert_eq!(consumed, 25); // AT_NULL plus the bounded 17-byte padding sentinel.
+}

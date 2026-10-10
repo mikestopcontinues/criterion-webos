@@ -85,11 +85,27 @@ impl Auxv {
             let kind = u32::from_le_bytes([pair[0], pair[1], pair[2], pair[3]]);
             let value = u32::from_le_bytes([pair[4], pair[5], pair[6], pair[7]]);
             if kind == 0 {
-                let mut trailing = [0];
-                if value != 0 || next(&mut read, &mut trailing, &mut attempts)? != 0 {
+                if value != 0 {
                     return Err(Failure::Malformed);
                 }
-                return Ok(auxv);
+                // A native 64-bit proc scan over packed compat32 saved_auxv can expose
+                // 8 or 16 zero bytes after AT_NULL. One sentinel byte bounds excess.
+                let mut trailing = [0; 17];
+                let mut used = 0;
+                while used < trailing.len() {
+                    let count = next(&mut read, &mut trailing[used..], &mut attempts)?;
+                    if count == 0 {
+                        return match used {
+                            0 | 8 | 16 => Ok(auxv),
+                            _ => Err(Failure::Malformed),
+                        };
+                    }
+                    if trailing[used..used + count].iter().any(|byte| *byte != 0) {
+                        return Err(Failure::Malformed);
+                    }
+                    used += count;
+                }
+                return Err(Failure::Malformed);
             }
             if auxv.lookup(kind).is_some() {
                 return Err(Failure::Malformed);
