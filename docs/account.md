@@ -34,6 +34,14 @@ The native media projection differs from the public website decoder. Its nine `c
 
 The signed reference's nine concrete media variants return the same field serialized as required `mediaid` for their Watch List key. Its successful projection preserves that raw field through the row key, and its append handler keeps the first existing key before new items. This closes the client field mapping for the admitted variants; it does not establish cross-content-type server uniqueness, immutable identity or future subtype behavior. Application pagination must preserve that first-key order and keep group cursors separate rather than deriving keys from titles or list positions.
 
+## Native Detail membership observation
+
+[The application membership owner](../crates/criterion-app/src/application/list_membership.rs) issues one typed My List IDs read after an eligible signed-in native Detail is ready. [The controller scope](../crates/criterion-app/src/controller/list_membership.rs) binds it to the exact requested root, original kind, account epoch and never-reused foreground visit. A Series primary Episode remains a separate identity. Live is excluded. Credential waits and retiring work share the original demand deadline; ordinary polling does not retry a failed or expired observation.
+
+The result reduces to current-root presence only. Unrelated IDs and every returned position are discarded rather than merged into the Continue Watching snapshot. Membership overlays a temporary borrowed view and never enters cached Presentation or navigation history. Navigation, background, logout, relinking and disposal retire the observation and join issued work before a successor. Signed-in cached Back and resumed foreground begin fresh observations; signed-out Back issues no IDs read.
+
+Synthetic worker and actual Application tests cover request framing, identity, original deadlines, held-read retirement, cached Back, background, disposal and identical-token relinking. Live composed membership admission remains unfinished. Both UI input and the Application action consumer refuse signed-in list mutations; an observation does not admit the durable write owner below. Signed-out activation preserves the current origin without replaying a list write after linking.
+
 ## Entitlement projection
 
 `AccountClient::entitlement` accepts the caller's exact signed Unix milliseconds and issues the fixed regional bodyless GET with `t=<captured_unix_time_ms>` and the two private header roles. It preserves required `accessGranted: Boolean` and `customerId: Int32`; missing, null, wrong-type and out-of-range fields reject. Customer identity is private and redacted in diagnostics. There is no inferred timestamp, expiry, refresh, retry or DRM policy. The response is provider data; its Boolean does not grant a media or license resource capability.
