@@ -20,7 +20,7 @@ fn my_list_waits_at_the_native_page_boundary_with_the_existing_catalog_command()
             artwork_key: None,
             title: "Admitted fixture",
             year: "",
-            duration_seconds: 0,
+            duration_label: None,
             saved_fraction: None,
             action: criterion_ui::CardAction::Open,
         };
@@ -141,7 +141,7 @@ fn painted_groups_share_pointer_geometry_and_omit_an_unavailable_count() {
         artwork_key: None,
         title: "Admitted fixture",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     }];
@@ -206,7 +206,7 @@ fn selected_group_header_enters_the_admitted_grid_through_shared_catalog_demand(
         artwork_key: None,
         title: "Admitted fixture",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     }];
@@ -251,7 +251,7 @@ fn my_list_tail_error_paints_and_pointer_retries_without_losing_the_global_ancho
             artwork_key: None,
             title: "Admitted fixture",
             year: "",
-            duration_seconds: 0,
+            duration_label: None,
             saved_fraction: None,
             action: criterion_ui::CardAction::Open,
         };
@@ -334,7 +334,7 @@ fn warm_group_return_restores_its_global_card_and_scroll_without_a_history_push(
             artwork_key: None,
             title: "Admitted fixture",
             year: "",
-            duration_seconds: 0,
+            duration_label: None,
             saved_fraction: None,
             action: criterion_ui::CardAction::Open,
         };
@@ -497,7 +497,7 @@ fn group_request_does_not_activate_old_group_cards_before_authoritative_publicat
         artwork_key: None,
         title: "Admitted fixture",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     }];
@@ -584,7 +584,7 @@ fn authoritative_group_change_never_reuses_the_previous_groups_global_position()
             artwork_key: None,
             title: "Admitted fixture",
             year: "",
-            duration_seconds: 0,
+            duration_label: None,
             saved_fraction: None,
             action: criterion_ui::CardAction::Open,
         };
@@ -701,7 +701,7 @@ fn rail_reentry_restores_the_warm_global_anchor_in_a_bounded_window() {
             artwork_key: None,
             title: "Admitted fixture",
             year: "",
-            duration_seconds: 0,
+            duration_label: None,
             saved_fraction: None,
             action: criterion_ui::CardAction::Open,
         };
@@ -778,7 +778,7 @@ fn logout_and_relink_cannot_resurrect_group_anchors_from_public_history() {
             artwork_key: None,
             title: "Admitted fixture",
             year: "",
-            duration_seconds: 0,
+            duration_label: None,
             saved_fraction: None,
             action: criterion_ui::CardAction::Open,
         };
@@ -935,7 +935,7 @@ fn a_terminal_smaller_group_clamps_a_saved_anchor_to_an_admitted_card() {
             artwork_key: None,
             title: "Admitted fixture",
             year: "",
-            duration_seconds: 0,
+            duration_label: None,
             saved_fraction: None,
             action: criterion_ui::CardAction::Open,
         };
@@ -1043,7 +1043,7 @@ fn detail_back_restores_the_selected_group_and_its_global_grid_position() {
             artwork_key: None,
             title: "Admitted fixture",
             year: "",
-            duration_seconds: 0,
+            duration_label: None,
             saved_fraction: None,
             action: criterion_ui::CardAction::Open,
         };
@@ -1132,7 +1132,7 @@ fn pointer_release_after_a_group_change_cannot_open_an_identical_old_card() {
         artwork_key: None,
         title: "Admitted fixture",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     }];
@@ -1205,7 +1205,7 @@ fn pending_group_ignores_old_retry_controls_and_keeps_latest_remote_selection() 
         artwork_key: None,
         title: "Admitted fixture",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     }];
@@ -1254,7 +1254,7 @@ fn back_to_home_preserves_the_new_warm_group_anchor_for_reentry() {
             artwork_key: None,
             title: "Admitted fixture",
             year: "",
-            duration_seconds: 0,
+            duration_label: None,
             saved_fraction: None,
             action: criterion_ui::CardAction::Open,
         };

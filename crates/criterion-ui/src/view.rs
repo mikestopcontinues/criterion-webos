@@ -16,7 +16,7 @@ pub struct Card<'a> {
     pub artwork_key: Option<&'a str>,
     pub title: &'a str,
     pub year: &'a str,
-    pub duration_seconds: u32,
+    pub duration_label: Option<&'a str>,
     /// Immutable normalized saved progress, supplied by the application projection.
     pub saved_fraction: Option<f32>,
 }
@@ -729,17 +729,8 @@ pub(crate) fn paint_card(
         MUTED,
         120.0,
     );
-    if card.duration_seconds == 0 {
+    let Some(duration) = card.duration_label else {
         return;
-    }
-    let duration = if card.duration_seconds >= 3600 {
-        format!(
-            "{} h {} min",
-            card.duration_seconds / 3600,
-            (card.duration_seconds % 3600) / 60
-        )
-    } else {
-        format!("{} min", card.duration_seconds / 60)
     };
     p.text(
         Pos2::new(rect.right(), rect.bottom() + 46.0),

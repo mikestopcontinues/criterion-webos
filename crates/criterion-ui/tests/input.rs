@@ -15,7 +15,7 @@ fn pointer_release_activates_only_the_current_pressed_media_identity() {
         artwork_key: None,
         title: "The Hitcher",
         year: "1986",
-        duration_seconds: 5820,
+        duration_label: Some("1 h 37 min"),
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     }];
@@ -93,7 +93,7 @@ fn pointer_gone_and_replaced_media_cancel_pending_activation() {
         artwork_key: None,
         title: "Fixture",
         year: "1986",
-        duration_seconds: 5820,
+        duration_label: Some("1 h 37 min"),
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     };
@@ -174,7 +174,7 @@ fn hero_press_cannot_activate_replacement_media() {
                 artwork_key: None,
                 title: "Fixture",
                 year: "1986",
-                duration_seconds: 5820,
+                duration_label: Some("1 h 37 min"),
                 saved_fraction: None,
                 action: criterion_ui::CardAction::Open,
             },
@@ -295,7 +295,7 @@ fn detail_tab_press_is_bound_to_the_owning_detail_identity() {
         artwork_key: None,
         title: "Fixture",
         year: "1986",
-        duration_seconds: 5820,
+        duration_label: Some("1 h 37 min"),
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     };

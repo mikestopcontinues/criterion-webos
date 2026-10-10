@@ -61,7 +61,7 @@ fn filter_and_information_controls_use_vector_marks_and_keep_remote_actions() {
         artwork_key: None,
         title: "Fixture",
         year: "1986",
-        duration_seconds: 5820,
+        duration_label: Some("1 h 37 min"),
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     };

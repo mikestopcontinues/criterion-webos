@@ -80,7 +80,7 @@ impl Presentation {
                     .release_date
                     .map(|date| date.year().to_string())
                     .unwrap_or_default(),
-                duration_seconds: 0,
+                duration_label: super::native_card_duration(media),
                 artwork: Some(artwork),
                 saved_fraction: None,
                 native_activation: Some(super::continue_watching::native_action(
@@ -211,7 +211,23 @@ mod tests {
                 view.cards.iter().map(|card| card.year).collect::<Vec<_>>(),
                 ["2000", "7", "", "", "", "", "", "", ""]
             );
-            assert!(view.cards.iter().all(|card| card.duration_seconds == 0));
+            assert_eq!(
+                view.cards
+                    .iter()
+                    .map(|card| card.duration_label)
+                    .collect::<Vec<_>>(),
+                [
+                    Some("1 min"),
+                    Some("1 h 30 min"),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None
+                ]
+            );
             assert!(view.filters.is_none());
             assert!(view.hero.is_none());
             assert!(view.detail.is_none());
@@ -301,6 +317,65 @@ mod tests {
             );
             assert_eq!(data.cards[0].title, "Original Episode title");
             assert!(data.cards.iter().all(|card| card.saved_fraction.is_none()));
+        });
+    }
+    #[test]
+    fn native_my_list_labels_keep_subtypes_missing_zero_and_saturation() {
+        for kind in [
+            MediaKind::Film,
+            MediaKind::Supplement,
+            MediaKind::Episode,
+            MediaKind::Original,
+            MediaKind::Series,
+            MediaKind::Collection,
+            MediaKind::Category,
+            MediaKind::Franchise,
+            MediaKind::Live,
+        ] {
+            for (duration, expected) in [
+                (None, None),
+                (Some(0.0), Some("0 min")),
+                (Some(90.5), Some("1 min")),
+                (Some(7199.0), Some("1 h 59 min")),
+                (Some(4_294_967_296.0), Some("596523 h 14 min")),
+            ] {
+                let mut source = media("Fixture1", "Native list card", kind);
+                source.duration = duration;
+                let presentation = presentation(watch_list(vec![source]));
+                presentation.with_view(LoginView::SignedOut, |view| {
+                    let expected = match kind {
+                        MediaKind::Film | MediaKind::Supplement | MediaKind::Episode => expected,
+                        _ => None,
+                    };
+                    assert_eq!(
+                        view.cards[0].duration_label, expected,
+                        "{kind:?} {duration:?}"
+                    );
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn my_list_card_label_reserved_capacity_is_charged_to_catalog_and_history() {
+        let mut source = media("Fixture1", "Native list card", MediaKind::Film);
+        source.duration = Some(7199.0);
+        let mut presentation = presentation(watch_list(vec![source]));
+        let before_catalog = presentation.catalog_bytes();
+        let before_history = presentation.estimated_bytes();
+        let prior = presentation.cards[0]
+            .duration_label
+            .as_ref()
+            .unwrap()
+            .capacity();
+        let mut label = String::with_capacity(8192);
+        label.push_str("1 h 59 min");
+        let added = label.capacity() - prior;
+        presentation.cards[0].duration_label = Some(label);
+        assert_eq!(presentation.catalog_bytes() - before_catalog, added);
+        assert_eq!(presentation.estimated_bytes() - before_history, added);
+        presentation.with_view(LoginView::SignedOut, |view| {
+            assert_eq!(view.cards[0].duration_label, Some("1 h 59 min"))
         });
     }
 }

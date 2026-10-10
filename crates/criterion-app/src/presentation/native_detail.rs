@@ -269,6 +269,7 @@ impl Presentation {
             },
         };
         let saved_fraction = positions.and_then(|positions| positions.progress(&media));
+        let duration_label = super::native_card_duration(&media);
         OwnedCard {
             target: Target::Native(media.id),
             kind: None,
@@ -277,7 +278,7 @@ impl Presentation {
                 .release_date
                 .map(|date| date.year().to_string())
                 .unwrap_or_default(),
-            duration_seconds: 0,
+            duration_label,
             artwork: Some(artwork),
             saved_fraction,
             native_activation: Some(native_activation),

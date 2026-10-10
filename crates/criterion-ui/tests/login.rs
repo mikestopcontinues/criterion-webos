@@ -362,7 +362,7 @@ fn authentication_from_information_modal_owns_input_and_restores_the_modal() {
         artwork_key: None,
         title: "Fixture",
         year: "1986",
-        duration_seconds: 5820,
+        duration_label: Some("1 h 37 min"),
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     };
@@ -475,7 +475,7 @@ fn film_view(target: &criterion_ui::Target) -> ViewData<'_> {
         artwork_key: None,
         title: "Fixture",
         year: "1986",
-        duration_seconds: 5820,
+        duration_label: Some("1 h 37 min"),
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     };

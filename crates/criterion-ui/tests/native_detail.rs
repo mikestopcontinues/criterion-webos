@@ -12,7 +12,7 @@ fn episode_play_keeps_its_real_origin_focus_and_history() {
         artwork_key: None,
         title: "Episode",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: CardAction::Play,
     }];
@@ -40,7 +40,7 @@ fn card(target: &Target) -> Card<'_> {
         artwork_key: None,
         title: "Native Series",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: CardAction::Open,
     }

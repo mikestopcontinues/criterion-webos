@@ -23,7 +23,7 @@ fn unavailable_duration_is_omitted_from_grid_detail_and_information() {
         artwork_key: None,
         title: "Fixture",
         year: "1986",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     };
@@ -77,7 +77,7 @@ fn native_information_omits_headings_for_absent_metadata() {
         artwork_key: None,
         title: "Native fixture",
         year: "1986",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     };
@@ -137,7 +137,7 @@ fn header_and_information_paint_their_independent_borrowed_runtime_lines() {
         artwork_key: None,
         title: "Independent runtime fixture",
         year: "1986",
-        duration_seconds: 3600,
+        duration_label: Some("1 h 0 min"),
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     };
@@ -214,7 +214,7 @@ fn populated_native_information(value: &str) -> criterion_ui::UiFrame {
         artwork_key: None,
         title: "Native fixture",
         year: "1986",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     };

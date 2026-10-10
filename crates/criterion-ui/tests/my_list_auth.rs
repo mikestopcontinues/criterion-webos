@@ -150,7 +150,7 @@ fn fixed_subscriber_rail_back_restores_the_originating_card_and_scroll() {
         artwork_key: None,
         title: "Explore",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     }];
@@ -248,7 +248,7 @@ fn signed_out_my_list_shows_activation_and_cancel_restores_the_home_card_once() 
         artwork_key: None,
         title: "My List",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     }];
@@ -320,7 +320,7 @@ fn signed_in_my_list_opens_the_grid_and_back_restores_its_origin() {
         artwork_key: None,
         title: "My List",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     }];
@@ -380,7 +380,7 @@ fn my_list_hero_requires_an_active_session_and_subscribe_stays_on_login() {
                         artwork_key: None,
                         title: "Explore",
                         year: "",
-                        duration_seconds: 0,
+                        duration_label: None,
                         saved_fraction: None,
                         action: criterion_ui::CardAction::Open,
                     },
@@ -417,7 +417,7 @@ fn signed_out_my_list_pointer_activation_uses_the_same_login_route() {
         artwork_key: None,
         title: "My List",
         year: "",
-        duration_seconds: 0,
+        duration_label: None,
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     }];

@@ -591,7 +591,7 @@ fn signed_subscriber_reads_native_shelf_and_renders_real_adapter_projection() {
         .with_view(app.authentication.view(), |view| {
             assert_eq!(view.cards[0].key.media_id().unwrap().as_str(), "AbCd1234");
             assert_eq!(view.cards[0].title, "Synthetic private selection");
-            assert_eq!(view.cards[0].duration_seconds, 0);
+            assert_eq!(view.cards[0].duration_label, Some("1 min"));
         });
     assert_eq!(
         *middleware.calls.lock().unwrap(),

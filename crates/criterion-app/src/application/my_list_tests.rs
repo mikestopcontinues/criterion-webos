@@ -315,7 +315,7 @@ pub(super) struct Snapshot {
     pub(super) choices: Vec<MyListGroup>,
     pub(super) first: usize,
     pub(super) tail: CatalogTail,
-    pub(super) cards: Vec<(Target, String, String, u32)>,
+    pub(super) cards: Vec<(Target, String, String, Option<String>)>,
     pub(super) focus: Focus,
     pub(super) scroll: f32,
 }
@@ -486,7 +486,7 @@ impl Fixture {
                                 card.key.clone(),
                                 card.title.to_owned(),
                                 card.year.to_owned(),
-                                card.duration_seconds,
+                                card.duration_label.map(str::to_owned),
                             )
                         })
                         .collect(),
@@ -758,8 +758,10 @@ fn native_my_list_continuation_preserves_older_first_keys_and_uses_observed_curs
     assert_eq!(view.cards[49].1, "First49");
     assert_eq!(view.cards[49].2, "2000");
     assert!(
-        view.cards.iter().all(|card| card.3 == 0),
-        "native Float32 units are not converted into public seconds"
+        view.cards
+            .iter()
+            .all(|card| card.3.as_deref() == Some("1 min")),
+        "native Float32 runtime captions preserve older admitted values"
     );
     assert_eq!(view.tail, CatalogTail::End);
     assert_eq!(

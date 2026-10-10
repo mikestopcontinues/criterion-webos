@@ -114,7 +114,7 @@ impl Presentation {
                         .release_date
                         .map(|date| date.year().to_string())
                         .unwrap_or_default(),
-                    duration_seconds: 0,
+                    duration_label: super::native_card_duration(media),
                     artwork: Some(artwork),
                     saved_fraction: row.saved_fraction(),
                     native_activation: Some(native_action(media, row.saved_series_id(), true)),
@@ -507,7 +507,7 @@ mod tests {
                 let card = data.rails[index].cards[0];
                 assert_eq!(card.title, "Public film");
                 assert_eq!(card.year, "2001");
-                assert_eq!(card.duration_seconds, 3600);
+                assert_eq!(card.duration_label, Some("1 h 0 min"));
                 assert_eq!(card.saved_fraction, None);
                 assert_eq!(
                     card.key,
@@ -532,10 +532,20 @@ mod tests {
                         .iter()
                         .all(|c| c.key == &Target::Native(c.key.media_id().unwrap().clone()))
                 );
-                assert!(
-                    cards
-                        .iter()
-                        .all(|c| c.year == "1999" && c.duration_seconds == 0)
+                assert!(cards.iter().all(|c| c.year == "1999"));
+                assert_eq!(
+                    cards.iter().map(|c| c.duration_label).collect::<Vec<_>>(),
+                    [
+                        Some("0 min"),
+                        Some("0 min"),
+                        Some("0 min"),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None
+                    ]
                 );
                 assert_eq!(
                     cards.iter().map(|c| c.saved_fraction).collect::<Vec<_>>(),
@@ -982,5 +992,145 @@ mod tests {
             "Meta0001"
         );
         assert_eq!(shelf.rows()[1].saved_series_id(), None);
+    }
+    #[test]
+    fn continue_watching_card_labels_use_catalog_duration_independently_of_positions() {
+        use criterion_account::{ContinueWatching, MediaKind, Position};
+        for kind in [
+            MediaKind::Film,
+            MediaKind::Supplement,
+            MediaKind::Episode,
+            MediaKind::Original,
+            MediaKind::Series,
+            MediaKind::Collection,
+            MediaKind::Category,
+            MediaKind::Franchise,
+            MediaKind::Live,
+        ] {
+            for (duration, expected) in [
+                (None, None),
+                (Some(0.0), Some("0 min")),
+                (Some(90.5), Some("1 min")),
+                (Some(7199.0), Some("1 h 59 min")),
+                (Some(4_294_967_296.0), Some("596523 h 14 min")),
+            ] {
+                let mut source = native_media("Fixture1", "Native saved card", kind);
+                source.duration = duration;
+                let shelf = shelf_from_admitted(ContinueWatching {
+                    playlist: vec![source],
+                    positions: vec![Position {
+                        media_id: MediaId::new("Fixture1").unwrap(),
+                        pos: 25,
+                        dur: 100,
+                        commentary_track: None,
+                        series_id: None,
+                        series_title: None,
+                    }],
+                })
+                .unwrap();
+                let mut presentation = Presentation::discovery(DiscoveryPage {
+                    blocks: vec![rail(1, "Saved", RailSource::ContinueWatching)],
+                });
+                presentation.mark_continue_watching_pending(1);
+                assert_eq!(presentation.admit_continue_watching(1, &shelf), Ok(true));
+                presentation.with_view(LoginView::SignedIn, |view| {
+                    let card = view.rails[0].cards[0];
+                    let expected = match kind {
+                        MediaKind::Film | MediaKind::Supplement | MediaKind::Episode => expected,
+                        _ => None,
+                    };
+                    assert_eq!(card.duration_label, expected, "{kind:?} {duration:?}");
+                    assert_eq!(
+                        card.saved_fraction,
+                        matches!(
+                            kind,
+                            MediaKind::Film | MediaKind::Supplement | MediaKind::Episode
+                        )
+                        .then_some(0.25)
+                    );
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn continue_watching_card_label_reserved_capacity_is_charged_to_history() {
+        let mut source = native_media(
+            "Fixture1",
+            "Native saved card",
+            criterion_account::MediaKind::Film,
+        );
+        source.duration = Some(7199.0);
+        let shelf = shelf_from_admitted(criterion_account::ContinueWatching {
+            playlist: vec![source],
+            positions: vec![],
+        })
+        .unwrap();
+        let mut presentation = Presentation::discovery(DiscoveryPage {
+            blocks: vec![rail(1, "Saved", RailSource::ContinueWatching)],
+        });
+        presentation.mark_continue_watching_pending(1);
+        assert_eq!(presentation.admit_continue_watching(1, &shelf), Ok(true));
+        let before = presentation.estimated_bytes();
+        let card = &mut presentation.rails[0].cards[0];
+        let prior = card.duration_label.as_ref().unwrap().capacity();
+        let mut label = String::with_capacity(8192);
+        label.push_str("1 h 59 min");
+        let added = label.capacity() - prior;
+        card.duration_label = Some(label);
+        assert_eq!(presentation.estimated_bytes() - before, added);
+        presentation.with_view(LoginView::SignedIn, |view| {
+            assert_eq!(view.rails[0].cards[0].duration_label, Some("1 h 59 min"))
+        });
+    }
+
+    #[test]
+    fn card_labels_are_charged_before_private_gallery_admission() {
+        use criterion_account::{ContinueWatching, MediaKind};
+        // A bounded source page fits its 64 KiB shelf, while three display slots
+        // approach the separate 512 KiB retained projection budget.
+        let mut saw_label_boundary = false;
+        for title_len in 0..=160 {
+            let admitted = |duration| {
+                let shelf = shelf_from_admitted(ContinueWatching {
+                    playlist: (0..384)
+                        .map(|index| {
+                            let mut media = native_media(
+                                &format!("F{index:07}"),
+                                &"x".repeat(title_len),
+                                MediaKind::Film,
+                            );
+                            media.duration = duration;
+                            media
+                        })
+                        .collect(),
+                    positions: vec![],
+                })
+                .unwrap();
+                let mut presentation = Presentation::discovery(DiscoveryPage {
+                    blocks: (1..=3)
+                        .map(|id| rail(id, "Saved", RailSource::ContinueWatching))
+                        .collect(),
+                });
+                presentation.mark_continue_watching_pending(1);
+                let result = presentation.admit_continue_watching(1, &shelf);
+                if result.is_err() {
+                    presentation.with_view(LoginView::SignedIn, |view| {
+                        assert!(view.rails.iter().all(|rail| rail.cards.is_empty()))
+                    });
+                }
+                result
+            };
+            if admitted(None) == Ok(true)
+                && admitted(Some(f32::MAX)) == Err(ProjectionLimit::TooLarge)
+            {
+                saw_label_boundary = true;
+                break;
+            }
+        }
+        assert!(
+            saw_label_boundary,
+            "real label storage must consume the private admission budget"
+        );
     }
 }

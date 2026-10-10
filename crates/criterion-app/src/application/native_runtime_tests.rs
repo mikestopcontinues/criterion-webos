@@ -163,3 +163,6 @@ fn native_episode_omits_header_runtime_while_information_keeps_it() {
         information_region(),
     );
 }
+
+#[path = "native_card_runtime_tests.rs"]
+mod native_card_runtime_tests;

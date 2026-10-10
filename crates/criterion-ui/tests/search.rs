@@ -36,7 +36,7 @@ fn search_frame_places_three_results_beside_the_keyboard() {
             artwork_key: None,
             title: "Fixture",
             year: "1986",
-            duration_seconds: 5820,
+            duration_label: Some("1 h 37 min"),
             saved_fraction: None,
             action: criterion_ui::CardAction::Open,
         };
@@ -83,7 +83,7 @@ fn search_detail_back_restores_query_group_card_then_home_focus() {
         artwork_key: None,
         title: "Fixture",
         year: "1986",
-        duration_seconds: 5820,
+        duration_label: Some("1 h 37 min"),
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     }];

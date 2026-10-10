@@ -206,6 +206,7 @@ impl Presentation {
                 DetailKind::Collection
             }
         };
+        let duration = public_duration(detail.media.duration_seconds);
         let target = Target::Media(detail.media.id.clone());
         let card = projection.media_card_for_role(
             detail.media,
@@ -219,7 +220,7 @@ impl Presentation {
                 .expect("public playable media target")
                 .clone()
         });
-        let metadata = format!("{}   {}", card.year, public_duration(card.duration_seconds));
+        let metadata = format!("{}   {}", card.year, duration);
         projection.detail = Some(OwnedDetail {
             primary_playback_target,
             primary_action: "WATCH NOW".into(),
@@ -476,7 +477,7 @@ impl Presentation {
                             kind: None,
                             title: item.label,
                             year: String::new(),
-                            duration_seconds: 0,
+                            duration_label: None,
                             artwork,
                             saved_fraction: None,
                             native_activation: None,
@@ -528,7 +529,7 @@ impl Presentation {
                 kind: None,
                 title: slide.title.unwrap_or_default(),
                 year: String::new(),
-                duration_seconds: 0,
+                duration_label: None,
                 artwork: None,
                 saved_fraction: None,
                 native_activation: None,
@@ -562,7 +563,8 @@ impl Presentation {
                 .release_date
                 .map(|date| date.chars().take(4).collect())
                 .unwrap_or_default(),
-            duration_seconds: media.duration_seconds,
+            duration_label: (media.duration_seconds > 0)
+                .then(|| card_duration(media.duration_seconds)),
             artwork: Some(artwork),
             saved_fraction: None,
             native_activation: None,
@@ -743,6 +745,27 @@ fn joined(values: Vec<String>) -> Option<String> {
     (!values.is_empty()).then(|| values.join(", "))
 }
 
+// The card caption uses the localized resource layout, independently of root metadata.
+fn card_duration(seconds: u32) -> String {
+    if seconds >= 3600 {
+        format!("{} h {} min", seconds / 3600, (seconds % 3600) / 60)
+    } else {
+        format!("{} min", seconds / 60)
+    }
+}
+fn native_card_duration(media: &criterion_account::MediaSummary) -> Option<String> {
+    use criterion_account::MediaKind;
+    match media.kind {
+        MediaKind::Film | MediaKind::Supplement | MediaKind::Episode => {
+            media.duration.map(|value| {
+                // sy6.W narrows Float directly to saturated Int before xe2.o calls v84.p.
+                let seconds = value as i32;
+                card_duration(seconds.max(0) as u32)
+            })
+        }
+        _ => None,
+    }
+}
 fn public_duration(seconds: u32) -> String {
     if seconds == 0 {
         String::new()
@@ -791,7 +814,7 @@ struct OwnedCard {
     kind: Option<MediaKind>,
     title: String,
     year: String,
-    duration_seconds: u32,
+    duration_label: Option<String>,
     artwork: Option<String>,
     saved_fraction: Option<f32>,
     native_activation: Option<NativeActivation>,
@@ -814,6 +837,7 @@ impl OwnedCard {
     fn heap_bytes(&self) -> usize {
         self.title.capacity()
             + self.year.capacity()
+            + self.duration_label.as_ref().map_or(0, String::capacity)
             + self.artwork.as_ref().map_or(0, String::capacity)
             + target_bytes(&self.target)
             + match &self.native_activation {
@@ -829,7 +853,7 @@ impl OwnedCard {
             artwork_key: self.artwork.as_deref(),
             title: &self.title,
             year: &self.year,
-            duration_seconds: self.duration_seconds,
+            duration_label: self.duration_label.as_deref(),
             saved_fraction: self.saved_fraction,
             action: if matches!(self.native_activation, Some(NativeActivation::Play { .. })) {
                 criterion_ui::CardAction::Play
@@ -893,7 +917,7 @@ mod tests {
             );
             assert_eq!(view.cards[0].title, "Fixture Film");
             assert_eq!(view.cards[0].year, "1980");
-            assert_eq!(view.cards[0].duration_seconds, 5400);
+            assert_eq!(view.cards[0].duration_label, Some("1 h 30 min"));
             assert_eq!(
                 view.cards[0].artwork_key,
                 Some("f7d84893135109963a5083d22d8d88d0c9568a3ba603d4cf57a4a980e6040c01")
@@ -993,13 +1017,13 @@ mod tests {
     #[test]
     fn public_detail_runtime_keeps_existing_unsigned_display_conventions() {
         use criterion_provider::{MediaDetail, MediaId, MediaKind, MediaSummary};
-        for (seconds, expected) in [
-            (0, "1986   "),
-            (59, "1986   0 min"),
-            (60, "1986   1 min"),
-            (3600, "1986   1h 0m"),
-            (7199, "1986   1h 59m"),
-            (u32::MAX, "1986   1193046h 28m"),
+        for (seconds, expected, card_label) in [
+            (0, "1986   ", None),
+            (59, "1986   0 min", Some("0 min")),
+            (60, "1986   1 min", Some("1 min")),
+            (3600, "1986   1h 0m", Some("1 h 0 min")),
+            (7199, "1986   1h 59m", Some("1 h 59 min")),
+            (u32::MAX, "1986   1193046h 28m", Some("1193046 h 28 min")),
         ] {
             let presentation = Presentation::detail(MediaDetail {
                 media: MediaSummary {
@@ -1023,7 +1047,7 @@ mod tests {
             });
             presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
                 let detail = view.detail.as_ref().unwrap();
-                assert_eq!(detail.card.duration_seconds, seconds);
+                assert_eq!(detail.card.duration_label, card_label);
                 assert_eq!(detail.header_metadata, expected);
                 assert_eq!(detail.information_metadata, expected);
             });
@@ -1059,7 +1083,7 @@ mod tests {
             let detail = view.detail.as_ref().unwrap();
             assert_eq!(detail.kind, DetailKind::Film);
             assert_eq!(detail.card.key, &Target::Media(id));
-            assert_eq!(detail.card.duration_seconds, 71);
+            assert_eq!(detail.card.duration_label, Some("1 min"));
             assert!(view.rails.is_empty());
         });
     }
@@ -1493,7 +1517,7 @@ mod tests {
         presentation.with_view(criterion_ui::LoginView::SignedOut, |view| {
             let detail = view.detail.as_ref().unwrap();
             assert_eq!(
-                detail.card.duration_seconds, 0,
+                detail.card.duration_label, None,
                 "absence remains explicit for the renderer"
             );
             assert_eq!(detail.card.year, "");

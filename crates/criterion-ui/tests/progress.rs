@@ -16,7 +16,7 @@ fn grid_frame(saved_fraction: Option<f32>) -> UiFrame {
         artwork_key: None,
         title: "Saved fixture",
         year: "2020",
-        duration_seconds: 7200,
+        duration_label: Some("2 h 0 min"),
         saved_fraction,
         action: criterion_ui::CardAction::Open,
     }];
@@ -136,7 +136,7 @@ fn shared_home_and_new_rail_cards_scale_the_same_saved_fraction() {
         artwork_key: None,
         title: "Saved fixture",
         year: "2020",
-        duration_seconds: 7200,
+        duration_label: Some("2 h 0 min"),
         saved_fraction: Some(0.5),
         action: criterion_ui::CardAction::Open,
     }];
@@ -185,7 +185,7 @@ fn saved_updates_preserve_metadata_focus_and_remote_or_pointer_activation() {
             artwork_key: None,
             title: "Saved fixture",
             year: "2020",
-            duration_seconds: 7200,
+            duration_label: Some("2 h 0 min"),
             saved_fraction,
             action: criterion_ui::CardAction::Open,
         }];
@@ -259,7 +259,7 @@ fn progress_paints_only_the_bounded_visible_catalog_cards() {
             artwork_key: None,
             title: "Saved fixture",
             year: "2020",
-            duration_seconds: 7200,
+            duration_label: Some("2 h 0 min"),
             saved_fraction: Some(0.25),
             action: criterion_ui::CardAction::Open,
         };

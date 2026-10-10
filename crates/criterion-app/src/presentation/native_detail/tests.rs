@@ -299,7 +299,7 @@ fn native_child_activation_uses_exact_episode_id_and_never_public_target_meaning
             view.rails[0]
                 .cards
                 .iter()
-                .all(|card| card.saved_fraction.is_none() && card.duration_seconds == 0)
+                .all(|card| card.saved_fraction.is_none() && card.duration_label.is_none())
         );
     });
 }
@@ -335,9 +335,9 @@ fn root_joins_only_full_metadata_and_binds_exact_landscape_backdrop_and_child_ca
             )
         );
         assert_eq!(native.card.year, "1980");
-        assert_eq!(native.card.duration_seconds, 0);
+        assert_eq!(native.card.duration_label, Some("1 min"));
         assert_eq!(view.rails[0].cards[0].title, "Summary title");
-        assert_eq!(view.rails[0].cards[0].duration_seconds, 0);
+        assert_eq!(view.rails[0].cards[0].duration_label, None);
     });
     let bindings = presentation.artwork_bindings();
     assert_eq!(bindings.len(), 2);
@@ -778,8 +778,15 @@ fn native_runtime_and_year_have_distinct_header_and_information_subtype_gates() 
             let native = view.detail.as_ref().unwrap();
             assert_eq!(native.header_metadata, header, "{kind:?}");
             assert_eq!(native.information_metadata, information, "{kind:?}");
-            assert_eq!(native.card.duration_seconds, 0);
-            assert_eq!(view.rails[0].cards[0].duration_seconds, 0);
+            assert_eq!(
+                native.card.duration_label,
+                matches!(
+                    kind,
+                    MediaKind::Film | MediaKind::Supplement | MediaKind::Episode
+                )
+                .then_some("1 h 59 min")
+            );
+            assert_eq!(view.rails[0].cards[0].duration_label, Some("1 h 0 min"));
         });
     }
 }
@@ -872,3 +879,6 @@ fn native_runtime_lines_are_included_before_exact_projection_admission() {
         }
     }
 }
+
+#[path = "card_runtime_tests.rs"]
+mod card_runtime_tests;

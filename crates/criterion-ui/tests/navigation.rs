@@ -199,7 +199,7 @@ fn nav(ui: &mut AppUi, action: Action, rows: &[usize]) -> Vec<criterion_ui::Comm
         artwork_key: None,
         title: "Fixture film",
         year: "1986",
-        duration_seconds: 5820,
+        duration_label: Some("1 h 37 min"),
         saved_fraction: None,
         action: criterion_ui::CardAction::Open,
     };

@@ -478,7 +478,7 @@ struct PrivateWindow {
     selected: criterion_ui::MyListGroup,
     first: usize,
     tail: criterion_ui::CatalogTail,
-    cards: Vec<(criterion_ui::Target, String, String, u32)>,
+    cards: Vec<(criterion_ui::Target, String, String, Option<String>)>,
 }
 fn private_window(app: &SubscriberApp) -> Result<PrivateWindow, &'static str> {
     app.controller
@@ -501,7 +501,7 @@ fn private_window(app: &SubscriberApp) -> Result<PrivateWindow, &'static str> {
                             card.key.clone(),
                             card.title.to_owned(),
                             card.year.to_owned(),
-                            card.duration_seconds,
+                            card.duration_label.map(str::to_owned),
                         )
                     })
                     .collect(),
@@ -1200,7 +1200,7 @@ mod admission_oracle_tests {
                 Target::Media(MediaId::new(id).unwrap()),
                 title.to_owned(),
                 String::new(),
-                0,
+                None,
             )
         };
         let window = |selected, first, cards| PrivateWindow {
