@@ -92,6 +92,164 @@ fn populated_rail_down_preserves_card_column_and_clamps_only_a_short_row() {
 }
 
 #[test]
+fn leading_empty_rows_allow_card_up_to_return_to_the_top_anchor() {
+    let target = Target::Native(criterion_provider::MediaId::new("Film0001").unwrap());
+    let cards = [card(&target, "Supplied film")];
+    let rails = [
+        Rail {
+            title: "First empty source row",
+            cards: &[],
+            action: None,
+        },
+        Rail {
+            title: "Second empty source row",
+            cards: &[],
+            action: None,
+        },
+        Rail {
+            title: "Supplied films",
+            cards: &cards,
+            action: None,
+        },
+    ];
+    let data = data(&rails);
+    let mut ui = AppUi::new();
+    assert!(ui.handle(Action::Down, &data).is_empty());
+    assert_eq!(ui.focus(), Focus::Card { row: 2, column: 0 });
+    assert_eq!(ui.scroll_y(), 1426.0);
+    assert!(ui.handle(Action::Up, &data).is_empty());
+    assert_eq!(ui.focus(), Focus::Hero);
+    assert_eq!(ui.scroll_y(), 0.0);
+}
+
+#[test]
+fn sparse_native_rows_keep_source_positions_and_exact_detail_back_focus() {
+    let target = Target::Native(criterion_provider::MediaId::new("Film0001").unwrap());
+    let long = [card(&target, "First"); 3];
+    let short = [card(&target, "Last")];
+    let rails = [
+        Rail {
+            title: "Empty first",
+            cards: &[],
+            action: None,
+        },
+        Rail {
+            title: "First supplied",
+            cards: &long,
+            action: None,
+        },
+        Rail {
+            title: "Empty middle",
+            cards: &[],
+            action: None,
+        },
+        Rail {
+            title: "Last supplied",
+            cards: &short,
+            action: None,
+        },
+        Rail {
+            title: "Empty last",
+            cards: &[],
+            action: None,
+        },
+    ];
+    let data = data(&rails);
+    let mut ui = AppUi::new();
+    assert!(ui.handle(Action::Down, &data).is_empty());
+    assert_eq!(ui.focus(), Focus::Card { row: 1, column: 0 });
+    assert_eq!(ui.scroll_y(), 1029.0);
+    ui.handle(Action::Right, &data);
+    ui.handle(Action::Right, &data);
+    assert_eq!(ui.focus(), Focus::Card { row: 1, column: 2 });
+    assert!(ui.handle(Action::Down, &data).is_empty());
+    assert_eq!(ui.focus(), Focus::Card { row: 3, column: 0 });
+    assert_eq!(ui.scroll_y(), 1823.0);
+    assert!(ui.handle(Action::Down, &data).is_empty());
+    assert_eq!(ui.focus(), Focus::Card { row: 3, column: 0 });
+    assert_eq!(ui.scroll_y(), 1823.0);
+    assert_eq!(
+        ui.handle(Action::Select, &data),
+        [Command::ActivateCard {
+            target: target.clone(),
+            focus: Focus::Card { row: 3, column: 0 },
+        }]
+    );
+    assert_eq!(ui.page(), Page::Detail);
+    assert_eq!(
+        ui.handle(Action::Back, &ViewData::default()),
+        [Command::Restore(Page::Home)]
+    );
+    assert_eq!(ui.focus(), Focus::Card { row: 3, column: 0 });
+    assert_eq!(ui.scroll_y(), 1823.0);
+    assert!(ui.handle(Action::Up, &data).is_empty());
+    assert_eq!(ui.focus(), Focus::Card { row: 1, column: 0 });
+    assert_eq!(ui.scroll_y(), 1029.0);
+    assert!(ui.handle(Action::Up, &data).is_empty());
+    assert_eq!(ui.focus(), Focus::Hero);
+    assert_eq!(ui.scroll_y(), 0.0);
+}
+
+#[test]
+fn leading_empty_rows_return_to_the_available_carousel_control() {
+    let target = content("/discover/newly-added");
+    let cards = [card(&target, "Supplied card")];
+    let rails = [
+        Rail {
+            title: "Empty source row",
+            cards: &[],
+            action: None,
+        },
+        Rail {
+            title: "Supplied row",
+            cards: &cards,
+            action: None,
+        },
+    ];
+    let data = ViewData {
+        hero_carousel: Some(criterion_ui::HeroCarousel {
+            block: 13,
+            index: 0,
+            slide: 27,
+            total: 2,
+            caption: "Supplied carousel",
+            visit: Some(12),
+        }),
+        ..data(&rails)
+    };
+    let mut ui = AppUi::new();
+    assert!(ui.handle(Action::Down, &data).is_empty());
+    assert_eq!(ui.focus(), Focus::Card { row: 1, column: 0 });
+    assert!(ui.handle(Action::Up, &data).is_empty());
+    assert_eq!(ui.focus(), Focus::HeroPrevious);
+    assert_eq!(ui.scroll_y(), 0.0);
+}
+
+#[test]
+fn all_empty_rows_leave_top_focus_and_scroll_unchanged() {
+    let rails = [
+        Rail {
+            title: "First empty",
+            cards: &[],
+            action: None,
+        },
+        Rail {
+            title: "Last empty",
+            cards: &[],
+            action: None,
+        },
+    ];
+    let data = data(&rails);
+    let mut ui = AppUi::new();
+    for action in [Action::Down, Action::Down, Action::Up, Action::Select] {
+        assert!(ui.handle(action, &data).is_empty());
+        assert_eq!(ui.page(), Page::Home);
+        assert_eq!(ui.focus(), Focus::Hero);
+        assert_eq!(ui.scroll_y(), 0.0);
+    }
+}
+
+#[test]
 fn supplied_header_prepares_exact_activation_and_back_restores_its_row_and_scroll() {
     let target = content("/discover/newly-added");
     let cards = [card(&target, "First"), card(&target, "Second")];

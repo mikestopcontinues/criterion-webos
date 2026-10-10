@@ -103,6 +103,18 @@ impl AppUi {
                     .map(|_| Focus::DiscoveryRailAction { row, column: 0 })
             }
         };
+        let top_focus = || {
+            if data.hero.is_some() {
+                Focus::Hero
+            } else if data
+                .hero_carousel
+                .is_some_and(|carousel| carousel.total > 1)
+            {
+                Focus::HeroPrevious
+            } else {
+                Focus::Hero
+            }
+        };
         let next = match (self.focus, action) {
             (Focus::DiscoveryRailAction { row, .. }, Action::Select) => {
                 return Some(
@@ -142,16 +154,7 @@ impl AppUi {
             (Focus::DiscoveryRailAction { row, column }, Action::Up) => (0..row)
                 .rev()
                 .find_map(|row| row_focus(row, column))
-                .or(Some(if data.hero.is_some() {
-                    Focus::Hero
-                } else if data
-                    .hero_carousel
-                    .is_some_and(|carousel| carousel.total > 1)
-                {
-                    Focus::HeroPrevious
-                } else {
-                    Focus::Hero
-                })),
+                .or(Some(top_focus())),
             (Focus::Card { row, column }, Action::Up)
                 if row > 0
                     && data
@@ -159,7 +162,10 @@ impl AppUi {
                         .get(row - 1)
                         .is_some_and(|rail| rail.cards.is_empty()) =>
             {
-                (0..row).rev().find_map(|row| row_focus(row, column))
+                (0..row)
+                    .rev()
+                    .find_map(|row| row_focus(row, column))
+                    .or(Some(top_focus()))
             }
             (Focus::Hero | Focus::HeroPrevious | Focus::HeroNext, Action::Down)
                 if data.rails.first().is_some_and(|rail| rail.cards.is_empty()) =>
