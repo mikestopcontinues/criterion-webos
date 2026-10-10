@@ -111,7 +111,8 @@ jobs:
           node ../../.local/native-package/compiled/tools/package-native/tests/producer.test.js &&
           node node_modules/typescript/bin/tsc -p ../native-deployment/tsconfig.json &&
           /opt/node16/bin/node ../../.local/native-deployment/compiled/tests/prerequisites.test.js &&
-          /opt/node16/bin/node ../../.local/native-deployment/compiled/tests/bounds.test.js'
+          /opt/node16/bin/node ../../.local/native-deployment/compiled/tests/bounds.test.js &&
+          /opt/node16/bin/node ../../.local/native-deployment/compiled/tests/runtime.test.js'
       - name: Check corresponding-source fixtures offline
         run: >-
           docker run --rm --init --network none --mount type=bind,src="$PWD",dst=/workspace
