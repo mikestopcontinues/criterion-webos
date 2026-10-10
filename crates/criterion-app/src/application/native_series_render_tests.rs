@@ -93,7 +93,14 @@ impl Captures {
     fn new() -> Result<Self, &'static str> {
         let parent = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/e2e");
         std::fs::create_dir_all(&parent).map_err(|_| "synthetic capture parent")?;
-        let directory = parent.join(format!("native-synthetic-series-{}", std::process::id()));
+        let captured_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| "synthetic capture clock")?
+            .as_nanos();
+        let directory = parent.join(format!(
+            "native-synthetic-series-{}-{captured_at}",
+            std::process::id()
+        ));
         std::fs::create_dir(&directory).map_err(|_| "fresh synthetic capture directory")?;
         Ok(Self {
             directory,

@@ -153,7 +153,14 @@ impl Captures {
     fn new() -> Result<Self, &'static str> {
         let parent = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/e2e");
         std::fs::create_dir_all(&parent).map_err(|_| "capture parent directory")?;
-        let directory = parent.join(format!("native-hybrid-film-{}", std::process::id()));
+        let captured_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| "owned capture clock")?
+            .as_nanos();
+        let directory = parent.join(format!(
+            "native-hybrid-film-{}-{captured_at}",
+            std::process::id()
+        ));
         std::fs::create_dir(&directory).map_err(|_| "fresh owned capture directory")?;
         Ok(Self {
             directory,
