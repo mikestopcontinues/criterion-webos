@@ -1,4 +1,4 @@
-//! Root-only anonymous native Home index diagnostic; no production Lander default.
+//! Root-only anonymous native Home index shape observation; no production Lander default.
 use super::*;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use std::io::{Read, Write};
@@ -25,7 +25,7 @@ struct Report {
 impl Default for Report {
     fn default() -> Self {
         Self {
-            experiment: "anonymous_native_home_index_diagnostic",
+            experiment: "anonymous_native_home_index_shape",
             phase: "not_started",
             outcome: "not_started",
             bootstrap_attempts: 0,
@@ -41,8 +41,10 @@ impl Default for Report {
 
 const MAX_BODY: usize = 512 * 1024;
 const MAX_DEPTH: usize = 32;
-const MAX_FIELDS: usize = 4096;
-const MAX_NODES: usize = 16384;
+// Observation traverses bounded input; Scan retains only four public fields and
+// counters, never a collection of input properties or scalar values.
+const MAX_FIELDS: usize = 65536;
+const MAX_NODES: usize = 131072;
 const PUBLIC_FIELDS: [&str; 4] = ["page", "name", "longName", "blocks"];
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
@@ -369,7 +371,7 @@ async fn run_experiment(transport: &HttpTransport, deadline: Instant) -> Report 
     .unwrap_or(Err(Error::Deadline))
     .and_then(|()| check_deadline(deadline));
     report.outcome = match result {
-        Ok(()) => "admitted_index_diagnostic_experiment",
+        Ok(()) => "admitted_index_shape_experiment",
         Err(Error::HttpStatus(status)) => {
             if report.home_attempts == 0 {
                 report.bootstrap_status = Some(status);
@@ -428,7 +430,7 @@ fn reserve_private_report(path: &std::path::Path) -> Result<std::fs::File, &'sta
         .mode(0o600)
         .open(path.join("attempt.json"))
         .map_err(|_| "attempt_already_reserved")?;
-    attempt.write_all(br#"{"experiment":"anonymous_native_home_index_diagnostic","max_bootstrap":1,"max_home":1,"state":"reserved_before_contact"}"#)
+    attempt.write_all(br#"{"experiment":"anonymous_native_home_index_shape","max_bootstrap":1,"max_home":1,"state":"reserved_before_contact"}"#)
         .map_err(|_| "attempt_ledger")?;
     attempt.sync_all().map_err(|_| "attempt_ledger")?;
     std::fs::OpenOptions::new()
@@ -445,7 +447,7 @@ fn reserve_private_report(path: &std::path::Path) -> Result<std::fs::File, &'sta
 /// production Home default remain unadmitted until their separate checks.
 #[tokio::test(flavor = "current_thread")]
 #[ignore = "Root-only anonymous provider experiment; fixed private mount and explicit separate execution grant"]
-async fn live_anonymous_native_home_index_diagnostic_once() -> Result<(), &'static str> {
+async fn live_anonymous_native_home_index_shape_once() -> Result<(), &'static str> {
     let mut output = reserve_private_report(std::path::Path::new(PRIVATE_DIRECTORY))?;
     let deadline = Instant::now() + REQUEST_DEADLINE;
     let mut report = match HttpTransport::new() {
@@ -464,10 +466,10 @@ async fn live_anonymous_native_home_index_diagnostic_once() -> Result<(), &'stat
     let encoded = encoded_report(&report)?;
     output.write_all(&encoded).map_err(|_| "report_write")?;
     output.sync_all().map_err(|_| "report_write")?;
-    if report.outcome == "admitted_index_diagnostic_experiment" {
+    if report.outcome == "admitted_index_shape_experiment" {
         Ok(())
     } else {
-        Err("native_home_index_diagnostic_experiment_refused")
+        Err("native_home_index_shape_experiment_refused")
     }
 }
 
@@ -692,9 +694,9 @@ async fn anonymous_native_home_index_uses_one_bootstrap_then_one_regional_get() 
     );
     assert!(requests[0].starts_with("GET /api/init HTTP/1.1\r\n"));
     assert!(requests[1].starts_with("GET /api/ca/content/lander/index HTTP/1.1\r\n"));
-    assert_eq!(result.experiment, "anonymous_native_home_index_diagnostic");
+    assert_eq!(result.experiment, "anonymous_native_home_index_shape");
     assert_eq!(result.phase, "schema");
-    assert_eq!(result.outcome, "admitted_index_diagnostic_experiment");
+    assert_eq!(result.outcome, "admitted_index_shape_experiment");
     assert_eq!(result.bootstrap_attempts, 1);
     assert_eq!(result.home_attempts, 1);
     assert_eq!(result.bootstrap_status, Some(200));
@@ -752,6 +754,23 @@ fn schema_observer_counts_structure_without_values_or_unallowlisted_names() {
     ] {
         assert!(!encoded.contains(discarded));
     }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn complete_index_with_five_thousand_fields_keeps_only_shape() {
+    // Five thousand compact properties fit the unchanged response byte limit.
+    let body = format!("{{{}}}", vec!["\"\":0"; 5000].join(",")).into_bytes();
+    assert_eq!(body.len(), 25001);
+    let server = Server::new(move |index| Reply::json(if index == 0 { BOOTSTRAP } else { &body }));
+    let report = run_experiment(&server.transport(), Instant::now() + Duration::from_secs(2)).await;
+    assert_eq!(report.outcome, "admitted_index_shape_experiment");
+    assert!(report.diagnostic.is_none());
+    let schema = report.schema.unwrap();
+    assert_eq!(schema.nodes, 5001);
+    assert_eq!(schema.object_fields, 5000);
+    assert_eq!(schema.unallowlisted_fields, 5000);
+    assert!(schema.fields.is_empty());
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -830,22 +849,23 @@ fn parser_data_category_is_coarse_and_discards_actual_library_error_text() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn index_limit_diagnostics_keep_caps_partial_counts_and_two_requests() {
-    let fields = format!(
-        "{{{}}}",
-        vec!["\"SECRET-PROPERTY\":null"; MAX_FIELDS + 1].join(",")
-    );
-    let nodes = format!("{{\"blocks\":[{}]}}", vec!["null"; MAX_NODES - 1].join(","));
+    let fields = format!("{{{}}}", vec!["\"\":0"; MAX_FIELDS + 1].join(","));
+    let nodes = format!("{{\"blocks\":[{}]}}", vec!["0"; MAX_NODES - 1].join(","));
     let depth = format!(
         "{{\"page\":{}0{}}}",
         "[".repeat(MAX_DEPTH - 1),
         "]".repeat(MAX_DEPTH - 1)
     );
     for (body, category, charged_nodes, charged_fields, unknown, items) in [
-        (fields, "field_limit", 4097, 4096, 4096, 0),
-        (nodes, "node_limit", 16384, 1, 0, 16382),
+        (fields, "field_limit", 65537, 65536, 65536, 0),
+        (nodes, "node_limit", 131072, 1, 0, 131070),
         (depth, "depth_limit", 32, 1, 0, 0),
     ] {
         let body = body.into_bytes();
+        assert!(
+            body.len() <= MAX_BODY,
+            "structural cap must be the discriminator"
+        );
         let server =
             Server::new(move |index| Reply::json(if index == 0 { BOOTSTRAP } else { &body }));
         let report =
@@ -884,12 +904,14 @@ fn observer_bounds_all_unknown_structure_and_requires_one_complete_object() {
             })
         ));
     }
-    let fields = format!("{{{}}}", vec!["\"unknown\":null"; MAX_FIELDS].join(","));
+    let fields = format!("{{{}}}", vec!["\"\":0"; MAX_FIELDS].join(","));
+    assert_eq!(fields.len(), 327681);
     assert_eq!(
         observe(fields.as_bytes()).unwrap().object_fields,
         MAX_FIELDS
     );
-    let excess = format!("{{{}}}", vec!["\"unknown\":null"; MAX_FIELDS + 1].join(","));
+    let excess = format!("{{{}}}", vec!["\"\":0"; MAX_FIELDS + 1].join(","));
+    assert_eq!(excess.len(), 327686);
     assert!(matches!(
         observe(excess.as_bytes()),
         Err(ObservationFailure {
@@ -897,9 +919,11 @@ fn observer_bounds_all_unknown_structure_and_requires_one_complete_object() {
             ..
         })
     ));
-    let nodes = format!("{{\"blocks\":[{}]}}", vec!["null"; MAX_NODES - 2].join(","));
+    let nodes = format!("{{\"\":[{}]}}", vec!["0"; MAX_NODES - 2].join(","));
+    assert_eq!(nodes.len(), 262146);
     assert_eq!(observe(nodes.as_bytes()).unwrap().nodes, MAX_NODES);
-    let excess = format!("{{\"blocks\":[{}]}}", vec!["null"; MAX_NODES - 1].join(","));
+    let excess = format!("{{\"\":[{}]}}", vec!["0"; MAX_NODES - 1].join(","));
+    assert_eq!(excess.len(), 262148);
     assert!(matches!(
         observe(excess.as_bytes()),
         Err(ObservationFailure {
@@ -948,6 +972,30 @@ fn observer_never_retains_unknown_property_or_scalar_text_at_any_depth() {
         "false",
     ] {
         assert!(!encoded.contains(forbidden));
+    }
+}
+
+#[test]
+fn maximum_field_observation_keeps_report_small_and_discards_private_text() {
+    let body = format!(
+        "{{{},\"SECRET-PROPERTY\":\"https://private.invalid/license?token=hidden\"}}",
+        vec!["\"\":0"; MAX_FIELDS - 1].join(",")
+    );
+    assert!(body.len() < MAX_BODY);
+    let schema = observe(body.as_bytes()).unwrap();
+    assert_eq!(schema.nodes, 65537);
+    assert_eq!(schema.object_fields, 65536);
+    assert_eq!(schema.unallowlisted_fields, 65536);
+    assert!(schema.fields.is_empty());
+    let encoded = encoded_report(&Report {
+        schema: Some(schema),
+        ..Report::default()
+    })
+    .unwrap();
+    assert!(encoded.len() < 1024);
+    let text = std::str::from_utf8(&encoded).unwrap();
+    for forbidden in ["SECRET", "private.invalid", "license", "token", "hidden"] {
+        assert!(!text.contains(forbidden));
     }
 }
 
@@ -1050,7 +1098,7 @@ async fn home_index_body_has_inclusive_512k_limit_for_known_and_chunked_lengths(
             assert_eq!(
                 report.outcome,
                 if length == MAX_BODY {
-                    "admitted_index_diagnostic_experiment"
+                    "admitted_index_shape_experiment"
                 } else {
                     "response_too_large"
                 }
@@ -1081,7 +1129,7 @@ async fn home_index_admits_only_json_identity_and_never_sends_received_cookies()
         assert_eq!(
             report.outcome,
             if headers.is_empty() {
-                "admitted_index_diagnostic_experiment"
+                "admitted_index_shape_experiment"
             } else {
                 "invalid_response"
             }
@@ -1169,7 +1217,7 @@ fn unsafe_directory_or_existing_report_refuses_before_provider_contact() {
 #[test]
 fn serialized_report_is_bounded_and_contains_only_coarse_observation() {
     let report = Report {
-        outcome: "admitted_index_diagnostic_experiment",
+        outcome: "admitted_index_shape_experiment",
         body_sha256: Some(sha256(PAGE).unwrap()),
         schema: Some(observe(PAGE).unwrap()),
         ..Report::default()
@@ -1203,7 +1251,7 @@ async fn source_owned_us_base_is_selected_only_from_validated_bootstrap() {
         }
     });
     let report = run_experiment(&server.transport(), Instant::now() + Duration::from_secs(2)).await;
-    assert_eq!(report.outcome, "admitted_index_diagnostic_experiment");
+    assert_eq!(report.outcome, "admitted_index_shape_experiment");
     let requests = server.requests.lock().unwrap();
     assert_eq!(requests.len(), 2);
     assert!(requests[1].starts_with("GET /api/us/content/lander/index HTTP/1.1\r\n"));
