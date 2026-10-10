@@ -3,10 +3,10 @@ import { lstat, open, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 
 /** Read one fixed build input without following links or allocating beyond its admitted size. */
-export async function readInput(path: string, maxBytes: number): Promise<Buffer> {
+export async function readInput(path: string, maxBytes: number, minBytes: 0 | 1 = 1): Promise<Buffer> {
   const absolute = resolve(path);
   const before = await lstat(absolute);
-  if (!before.isFile() || before.isSymbolicLink() || before.size < 1 || before.size > maxBytes || await realpath(absolute) !== absolute) throw new Error("invalidInput");
+  if (!before.isFile() || before.isSymbolicLink() || before.size < minBytes || before.size > maxBytes || await realpath(absolute) !== absolute) throw new Error("invalidInput");
   const file = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const stat = await file.stat();

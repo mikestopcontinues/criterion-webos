@@ -15,5 +15,5 @@
     "rootDir": "../..",
     "outDir": "../../.local/native-package/compiled"
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "build.ts", "index.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "build.ts", "index.ts", "producer.ts", "package-phase.ts"]
 }

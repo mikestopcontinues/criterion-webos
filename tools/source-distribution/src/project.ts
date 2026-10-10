@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 export type SourceFile = { name: string; bytes: Buffer; mode: 0o644 | 0o755 };
 export type GitReader = (operation: "head" | "status" | "commit" | "tree" | "blob", object?: string) => Buffer;
 export type ProjectSnapshot = { revision: string; commit: Buffer; files: SourceFile[] };
+export type ProjectFileDescriptor = { name: string; object: string; mode: 0o644 | 0o755 };
 const gitHash = (kind: "commit" | "tree" | "blob", bytes: Buffer): string => createHash("sha1").update(`${kind} ${bytes.length}\0`).update(bytes).digest("hex");
 function invalid(): never { throw new Error("invalidProjectSource"); }
 export function safeName(name: string): boolean {
@@ -52,21 +53,36 @@ export function admitProject(snapshot: ProjectSnapshot): void {
   const expected = /^tree ([a-f0-9]{40})\n/.exec(commit.toString("utf8"))?.[1];
   if (!expected || digest(tree) !== expected) invalid();
 }
+export function admitProjectCommit(revision: string, commit: Buffer): void {
+  if (commit.length > 16384 || gitHash("commit", commit) !== revision) invalid();
+}
+/** Both host capture paths use the same committed path admission. */
+export function projectDescriptors(listing: Buffer): ProjectFileDescriptor[] {
+  const records = listing.toString("utf8").split("\0");
+  if (records.pop() !== "" || records.length < 1 || records.length > 4096) invalid();
+  const descriptors: ProjectFileDescriptor[] = []; const names = new Set<string>();
+  for (const record of records) {
+    const match = /^(100644|100755) blob ([a-f0-9]{40})\t(.+)$/.exec(record);
+    if (!match || !match[2] || !match[3] || !publicProjectName(match[3]) || names.has(match[3])) invalid();
+    names.add(match[3]); descriptors.push({ name: match[3], object: match[2], mode: match[1] === "100755" ? 0o755 : 0o644 });
+  }
+  return descriptors;
+}
+export function admitProjectBlob(object: string, bytes: Buffer, previousTotal: number): number {
+  const total = previousTotal + bytes.length;
+  if (bytes.length > 32 * 1024 * 1024 || total > 128 * 1024 * 1024 || gitHash("blob", bytes) !== object) invalid();
+  return total;
+}
 /** Host Git owns revision/clean-state admission; only committed blobs are exported. */
 export function captureProject(revision: string, read: GitReader): ProjectSnapshot {
   if (!/^[a-f0-9]{40}$/.test(revision) || read("head").toString() !== revision + "\n" || read("status").length !== 0) throw new Error("dirtyOrWrongRevision");
   const commit = read("commit", revision);
-  if (commit.length > 16384 || gitHash("commit", commit) !== revision) invalid();
-  const records = read("tree", revision).toString("utf8").split("\0");
-  if (records.pop() !== "" || records.length < 1 || records.length > 4096) invalid();
-  const files: SourceFile[] = []; const names = new Set<string>(); let total = 0;
-  for (const record of records) {
-    const match = /^(100644|100755) blob ([a-f0-9]{40})\t(.+)$/.exec(record);
-    if (!match || !match[2] || !match[3] || !publicProjectName(match[3]) || names.has(match[3])) invalid();
-    const bytes = read("blob", match[2]);
-    total += bytes.length;
-    if (bytes.length > 32 * 1024 * 1024 || total > 128 * 1024 * 1024 || gitHash("blob", bytes) !== match[2]) invalid();
-    names.add(match[3]); files.push({ name: match[3], bytes, mode: match[1] === "100755" ? 0o755 : 0o644 });
+  admitProjectCommit(revision, commit);
+  const descriptors = projectDescriptors(read("tree", revision));
+  const files: SourceFile[] = []; let total = 0;
+  for (const descriptor of descriptors) {
+    const bytes = read("blob", descriptor.object); total = admitProjectBlob(descriptor.object, bytes, total);
+    files.push({ name: descriptor.name, bytes, mode: descriptor.mode });
   }
   if (read("head").toString() !== revision + "\n" || read("status").length !== 0) throw new Error("dirtyOrWrongRevision");
   const snapshot = { revision, commit, files: files.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))) };

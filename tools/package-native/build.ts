@@ -66,7 +66,7 @@ export async function packageNativeMain(input: NativeMainInput, execution: Packa
   const executable = Buffer.from(input.executable); const receiptBytes = Buffer.from(input.buildReceipt);
   if (await step(() => realpath(root)) !== root) throw new Error("invalidSourceRoot");
   admitExecutable(executable);
-  const readSource = (path: string) => step(() => readInput(join(root, path), MAX_EXECUTABLE_BYTES));
+  const readSource = (path: string) => step(() => readInput(join(root, path), MAX_EXECUTABLE_BYTES, 0));
   const receipt = await step(() => admitBuildReceipt(receiptBytes, executable, readSource));
   const cliRoot = join(root, "tools/player-probe/node_modules/@webos-tools/cli");
   const cliPackage: unknown = JSON.parse((await step(() => readInput(join(cliRoot, "package.json"), 16384))).toString("utf8"));
