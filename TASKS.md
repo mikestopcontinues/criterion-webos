@@ -12,6 +12,8 @@ The inert MAIN packaging export, maintained [MAIN producer](tools/package-native
 
 The reviewed [MAIN bus ownership](docs/list-writes.md#storage-and-deployment-boundary) extraction is complete in source, with the existing DB8 fence connected through its fixed adapter. Native dispatch and foreground/background lifetime acceptance on the C4 remain unfinished.
 
+The conditional [persistent session lifecycle owner](docs/session.md#persistence-admission) is implemented and independently reviewed with controlled ownership, retirement and failure tests. Application credentials remain volatile; secure backend admission and production runtime shutdown integration remain unfinished.
+
 The [native Home observation](docs/account.md#native-home-observation) admits anonymous structural and semantic DTO delivery. Caption/image-family projections, the composed Application CPU gate and independent integrated source review are accepted in an isolated worktree. That candidate has passed its maintained production Home/Continue Watching SDL/GLES journey with first-party activation, current shelf painting and verified issuer logout, joined disposal and external cleanup. Decoded live artwork, compositor completion, reference pixel parity and C4 behavior remain unadmitted. Native caption ownership, gallery layout and hero/actions remain unfinished. Production Home default integration is held until the native replacement preserves the working hero/actions.
 
 Explicit Continue Watching removal is committed in a separate worktree. Its unrelated-view count/status correction and cached Series artwork retention are independently accepted in source, with retained offline CPU and strict gates (1,037 passed, 0 failed and 16 ignored, including doctests). Feature integration, rendering, provider/C4 acceptance and production Home defaults remain held.
@@ -30,7 +32,7 @@ Public source and the GitHub Pages landing page are live. [Native packaging](doc
 - [ ] Complete [player controls](docs/reference-app.md#plxnative-player-starting-point), seeking/buffering, quality, audio, captions/SDH, supplements/commentary and expiry/renewal against admitted capabilities.
 - [ ] Admit [progress reporting](docs/progress.md), resume/completion, Continue Watching ordering/removal and cross-client synchronization with explicit mutation settlement.
 - [ ] Verify C4 [linking and session lifecycle](docs/session.md): polling, denial/expiry, cancellation/retry, live refresh/rotation, issuer-acknowledged logout and private-state retirement.
-- [ ] Admit [secure session persistence](docs/session.md#persistence-admission), including backend rights, serialized restore/refresh/checkpoint/logout and crash or ambiguous-storage recovery.
+- [ ] Admit [secure session persistence](docs/session.md#persistence-admission): verify backend rights and crash or ambiguous-storage recovery, connect the source-owned lifecycle to the production runtime, and validate joined shutdown and reopening on the C4.
 - [ ] Establish [Account/settings parity](docs/reference-app.md#unobserved-boundaries), preference persistence, device/session scope and concurrent-stream behavior.
 - [ ] Complete the [My List write boundary](docs/list-writes.md): deployment initializer, DB8 rights/restart durability, provider Add/Remove/restoration and supported unknown-write recovery.
 - [ ] Admit remaining [My List filters and observed-cursor continuation](docs/account.md#subscriber-method-admission), membership absence/subtypes and live relink/foreground/private-history retirement.
