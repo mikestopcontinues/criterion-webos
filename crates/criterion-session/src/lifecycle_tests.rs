@@ -54,6 +54,20 @@ impl Transport for Issuer {
         Ok(self.0.lock().unwrap().remove(0))
     }
 }
+struct LifetimeIssuer {
+    issuer: Issuer,
+    dropped: Arc<AtomicU64>,
+}
+impl Transport for LifetimeIssuer {
+    async fn post(&self, request: Request) -> Result<Response, Error> {
+        self.issuer.post(request).await
+    }
+}
+impl Drop for LifetimeIssuer {
+    fn drop(&mut self) {
+        self.dropped.fetch_add(1, Ordering::SeqCst);
+    }
+}
 fn json(body: &str) -> Response {
     Response {
         status: 200,
@@ -431,6 +445,54 @@ impl MonotonicClock for BlockingClock {
         }
         Duration::ZERO
     }
+}
+
+#[tokio::test]
+async fn unpolled_busy_reply_cannot_retain_session_after_owner_drops_during_publication() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let store = Store(Arc::new(Mutex::new(Some(saved()))), events.clone());
+    let dropped = Arc::new(AtomicU64::new(0));
+    let (entered, received) = std::sync::mpsc::channel();
+    let clock = BlockingClock {
+        block: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        entered,
+        released: Arc::new((Mutex::new(false), std::sync::Condvar::new())),
+    };
+    let owner = PersistentSession::with_transport(
+        Configuration::production(),
+        LifetimeIssuer {
+            issuer: Issuer(Arc::new(Mutex::new(vec![token()])), events),
+            dropped: dropped.clone(),
+        },
+        clock.clone(),
+        store,
+        tokio::runtime::Handle::current(),
+    );
+    let held = owner.restore();
+    let busy = owner.refresh();
+    for _ in 0..100 {
+        if owner.status().is_ok() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(matches!(owner.status(), Ok(Status::SignedIn { .. })));
+    clock.block.store(true, Ordering::SeqCst);
+    let reader = std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(held)
+    });
+    received.recv().unwrap();
+    drop(owner);
+    *clock.released.0.lock().unwrap() = true;
+    clock.released.1.notify_one();
+    assert_eq!(reader.join().unwrap(), Err(Error::Stale));
+    // The transport belongs only to the session. Retaining a public reply must
+    // not retain that session after the issued job and observation have settled.
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    assert_eq!(busy.await, Err(Error::Stale));
 }
 
 #[tokio::test]
@@ -878,6 +940,36 @@ fn runtime_interruption_retains_storage_uncertainty_and_requires_backend_recover
         Err(Error::StorageUnconfirmed)
     );
     assert!(events.lock().unwrap().is_empty());
+}
+
+#[test]
+fn interrupted_stop_reports_storage_uncertainty_after_public_owner_drops() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let gate = Gate::new();
+    let mut store = FaultStore::new(Store(Arc::new(Mutex::new(Some(saved()))), events.clone()));
+    store.hold = Some(("save", gate.clone()));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let owner = PersistentSession::with_transport(
+        Configuration::production(),
+        Issuer(Arc::new(Mutex::new(vec![token()])), events.clone()),
+        Clock(Arc::new(AtomicU64::new(0))),
+        store.clone(),
+        runtime.handle().clone(),
+    );
+    runtime.block_on(owner.restore()).unwrap();
+    let stop = owner.graceful_stop();
+    runtime.block_on(gate.entered.notified());
+    drop(owner);
+    drop(runtime);
+    let observer = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    assert_eq!(observer.block_on(stop), Err(Error::StorageUnconfirmed));
+    assert!(store.recovery_required.load(Ordering::SeqCst));
+    assert!(store.inner.0.lock().unwrap().is_none());
+    assert_eq!(*events.lock().unwrap(), ["take", "token"]);
 }
 
 #[tokio::test]

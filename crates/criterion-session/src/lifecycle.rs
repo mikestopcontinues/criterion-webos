@@ -319,13 +319,16 @@ impl<T: Transport + 'static, C: MonotonicClock + 'static, S: SecureSessionStore 
             }))
         });
         let reply = self.reply(task, Some(generation));
-        let owned = self.owned.clone();
+        // Completed public replies must not keep credentials alive after the
+        // public owner and issued jobs have dropped their strong ownership.
+        let owned = Arc::downgrade(&self.owned);
         let alive = self.alive.clone();
         let retiring = self.retiring.clone();
         let current = self.generation.clone();
         async move {
             let reply = reply.await?;
-            let mut owned = owned.try_lock().map_err(|_| Error::Stale)?;
+            let shared = owned.upgrade().ok_or(Error::Stale)?;
+            let mut owned = shared.try_lock().map_err(|_| Error::Stale)?;
             let status = owned.status(&current);
             let live = match &reply {
                 Reply::Restored(true) | Reply::Unit | Reply::Polled(PollOutcome::Authorized) => {
@@ -353,7 +356,10 @@ impl<T: Transport + 'static, C: MonotonicClock + 'static, S: SecureSessionStore 
         task: Result<tokio::task::JoinHandle<Result<R, Error>>, Error>,
         generation: Option<u64>,
     ) -> impl Future<Output = Result<R, Error>> + use<T, C, S, R> {
-        let owned = self.owned.clone();
+        let owned = Arc::downgrade(&self.owned);
+        // Retirement jobs dispose RAM, including on interruption. Retain their
+        // settled failure for observation after the public owner drops.
+        let retirement_owner = generation.is_none().then(|| self.owned.clone());
         let alive = self.alive.clone();
         let retiring = self.retiring.clone();
         let current = self.generation.clone();
@@ -362,10 +368,9 @@ impl<T: Transport + 'static, C: MonotonicClock + 'static, S: SecureSessionStore 
                 Err(error) => Err(error),
                 Ok(task) => match task.await {
                     Ok(result) => result,
-                    Err(_) => Err(owned
-                        .try_lock()
-                        .ok()
-                        .and_then(|guard| guard.failure)
+                    Err(_) => Err(retirement_owner
+                        .or_else(|| owned.upgrade())
+                        .and_then(|owned| owned.try_lock().ok().and_then(|guard| guard.failure))
                         .unwrap_or(Error::ReauthenticationRequired)),
                 },
             };
