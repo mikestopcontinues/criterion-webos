@@ -466,13 +466,22 @@ impl Fixture {
     }
     #[track_caller]
     fn wait(&mut self, ready: impl Fn(&Self) -> bool) {
-        for _ in 0..128 {
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        loop {
             self.pump();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "synthetic application did not reach its expected boundary"
+            );
             if ready(self) {
                 return;
             }
+            // Some owners await independently scheduled OS storage workers.
+            // Yield real scheduling time without advancing the product clock.
+            self.runtime.block_on(async {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            });
         }
-        panic!("synthetic application did not reach its expected boundary");
     }
     fn saved(&self) -> Vec<(String, Option<f32>)> {
         self.app

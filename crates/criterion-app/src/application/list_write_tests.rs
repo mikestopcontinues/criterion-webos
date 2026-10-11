@@ -864,6 +864,7 @@ impl Drop for ReleaseStorage {
 struct HoldingDatabase {
     database: Database,
     gate: Arc<StorageGate>,
+    hold_issued: bool,
 }
 impl criterion_platform::write_fence::Db8Transport for HoldingDatabase {
     fn get(
@@ -879,7 +880,7 @@ impl criterion_platform::write_fence::Db8Transport for HoldingDatabase {
         deadline: std::time::Instant,
     ) -> Result<Vec<u8>, criterion_platform::write_fence::FenceError> {
         let result = self.database.put(revision, issued, deadline);
-        if issued {
+        if issued == self.hold_issued {
             self.gate.entered.store(true, Ordering::SeqCst);
             let mut released = self.gate.released.lock().unwrap();
             while !*released {
@@ -906,6 +907,7 @@ fn departed_detail_during_db8_reservation_cannot_later_start_its_provider_write(
     let fence = criterion_platform::write_fence::Db8WriteFence::with_transport(HoldingDatabase {
         database: Database(record.clone()),
         gate: gate.clone(),
+        hold_issued: true,
     })
     .unwrap();
     fixture.app.accounts.use_write_fence(Arc::new(fence));
@@ -947,6 +949,117 @@ fn departed_detail_during_db8_reservation_cannot_later_start_its_provider_write(
             Kind::MyListIds,
         ]
     );
+}
+
+struct ReleaseWrite(Arc<Gate>);
+impl Drop for ReleaseWrite {
+    fn drop(&mut self) {
+        self.0.release.notify_one();
+    }
+}
+
+struct DelayedStorageRelease {
+    gate: Arc<StorageGate>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+impl DelayedStorageRelease {
+    fn new(gate: Arc<StorageGate>) -> Self {
+        let release = gate.clone();
+        Self {
+            gate,
+            thread: Some(std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                release.release();
+            })),
+        }
+    }
+}
+impl Drop for DelayedStorageRelease {
+    fn drop(&mut self) {
+        self.gate.release();
+        let joined = self.thread.take().unwrap().join();
+        if !std::thread::panicking() {
+            joined.expect("storage release thread must settle");
+        }
+    }
+}
+
+#[test]
+fn departed_detail_waits_for_independently_delayed_db8_completion() {
+    let write = Arc::new(Gate::default());
+    let mut fixture = ordinary_detail(vec![
+        list(),
+        detail("Listed01", None),
+        ids(None),
+        Step {
+            kind: Kind::RemoveWatchList,
+            gate: Some(write.clone()),
+        },
+        detail("Related1", None),
+        ids(None),
+        ids(None),
+    ]);
+    let _release_write_on_unwind = ReleaseWrite(write.clone());
+    fixture.wait(|fixture| has_membership_caption(fixture, "IN MY LIST"));
+    let record = Arc::new(Mutex::new((7, false)));
+    let gate = Arc::new(StorageGate::default());
+    let _release_on_unwind = ReleaseStorage(gate.clone());
+    let fence = criterion_platform::write_fence::Db8WriteFence::with_transport(HoldingDatabase {
+        database: Database(record.clone()),
+        gate: gate.clone(),
+        hold_issued: false,
+    })
+    .unwrap();
+    fixture.app.accounts.use_write_fence(Arc::new(fence));
+    fixture.wait(|fixture| fixture.app.accounts.write_ready());
+    toggle(&mut fixture);
+    fixture.wait(|_| write.entered.load(Ordering::SeqCst));
+    open_related(&mut fixture);
+    write.release.notify_one();
+    // Acknowledge the independently blocked OS worker before testing the wait
+    // budget. The product's controlled clock remains fixed throughout.
+    fixture.runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !gate.entered.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("DB8 completion must reach the held transport boundary");
+    });
+    for _ in 0..128 {
+        fixture.pump();
+    }
+    assert!(!*gate.released.lock().unwrap(), "completion is still held");
+    assert!(fixture.app.accounts.write_active());
+    assert_eq!(fixture.script.calls.lock().unwrap().len(), 4);
+    assert_eq!(write.retired.load(Ordering::SeqCst), 1);
+    assert_eq!(*record.lock().unwrap(), (9, false));
+    assert_eq!(fixture.clock.now(), Duration::from_secs(5));
+    println!("held DB8 completion remains pending after 128 current-thread pumps");
+    let _delayed_release = DelayedStorageRelease::new(gate.clone());
+    fixture.wait(|fixture| {
+        fixture.native_ready("Related1") && has_membership_caption(fixture, "NOT IN MY LIST")
+    });
+    fixture.key(41, 27);
+    fixture.wait(|fixture| {
+        fixture.native_ready("Listed01") && has_membership_caption(fixture, "IN MY LIST")
+    });
+    assert_eq!(
+        *fixture.script.calls.lock().unwrap(),
+        [
+            Kind::WatchList,
+            Kind::NativeDetail("Listed01"),
+            Kind::MyListIds,
+            Kind::RemoveWatchList,
+            Kind::NativeDetail("Related1"),
+            Kind::MyListIds,
+            Kind::MyListIds,
+        ]
+    );
+    assert_eq!(fixture.script.maximum.load(Ordering::SeqCst), 1);
+    assert_eq!(*record.lock().unwrap(), (9, false));
+    assert_eq!(fixture.clock.now(), Duration::from_secs(5));
 }
 
 #[test]
