@@ -184,6 +184,7 @@ fn website_upper_bound_identity_survives_move_activation_and_warm_back() {
     let public = Public::default();
     {
         let mut payload = public.payload.lock().unwrap();
+        payload["blocks"][0]["id"] = 4_294_967_295_u32.into();
         let slides = payload["blocks"][0]["slides"].as_array_mut().unwrap();
         slides.truncate(2);
         for slide in slides {
@@ -193,11 +194,27 @@ fn website_upper_bound_identity_survives_move_activation_and_warm_back() {
     let mut app = fixture_app(&runtime, public.clone());
     settle(&mut app, &runtime);
     let from = cursor(&app);
-    assert_eq!((from.index, from.slide), (0, 4_294_967_295));
+    assert_eq!(
+        (from.block, from.index, from.slide),
+        (4_294_967_295, 0, 4_294_967_295)
+    );
+    app.command(
+        Command::ActivateHero {
+            origin: Page::Home,
+            from: criterion_ui::HeroCursor { block: -1, ..from },
+            target: app.controller.view.hero_target().unwrap().clone(),
+        },
+        runtime.handle(),
+    );
+    assert_eq!(app.ui.page(), Page::Home);
+    assert_eq!(&*public.calls.lock().unwrap(), &["/"]);
     key(&mut app, &runtime, 79);
     key(&mut app, &runtime, 79);
     key(&mut app, &runtime, 40);
-    assert_eq!((cursor(&app).index, cursor(&app).slide), (1, 4_294_967_295));
+    assert_eq!(
+        (cursor(&app).block, cursor(&app).index, cursor(&app).slide),
+        (4_294_967_295, 1, 4_294_967_295)
+    );
     let target = app.controller.view.hero_target().unwrap().clone();
     app.command(
         Command::ActivateHero {
@@ -226,8 +243,16 @@ fn website_upper_bound_identity_survives_move_activation_and_warm_back() {
     key(&mut app, &runtime, 41);
     assert_eq!(app.ui.page(), Page::Home);
     assert_eq!(app.ui.focus(), Focus::Hero);
-    assert_eq!((cursor(&app).index, cursor(&app).slide), (1, 4_294_967_295));
+    assert_eq!(
+        (cursor(&app).block, cursor(&app).index, cursor(&app).slide),
+        (4_294_967_295, 1, 4_294_967_295)
+    );
     assert_eq!(public.calls.lock().unwrap().len(), 2);
+    key(&mut app, &runtime, 41);
+    assert!(
+        app.exiting(),
+        "rejected signed block must not create a Back origin"
+    );
     assert!(app.finish(&runtime));
 }
 fn unavailable(public: &Public, count: usize) {

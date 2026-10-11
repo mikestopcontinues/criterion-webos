@@ -5,7 +5,7 @@ use criterion_provider::DiscoverySlide;
 use criterion_ui::{Hero, HeroAction, HeroCarousel, HeroCursor, HeroDirection, LoadState, Target};
 
 pub(super) struct OwnedSlideshow {
-    block: u32,
+    block: i64,
     slots: Vec<Slot>,
     selected: usize,
 }
@@ -72,7 +72,7 @@ impl Presentation {
             });
         }
         self.slideshow = Some(OwnedSlideshow {
-            block,
+            block: i64::from(block),
             slots,
             selected: 0,
         });

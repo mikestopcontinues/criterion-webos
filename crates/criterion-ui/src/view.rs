@@ -110,13 +110,13 @@ pub enum HeroDirection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HeroCursor {
     pub visit: u64,
-    pub block: u32,
+    pub block: i64,
     pub index: usize,
     pub slide: i64,
 }
 #[derive(Clone, Copy)]
 pub struct HeroCarousel<'a> {
-    pub block: u32,
+    pub block: i64,
     pub index: usize,
     pub slide: i64,
     pub total: usize,

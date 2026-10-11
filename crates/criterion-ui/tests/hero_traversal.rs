@@ -34,9 +34,10 @@ fn data(target: &Target) -> ViewData<'_> {
     }
 }
 #[test]
-fn remote_move_and_activation_preserve_the_signed_slide_identity() {
+fn remote_move_and_activation_preserve_signed_block_and_slide_identity() {
     let target = Target::Content(criterion_provider::ContentTarget::parse("/new").unwrap());
     let mut data = data(&target);
+    data.hero_carousel.as_mut().unwrap().block = -2_147_483_648;
     data.hero_carousel.as_mut().unwrap().slide = -2_147_483_648;
     let mut ui = AppUi::new();
     ui.handle(Action::Right, &data);
@@ -47,7 +48,7 @@ fn remote_move_and_activation_preserve_the_signed_slide_identity() {
             page: Page::Home,
             from: HeroCursor {
                 visit: 12,
-                block: 493,
+                block: -2_147_483_648,
                 index: 1,
                 slide: -2_147_483_648,
             },
@@ -62,7 +63,7 @@ fn remote_move_and_activation_preserve_the_signed_slide_identity() {
             origin: Page::Home,
             from: HeroCursor {
                 visit: 12,
-                block: 493,
+                block: -2_147_483_648,
                 index: 1,
                 slide: -2_147_483_648,
             },
@@ -76,6 +77,7 @@ fn remote_move_and_activation_preserve_the_signed_slide_identity() {
 fn signed_pointer_identity_is_exact_and_stale_release_cannot_move() {
     let target = Target::Content(criterion_provider::ContentTarget::parse("/new").unwrap());
     let mut data = data(&target);
+    data.hero_carousel.as_mut().unwrap().block = -2_147_483_648;
     data.hero_carousel.as_mut().unwrap().slide = -2_147_483_648;
     let mut ui = AppUi::new();
     let pointer = |pressed| egui::RawInput {
@@ -87,6 +89,14 @@ fn signed_pointer_identity_is_exact_and_stale_release_cannot_move() {
         }],
         ..Default::default()
     };
+    let mut pressed = ui.render(pointer(true), &data);
+    pressed.output.textures_delta.clear();
+    assert!(pressed.commands.is_empty());
+    data.hero_carousel.as_mut().unwrap().block = 4_294_967_295;
+    let mut stale_block = ui.render(pointer(false), &data);
+    stale_block.output.textures_delta.clear();
+    assert!(stale_block.commands.is_empty());
+    data.hero_carousel.as_mut().unwrap().block = -2_147_483_648;
     let mut pressed = ui.render(pointer(true), &data);
     pressed.output.textures_delta.clear();
     assert!(pressed.commands.is_empty());
@@ -105,7 +115,7 @@ fn signed_pointer_identity_is_exact_and_stale_release_cannot_move() {
             page: Page::Home,
             from: HeroCursor {
                 visit: 12,
-                block: 493,
+                block: -2_147_483_648,
                 index: 1,
                 slide: -2_147_483_648,
             },
