@@ -536,8 +536,34 @@ async fn clock_invalidation_rejects_held_success_and_cannot_confirm_revocation()
     }
     assert!(matches!(owner.status(), Ok(Status::SignedIn { .. })));
     time.store(0, Ordering::SeqCst);
-    assert_eq!(owner.status(), Ok(Status::ReauthenticationRequired));
     assert_eq!(held.await, Err(Error::Stale));
+    assert_eq!(owner.status(), Ok(Status::ReauthenticationRequired));
+    assert_eq!(owner.logout().await, Err(Error::RevocationUnconfirmed));
+}
+
+#[tokio::test]
+async fn a_held_refresh_rejects_direct_clock_regression_before_publication() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let time = Arc::new(AtomicU64::new(10));
+    let owner = PersistentSession::with_transport(
+        Configuration::production(),
+        Issuer(Arc::new(Mutex::new(vec![token(), token()])), events.clone()),
+        Clock(time.clone()),
+        Store(Arc::new(Mutex::new(Some(saved()))), events),
+        tokio::runtime::Handle::current(),
+    );
+    owner.restore().await.unwrap();
+    let held = owner.refresh();
+    for _ in 0..100 {
+        if owner.status().is_ok() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(matches!(owner.status(), Ok(Status::SignedIn { .. })));
+    time.store(0, Ordering::SeqCst);
+    assert_eq!(held.await, Err(Error::Stale));
+    assert_eq!(owner.status(), Ok(Status::ReauthenticationRequired));
     assert_eq!(owner.logout().await, Err(Error::RevocationUnconfirmed));
 }
 

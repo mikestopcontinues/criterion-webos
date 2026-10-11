@@ -318,7 +318,34 @@ impl<T: Transport + 'static, C: MonotonicClock + 'static, S: SecureSessionStore 
                 }
             }))
         });
-        self.reply(task, Some(generation))
+        let reply = self.reply(task, Some(generation));
+        let owned = self.owned.clone();
+        let alive = self.alive.clone();
+        let retiring = self.retiring.clone();
+        let current = self.generation.clone();
+        async move {
+            let reply = reply.await?;
+            let mut owned = owned.try_lock().map_err(|_| Error::Stale)?;
+            let status = owned.status(&current);
+            let live = match &reply {
+                Reply::Restored(true) | Reply::Unit | Reply::Polled(PollOutcome::Authorized) => {
+                    matches!(status, Status::SignedIn { .. })
+                }
+                Reply::Restored(false) => matches!(status, Status::SignedOut),
+                Reply::Linked(instructions) => {
+                    matches!(status, Status::Linking { expires_at, .. } if expires_at == instructions.expires_at)
+                }
+                Reply::Polled(_) => matches!(status, Status::Linking { .. }),
+            };
+            if !live
+                || retiring.load(Ordering::SeqCst)
+                || !alive.load(Ordering::SeqCst)
+                || current.load(Ordering::SeqCst) != generation
+            {
+                return Err(Error::Stale);
+            }
+            Ok(reply)
+        }
     }
 
     fn reply<R: Send + 'static>(
@@ -378,53 +405,18 @@ impl<T: Transport + 'static, C: MonotonicClock + 'static, S: SecureSessionStore 
         &self,
     ) -> impl Future<Output = Result<LinkInstructions, Error>> + use<T, C, S> {
         let reply = self.issue(Command::Link);
-        let owned = self.owned.clone();
-        let retiring = self.retiring.clone();
-        let alive = self.alive.clone();
-        let current = self.generation.clone();
-        let generation = current.load(Ordering::SeqCst);
         async move {
             match reply.await? {
-                Reply::Linked(value) => {
-                    let mut owned = owned.try_lock().map_err(|_| Error::Stale)?;
-                    if !matches!(owned.status(&current), Status::Linking { expires_at, .. } if expires_at == value.expires_at)
-                        || retiring.load(Ordering::SeqCst)
-                        || !alive.load(Ordering::SeqCst)
-                        || current.load(Ordering::SeqCst) != generation
-                    {
-                        return Err(Error::Stale);
-                    }
-                    Ok(value)
-                }
+                Reply::Linked(value) => Ok(value),
                 _ => unreachable!(),
             }
         }
     }
     pub fn poll_once(&self) -> impl Future<Output = Result<PollOutcome, Error>> + use<T, C, S> {
         let reply = self.issue(Command::Poll);
-        let owned = self.owned.clone();
-        let retiring = self.retiring.clone();
-        let alive = self.alive.clone();
-        let current = self.generation.clone();
-        let generation = current.load(Ordering::SeqCst);
         async move {
             match reply.await? {
-                Reply::Polled(value) => {
-                    let mut owned = owned.try_lock().map_err(|_| Error::Stale)?;
-                    let status = owned.status(&current);
-                    let live = match value {
-                        PollOutcome::Authorized => matches!(status, Status::SignedIn { .. }),
-                        _ => matches!(status, Status::Linking { .. }),
-                    };
-                    if !live
-                        || retiring.load(Ordering::SeqCst)
-                        || !alive.load(Ordering::SeqCst)
-                        || current.load(Ordering::SeqCst) != generation
-                    {
-                        return Err(Error::Stale);
-                    }
-                    Ok(value)
-                }
+                Reply::Polled(value) => Ok(value),
                 _ => unreachable!(),
             }
         }
